@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2560 1440" width="2560" height="1440" font-family="'Didot','Bodoni MT','Playfair Display',Georgia,serif">
+  <defs>
+    <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F4EFE6" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#F4EFE6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="amberGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E8A33D" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#E8A33D" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="bannerLensClip"><circle cx="1280" cy="600" r="72"/></clipPath>
+  </defs>
+
+  <!-- navy background -->
+  <rect width="2560" height="1440" fill="#0E1B2C"/>
+
+  <!-- atmosphere constellation: top-left -->
+  <g>
+    <polyline points="140,240 200,200 270,230 240,290 300,320" fill="none" stroke="#E8A33D" stroke-opacity="0.4" stroke-width="2"/>
+    <circle cx="200" cy="200" r="22" fill="url(#starGlow)"/>
+    <circle cx="300" cy="320" r="18" fill="url(#starGlow)"/>
+    <circle cx="140" cy="240" r="4" fill="#F4EFE6" fill-opacity="0.75"/>
+    <circle cx="270" cy="230" r="5" fill="#F4EFE6" fill-opacity="0.8"/>
+    <circle cx="240" cy="290" r="3.6" fill="#F4EFE6" fill-opacity="0.7"/>
+    <path d="M200,190 C200,197.2 202.8,200 210,200 C202.8,200 200,202.8 200,210 C200,202.8 197.2,200 190,200 C197.2,200 200,197.2 200,190 Z" fill="#F4EFE6"/>
+    <path d="M300,313 C300,318.04 301.96,320 307,320 C301.96,320 300,321.96 300,327 C300,321.96 298.04,320 293,320 C298.04,320 300,318.04 300,313 Z" fill="#F4EFE6"/>
+  </g>
+
+  <!-- atmosphere constellation: bottom-right -->
+  <g>
+    <polyline points="2420,1200 2360,1240 2290,1210 2320,1150 2260,1120" fill="none" stroke="#E8A33D" stroke-opacity="0.4" stroke-width="2"/>
+    <circle cx="2360" cy="1240" r="22" fill="url(#starGlow)"/>
+    <circle cx="2260" cy="1120" r="18" fill="url(#starGlow)"/>
+    <circle cx="2420" cy="1200" r="4" fill="#F4EFE6" fill-opacity="0.75"/>
+    <circle cx="2290" cy="1210" r="5" fill="#F4EFE6" fill-opacity="0.8"/>
+    <circle cx="2320" cy="1150" r="3.6" fill="#F4EFE6" fill-opacity="0.7"/>
+    <path d="M2360,1230 C2360,1237.2 2362.8,1240 2370,1240 C2362.8,1240 2360,1242.8 2360,1250 C2360,1242.8 2357.2,1240 2350,1240 C2357.2,1240 2360,1237.2 2360,1230 Z" fill="#F4EFE6"/>
+    <path d="M2260,1113 C2260,1118.04 2261.96,1120 2267,1120 C2261.96,1120 2260,1121.96 2260,1127 C2260,1121.96 2258.04,1120 2253,1120 C2258.04,1120 2260,1118.04 2260,1113 Z" fill="#F4EFE6"/>
+  </g>
+
+  <!-- additional scattered atmosphere stars -->
+  <g fill="#F4EFE6">
+    <circle cx="500" cy="380" r="2.4" fill-opacity="0.3"/>
+    <circle cx="380" cy="1100" r="2.8" fill-opacity="0.3"/>
+    <circle cx="2200" cy="280" r="2.4" fill-opacity="0.3"/>
+    <circle cx="2080" cy="1180" r="2.2" fill-opacity="0.25"/>
+    <circle cx="160" cy="780" r="2" fill-opacity="0.22"/>
+    <circle cx="2400" cy="780" r="2.4" fill-opacity="0.25"/>
+  </g>
+
+  <!-- ============== TITLE-SAFE CONTENT (1546x423 centered) ============== -->
+
+  <!-- magnifier icon -->
+  <g clip-path="url(#bannerLensClip)">
+    <circle cx="1263.2" cy="570.3" r="20" fill="url(#starGlow)"/>
+    <circle cx="1312.25" cy="612.9" r="24" fill="url(#amberGlow)"/>
+    <polyline points="1237,591 1263,570 1290,586 1312,613 1279,632 1248,622" fill="none" stroke="#E8A33D" stroke-opacity="0.55" stroke-width="2"/>
+    <circle cx="1237.4" cy="591" r="3.9" fill="#F4EFE6"/>
+    <circle cx="1290.3" cy="585.8" r="5.2" fill="#F4EFE6"/>
+    <circle cx="1278.71" cy="632.25" r="4.5" fill="#F4EFE6"/>
+    <circle cx="1247.75" cy="621.93" r="3.9" fill="#F4EFE6"/>
+    <path d="M1263.2,560 C1263.2,567.42 1266.08,570.3 1273.5,570.3 C1266.08,570.3 1263.2,573.18 1263.2,580.6 C1263.2,573.18 1260.32,570.3 1252.9,570.3 C1260.32,570.3 1263.2,567.42 1263.2,560 Z" fill="#F4EFE6"/>
+    <path d="M1312.25,601.3 C1312.25,609.65 1315.5,612.9 1323.85,612.9 C1315.5,612.9 1312.25,616.15 1312.25,624.5 C1312.25,616.15 1309,612.9 1300.65,612.9 C1309,612.9 1312.25,609.65 1312.25,601.3 Z" fill="#E8A33D"/>
+  </g>
+  <path d="M 1238 565 A 56 56 0 0 1 1280 547" fill="none" stroke="#F4EFE6" stroke-opacity="0.4" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="1280" cy="600" r="80" fill="none" stroke="#F4EFE6" stroke-width="11"/>
+  <line x1="1337" y1="657" x2="1394" y2="714" stroke="#F4EFE6" stroke-width="22" stroke-linecap="round"/>
+
+  <!-- wordmark -->
+  <text x="1280" y="800" text-anchor="middle" fill="#F4EFE6" font-size="88" letter-spacing="10">CURATED</text>
+  <text x="1280" y="858" text-anchor="middle" fill="#E8A33D" font-family="'Trebuchet MS','Helvetica Neue',sans-serif" font-size="42" letter-spacing="18">CURIOSITIES</text>
+
+  <!-- tagline -->
+  <text x="1280" y="912" text-anchor="middle" fill="#6B7C93" font-family="'Trebuchet MS','Helvetica Neue',sans-serif" font-size="22" letter-spacing="9">A SENSE OF WONDER</text>
+</svg>

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1080" width="800" height="1080" font-family="'Didot','Bodoni MT','Playfair Display',Georgia,serif">
+  <defs>
+    <clipPath id="lensClip"><circle cx="400" cy="340" r="164"/></clipPath>
+  </defs>
+
+  <!-- faint atmosphere stars (navy on light bg) -->
+  <g fill="#0E1B2C">
+    <circle cx="190" cy="180" r="4" fill-opacity="0.3"/>
+    <circle cx="610" cy="200" r="5" fill-opacity="0.3"/>
+    <circle cx="160" cy="500" r="3.8" fill-opacity="0.25"/>
+    <circle cx="640" cy="540" r="4.4" fill-opacity="0.3"/>
+    <circle cx="120" cy="320" r="2.4" fill-opacity="0.22"/>
+  </g>
+
+  <!-- constellation inside the lens -->
+  <g clip-path="url(#lensClip)">
+    <polyline points="304,320 362,273 423,308 473,369 397,413 327,389" fill="none" stroke="#E8A33D" stroke-opacity="0.75" stroke-width="4.4"/>
+    <circle cx="304.3" cy="319.7" r="8.7" fill="#0E1B2C"/>
+    <circle cx="423.2" cy="308.1" r="11.6" fill="#0E1B2C"/>
+    <circle cx="397.1" cy="412.5" r="10.2" fill="#0E1B2C"/>
+    <circle cx="327.5" cy="389.3" r="8.7" fill="#0E1B2C"/>
+    <path d="M362.3,250.1 C362.3,266.79 368.8,273.3 385.49,273.3 C368.8,273.3 362.3,279.81 362.3,296.5 C362.3,279.81 355.81,273.3 339.11,273.3 C355.81,273.3 362.3,266.79 362.3,250.1 Z" fill="#0E1B2C"/>
+    <path d="M472.5,342.9 C472.5,361.2 479.81,369 498.11,369 C479.81,369 472.5,376.31 472.5,394.61 C472.5,376.31 465.19,369 446.89,369 C465.19,369 472.5,361.2 472.5,342.9 Z" fill="#E8A33D"/>
+  </g>
+
+  <!-- lens highlight + ring + handle (navy) -->
+  <path d="M 305 285 A 132 132 0 0 1 402 240" fill="none" stroke="#0E1B2C" stroke-opacity="0.3" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="400" cy="340" r="180" fill="none" stroke="#0E1B2C" stroke-width="26"/>
+  <line x1="527" y1="467" x2="640" y2="580" stroke="#0E1B2C" stroke-width="48" stroke-linecap="round"/>
+
+  <!-- wordmark -->
+  <text x="400" y="820" text-anchor="middle" fill="#0E1B2C" font-size="160" letter-spacing="8">CURATED</text>
+  <text x="400" y="940" text-anchor="middle" fill="#E8A33D" font-family="'Trebuchet MS','Helvetica Neue',sans-serif" font-size="80" letter-spacing="28">CURIOSITIES</text>
+</svg>

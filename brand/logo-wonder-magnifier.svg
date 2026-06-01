@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1620" width="1080" height="1620" font-family="'Didot','Bodoni MT','Playfair Display',Georgia,serif">
+  <defs>
+    <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F4EFE6" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#F4EFE6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="amberGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E8A33D" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#E8A33D" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lockGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E8A33D" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#E8A33D" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="lensClip"><circle cx="525" cy="415" r="56"/></clipPath>
+    <clipPath id="lensClipBanner"><circle cx="532" cy="922" r="21"/></clipPath>
+  </defs>
+
+  <rect width="1080" height="1620" fill="#0E1B2C"/>
+
+  <!-- atmosphere constellation: top-right -->
+  <g>
+    <polyline points="812,150 852,138 892,165 878,210" fill="none" stroke="#E8A33D" stroke-opacity="0.4" stroke-width="1.4"/>
+    <line x1="892" y1="165" x2="916" y2="232" stroke="#E8A33D" stroke-opacity="0.4" stroke-width="1.4"/>
+    <circle cx="852" cy="138" r="16" fill="url(#starGlow)"/>
+    <circle cx="916" cy="232" r="13" fill="url(#starGlow)"/>
+    <circle cx="812" cy="150" r="2.5" fill="#F4EFE6" fill-opacity="0.75"/>
+    <circle cx="892" cy="165" r="3.2" fill="#F4EFE6" fill-opacity="0.8"/>
+    <circle cx="878" cy="210" r="2.5" fill="#F4EFE6" fill-opacity="0.7"/>
+    <path d="M852,131 C852,136.04 853.96,138 859,138 C853.96,138 852,139.96 852,145 C852,139.96 850.04,138 845,138 C850.04,138 852,136.04 852,131 Z" fill="#F4EFE6"/>
+    <path d="M916,226 C916,230.32 917.68,232 922,232 C917.68,232 916,233.68 916,238 C916,233.68 914.32,232 910,232 C914.32,232 916,230.32 916,226 Z" fill="#F4EFE6"/>
+  </g>
+  <!-- atmosphere constellation: bottom-left -->
+  <g>
+    <polyline points="110,1150 150,1135 190,1160 165,1200" fill="none" stroke="#E8A33D" stroke-opacity="0.35" stroke-width="1.4"/>
+    <circle cx="150" cy="1135" r="13" fill="url(#starGlow)"/>
+    <circle cx="110" cy="1150" r="2.5" fill="#F4EFE6" fill-opacity="0.7"/>
+    <circle cx="190" cy="1160" r="3" fill="#F4EFE6" fill-opacity="0.75"/>
+    <circle cx="165" cy="1200" r="2.3" fill="#F4EFE6" fill-opacity="0.6"/>
+    <path d="M150,1129 C150,1133.32 151.68,1135 156,1135 C151.68,1135 150,1136.68 150,1141 C150,1136.68 148.32,1135 144,1135 C148.32,1135 150,1133.32 150,1129 Z" fill="#F4EFE6"/>
+  </g>
+
+  <!-- header -->
+  <text x="90" y="115" fill="#E8A33D" font-family="'Trebuchet MS',sans-serif" font-size="22" letter-spacing="8">OPTION C</text>
+  <text x="86" y="200" fill="#F4EFE6" font-size="70" font-style="italic">Wonder</text>
+  <text x="90" y="246" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="24">Look closer — we curate the wonder.</text>
+  <line x1="90" y1="284" x2="990" y2="284" stroke="#243449" stroke-width="1.5"/>
+
+  <!-- logo lockup: magnifier observing a constellation -->
+  <circle cx="525" cy="420" r="160" fill="url(#lockGlow)"/>
+  <!-- faint wider starfield (the sky beyond the lens) -->
+  <g fill="#F4EFE6">
+    <circle cx="430" cy="356" r="2" fill-opacity="0.30"/>
+    <circle cx="612" cy="356" r="2.2" fill-opacity="0.30"/>
+    <circle cx="624" cy="468" r="2" fill-opacity="0.28"/>
+    <circle cx="452" cy="498" r="1.7" fill-opacity="0.22"/>
+    <circle cx="600" cy="300" r="1.7" fill-opacity="0.22"/>
+  </g>
+  <!-- magnified constellation inside the lens -->
+  <g clip-path="url(#lensClip)">
+    <circle cx="512" cy="392" r="15" fill="url(#starGlow)"/>
+    <circle cx="550" cy="425" r="18" fill="url(#amberGlow)"/>
+    <polyline points="492,408 512,392 533,404 550,425 524,440 500,432" fill="none" stroke="#E8A33D" stroke-opacity="0.55" stroke-width="1.8"/>
+    <circle cx="492" cy="408" r="3" fill="#F4EFE6"/>
+    <circle cx="533" cy="404" r="4" fill="#F4EFE6"/>
+    <circle cx="524" cy="440" r="3.4" fill="#F4EFE6"/>
+    <circle cx="500" cy="432" r="3" fill="#F4EFE6"/>
+    <path d="M512,384 C512,389.76 514.24,392 520,392 C514.24,392 512,394.24 512,400 C512,394.24 509.76,392 504,392 C509.76,392 512,389.76 512,384 Z" fill="#F4EFE6"/>
+    <path d="M550,416 C550,422.48 552.52,425 559,425 C552.52,425 550,427.48 550,434 C550,427.48 547.48,425 541,425 C547.48,425 550,422.48 550,416 Z" fill="#E8A33D"/>
+  </g>
+  <!-- lens glass + ring + handle -->
+  <circle cx="525" cy="415" r="56" fill="#F4EFE6" fill-opacity="0.04"/>
+  <path d="M 500 372 A 50 50 0 0 1 525 365" fill="none" stroke="#F4EFE6" stroke-opacity="0.4" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="525" cy="415" r="62" fill="none" stroke="#F4EFE6" stroke-width="9"/>
+  <line x1="569" y1="459" x2="606" y2="496" stroke="#F4EFE6" stroke-width="17" stroke-linecap="round"/>
+
+  <text x="540" y="592" text-anchor="middle" fill="#F4EFE6" font-size="56" letter-spacing="3">CURATED</text>
+  <text x="540" y="636" text-anchor="middle" fill="#E8A33D" font-family="'Trebuchet MS',sans-serif" font-size="28" letter-spacing="10">CURIOSITIES</text>
+
+  <!-- banner -->
+  <text x="90" y="704" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="18" letter-spacing="3">YOUTUBE BANNER · 2560 × 1440</text>
+  <rect x="90" y="722" width="900" height="500" rx="14" fill="#0A1422" stroke="#243449"/>
+  <!-- banner constellation: left -->
+  <g>
+    <polyline points="150,852 188,820 228,838 210,872" fill="none" stroke="#E8A33D" stroke-opacity="0.45" stroke-width="1.4"/>
+    <circle cx="188" cy="820" r="12" fill="url(#starGlow)"/>
+    <circle cx="150" cy="852" r="2.4" fill="#F4EFE6" fill-opacity="0.7"/>
+    <circle cx="228" cy="838" r="3" fill="#F4EFE6" fill-opacity="0.8"/>
+    <circle cx="210" cy="872" r="2.3" fill="#F4EFE6" fill-opacity="0.6"/>
+    <path d="M188,814 C188,818.32 189.68,820 194,820 C189.68,820 188,821.68 188,826 C188,821.68 186.32,820 182,820 C186.32,820 188,818.32 188,814 Z" fill="#F4EFE6"/>
+  </g>
+  <!-- banner constellation: right -->
+  <g>
+    <polyline points="825,1090 862,1108 900,1098 884,1140" fill="none" stroke="#E8A33D" stroke-opacity="0.45" stroke-width="1.4"/>
+    <circle cx="862" cy="1108" r="12" fill="url(#starGlow)"/>
+    <circle cx="825" cy="1090" r="2.4" fill="#F4EFE6" fill-opacity="0.7"/>
+    <circle cx="900" cy="1098" r="3" fill="#F4EFE6" fill-opacity="0.8"/>
+    <circle cx="884" cy="1140" r="2.3" fill="#F4EFE6" fill-opacity="0.6"/>
+    <path d="M862,1102 C862,1106.32 863.68,1108 868,1108 C863.68,1108 862,1109.68 862,1114 C862,1109.68 860.32,1108 856,1108 C860.32,1108 862,1106.32 862,1102 Z" fill="#F4EFE6"/>
+  </g>
+  <!-- title-safe -->
+  <rect x="271" y="898" width="538" height="148" fill="none" stroke="#6B7C93" stroke-opacity="0.5" stroke-dasharray="6 6"/>
+  <text x="277" y="890" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="12">title-safe area · 1546 × 423</text>
+  <!-- banner center mark: magnifier + small constellation, sized to breathe -->
+  <circle cx="562" cy="898" r="1.4" fill="#F4EFE6" fill-opacity="0.35"/>
+  <g clip-path="url(#lensClipBanner)">
+    <polyline points="524,918 530,910 542,916 530,932" fill="none" stroke="#E8A33D" stroke-opacity="0.6" stroke-width="1.5"/>
+    <circle cx="524" cy="918" r="2.2" fill="#F4EFE6"/>
+    <circle cx="542" cy="916" r="2.8" fill="#E8A33D"/>
+    <circle cx="530" cy="932" r="2" fill="#F4EFE6"/>
+    <path d="M530,905.5 C530,908.74 531.26,910 534.5,910 C531.26,910 530,911.26 530,914.5 C530,911.26 528.74,910 525.5,910 C528.74,910 530,908.74 530,905.5 Z" fill="#F4EFE6"/>
+  </g>
+  <circle cx="532" cy="922" r="24" fill="none" stroke="#F4EFE6" stroke-width="4.5"/>
+  <line x1="549" y1="939" x2="564" y2="954" stroke="#F4EFE6" stroke-width="6" stroke-linecap="round"/>
+  <text x="540" y="1010" text-anchor="middle" fill="#F4EFE6" font-size="32" letter-spacing="5">CURATED CURIOSITIES</text>
+  <text x="540" y="1038" text-anchor="middle" fill="#E8A33D" font-family="'Trebuchet MS',sans-serif" font-size="15" letter-spacing="5">A SENSE OF WONDER</text>
+
+  <!-- bottom row -->
+  <line x1="90" y1="1266" x2="990" y2="1266" stroke="#243449" stroke-width="1.5"/>
+
+  <!-- watermark -->
+  <text x="90" y="1316" fill="#F4EFE6" font-size="24">Watermark</text>
+  <text x="90" y="1340" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="13">150 × 150 · simplified mark (one observed star)</text>
+  <rect x="90" y="1358" width="300" height="169" rx="8" fill="#16273B"/>
+  <path d="M 228 1426 l 28 16 l -28 16 Z" fill="#F4EFE6" fill-opacity="0.14"/>
+  <!-- watermark mark in corner: lens + single amber dot -->
+  <circle cx="352" cy="1486" r="3.4" fill="#E8A33D"/>
+  <circle cx="352" cy="1486" r="11" fill="none" stroke="#F4EFE6" stroke-width="2.4"/>
+  <line x1="360" y1="1494" x2="370" y2="1504" stroke="#F4EFE6" stroke-width="3.4" stroke-linecap="round"/>
+  <!-- watermark enlarged: lens + single amber sparkle with glow -->
+  <circle cx="452" cy="1420" r="14" fill="url(#amberGlow)"/>
+  <path d="M452,1412 C452,1417.76 454.24,1420 460,1420 C454.24,1420 452,1422.24 452,1428 C452,1422.24 449.76,1420 444,1420 C449.76,1420 452,1417.76 452,1412 Z" fill="#E8A33D"/>
+  <circle cx="452" cy="1420" r="22" fill="none" stroke="#F4EFE6" stroke-width="5"/>
+  <line x1="468" y1="1436" x2="488" y2="1456" stroke="#F4EFE6" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- palette -->
+  <text x="620" y="1316" fill="#F4EFE6" font-size="24">Palette</text>
+  <g font-family="'Trebuchet MS',sans-serif" font-size="12" fill="#6B7C93">
+    <rect x="620" y="1336" width="80" height="80" rx="8" fill="#0E1B2C" stroke="#243449"/><text x="620" y="1434">#0E1B2C</text>
+    <rect x="712" y="1336" width="80" height="80" rx="8" fill="#E8A33D"/><text x="712" y="1434">#E8A33D</text>
+    <rect x="804" y="1336" width="80" height="80" rx="8" fill="#F4EFE6"/><text x="804" y="1434">#F4EFE6</text>
+    <rect x="896" y="1336" width="80" height="80" rx="8" fill="#6B7C93"/><text x="896" y="1434">#6B7C93</text>
+  </g>
+  <text x="620" y="1484" fill="#F4EFE6" font-size="24">Type</text>
+  <text x="620" y="1512" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="14">High-contrast serif + spaced caps</text>
+  <text x="620" y="1560" fill="#F4EFE6" font-size="44">Aa</text>
+  <text x="690" y="1560" fill="#E8A33D" font-family="'Trebuchet MS',sans-serif" font-size="28" letter-spacing="4">CC</text>
+</svg>

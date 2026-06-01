@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150" width="150" height="150">
+  <!-- simplified mark: lens + handle + single observed star (amber) -->
+  <path d="M60,47 C60,56.36 63.64,60 73,60 C63.64,60 60,63.64 60,73 C60,63.64 56.36,60 47,60 C56.36,60 60,56.36 60,47 Z" fill="#E8A33D"/>
+  <circle cx="60" cy="60" r="42" fill="none" stroke="#F4EFE6" stroke-width="8"/>
+  <line x1="90" y1="90" x2="124" y2="124" stroke="#F4EFE6" stroke-width="14" stroke-linecap="round"/>
+</svg>

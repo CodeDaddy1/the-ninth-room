@@ -1,0 +1,42 @@
+# Per-video work dirs — local source of truth, never committed
+work/
+worker/work/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+
+# Media outputs (regeneratable)
+*.mp3
+*.mp4
+*.wav
+*.m4a
+*.mov
+
+# Allow committed brand exports (logo / watermark PNGs)
+!brand/exports/*.png
+
+# Node
+node_modules/
+.next/
+.turbo/
+.vercel/
+*.log
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/

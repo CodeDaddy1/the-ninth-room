@@ -1,0 +1,74 @@
+{
+  "video_title": "Why Swiss Cheese Has Holes",
+  "platform": "youtube_short",
+  "default_orientation": "portrait",
+  "shots": [
+    {
+      "shot_id": "S01",
+      "timecode": "0:00-0:03",
+      "script_line": "For almost a century, nobody could fully explain the holes.",
+      "visual": "Extreme close-up of a wedge of Emmental cheese, slow push-in on the holes",
+      "source_type": "stock",
+      "queries": ["swiss cheese holes macro", "emmental cheese close up", "cheese wedge holes"],
+      "orientation": "portrait",
+      "duration_sec": 3,
+      "license_requirement": "commercial royalty-free",
+      "fallback": "AI-generate a macro of a holed cheese wedge",
+      "needs_rights_check": false,
+      "notes": "Strong opening visual; the holes ARE the hook"
+    },
+    {
+      "shot_id": "S02",
+      "timecode": "0:03-0:07",
+      "script_line": "Everyone assumed it was just gas from bacteria.",
+      "visual": "Microscope / bubbling fermentation b-roll suggesting gas forming",
+      "source_type": "stock",
+      "queries": ["bubbles forming macro", "fermentation bubbles", "gas bubbles liquid slow motion"],
+      "orientation": "portrait",
+      "duration_sec": 4,
+      "license_requirement": "commercial royalty-free",
+      "fallback": "Motion graphic of CO2 bubbles rising",
+      "needs_rights_check": false
+    },
+    {
+      "shot_id": "S03",
+      "timecode": "0:07-0:12",
+      "script_line": "But in 2015, Swiss scientists found the real trigger: tiny specks of hay.",
+      "visual": "Hay / dried grass in warm light, dust motes drifting; then a hand collecting fresh milk",
+      "source_type": "stock",
+      "queries": ["hay dust sunlight", "dried grass close up", "fresh milk pouring farm"],
+      "orientation": "portrait",
+      "duration_sec": 5,
+      "license_requirement": "commercial royalty-free",
+      "fallback": "AI-generate hay dust drifting in a light beam",
+      "needs_rights_check": false
+    },
+    {
+      "shot_id": "S04",
+      "timecode": "0:12-0:16",
+      "script_line": "Cleaner modern milking keeps the hay out — which is why the holes are shrinking.",
+      "visual": "Sterile modern stainless-steel milking equipment / dairy plant",
+      "source_type": "stock",
+      "queries": ["modern dairy milking machine", "stainless steel dairy equipment", "milk processing plant"],
+      "orientation": "portrait",
+      "duration_sec": 4,
+      "license_requirement": "commercial royalty-free",
+      "fallback": "Motion graphic comparing holey vs hole-less cheese over time",
+      "needs_rights_check": false
+    },
+    {
+      "shot_id": "S05",
+      "timecode": "0:16-0:18",
+      "script_line": "So the holes were never the bacteria's doing alone.",
+      "visual": "Final beauty shot: cheese wedge on a board, takeaway text on screen",
+      "source_type": "motion_graphic",
+      "queries": [],
+      "orientation": "portrait",
+      "duration_sec": 2,
+      "license_requirement": "n/a",
+      "fallback": "Stock cheese-on-board shot with text overlay",
+      "needs_rights_check": false,
+      "notes": "Carry the takeaway line; brand-accent color on the key word"
+    }
+  ]
+}

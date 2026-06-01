@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1620" width="1080" height="1620" font-family="'Didot','Bodoni MT','Playfair Display',Georgia,serif">
+  <defs>
+    <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F4EFE6" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#F4EFE6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lockGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E8A33D" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#E8A33D" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1080" height="1620" fill="#0E1B2C"/>
+
+  <!-- atmosphere constellation: top-right -->
+  <g>
+    <polyline points="812,150 852,138 892,165 878,210" fill="none" stroke="#E8A33D" stroke-opacity="0.4" stroke-width="1.4"/>
+    <line x1="892" y1="165" x2="916" y2="232" stroke="#E8A33D" stroke-opacity="0.4" stroke-width="1.4"/>
+    <circle cx="852" cy="138" r="16" fill="url(#starGlow)"/>
+    <circle cx="916" cy="232" r="13" fill="url(#starGlow)"/>
+    <circle cx="812" cy="150" r="2.5" fill="#F4EFE6" fill-opacity="0.75"/>
+    <circle cx="892" cy="165" r="3.2" fill="#F4EFE6" fill-opacity="0.8"/>
+    <circle cx="878" cy="210" r="2.5" fill="#F4EFE6" fill-opacity="0.7"/>
+    <path d="M852,131 C852,136.04 853.96,138 859,138 C853.96,138 852,139.96 852,145 C852,139.96 850.04,138 845,138 C850.04,138 852,136.04 852,131 Z" fill="#F4EFE6"/>
+    <path d="M916,226 C916,230.32 917.68,232 922,232 C917.68,232 916,233.68 916,238 C916,233.68 914.32,232 910,232 C914.32,232 916,230.32 916,226 Z" fill="#F4EFE6"/>
+  </g>
+  <!-- atmosphere constellation: bottom-left -->
+  <g>
+    <polyline points="110,1150 150,1135 190,1160 165,1200" fill="none" stroke="#E8A33D" stroke-opacity="0.35" stroke-width="1.4"/>
+    <circle cx="150" cy="1135" r="13" fill="url(#starGlow)"/>
+    <circle cx="110" cy="1150" r="2.5" fill="#F4EFE6" fill-opacity="0.7"/>
+    <circle cx="190" cy="1160" r="3" fill="#F4EFE6" fill-opacity="0.75"/>
+    <circle cx="165" cy="1200" r="2.3" fill="#F4EFE6" fill-opacity="0.6"/>
+    <path d="M150,1129 C150,1133.32 151.68,1135 156,1135 C151.68,1135 150,1136.68 150,1141 C150,1136.68 148.32,1135 144,1135 C148.32,1135 150,1133.32 150,1129 Z" fill="#F4EFE6"/>
+  </g>
+
+  <!-- header -->
+  <text x="90" y="115" fill="#E8A33D" font-family="'Trebuchet MS',sans-serif" font-size="22" letter-spacing="8">OPTION C</text>
+  <text x="86" y="200" fill="#F4EFE6" font-size="70" font-style="italic">Wonder</text>
+  <text x="90" y="246" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="24">What lies behind the curiosity.</text>
+  <line x1="90" y1="284" x2="990" y2="284" stroke="#243449" stroke-width="1.5"/>
+
+  <!-- logo lockup: constellation over a keyhole -->
+  <circle cx="540" cy="420" r="155" fill="url(#lockGlow)"/>
+  <!-- constellation canopy -->
+  <polyline points="468,366 505,340 542,322 580,330 614,356 596,398" fill="none" stroke="#E8A33D" stroke-opacity="0.55" stroke-width="1.8"/>
+  <circle cx="505" cy="340" r="20" fill="url(#starGlow)"/>
+  <circle cx="614" cy="356" r="22" fill="url(#starGlow)"/>
+  <circle cx="468" cy="366" r="3.2" fill="#F4EFE6"/>
+  <circle cx="542" cy="322" r="4.2" fill="#F4EFE6"/>
+  <circle cx="580" cy="330" r="3.4" fill="#F4EFE6"/>
+  <circle cx="596" cy="398" r="3" fill="#F4EFE6"/>
+  <path d="M505,329 C505,336.92 508.08,340 516,340 C508.08,340 505,343.08 505,351 C505,343.08 501.92,340 494,340 C501.92,340 505,336.92 505,329 Z" fill="#F4EFE6"/>
+  <path d="M614,344 C614,352.64 617.36,356 626,356 C617.36,356 614,359.36 614,368 C614,359.36 610.64,356 602,356 C610.64,356 614,352.64 614,344 Z" fill="#F4EFE6"/>
+  <!-- keyhole -->
+  <circle cx="540" cy="432" r="30" fill="#E8A33D"/>
+  <path d="M524 460 L556 460 L567 512 L513 512 Z" fill="#E8A33D"/>
+  <circle cx="540" cy="432" r="12" fill="#0E1B2C"/>
+
+  <text x="540" y="582" text-anchor="middle" fill="#F4EFE6" font-size="56" letter-spacing="3">CURATED</text>
+  <text x="540" y="626" text-anchor="middle" fill="#E8A33D" font-family="'Trebuchet MS',sans-serif" font-size="28" letter-spacing="10">CURIOSITIES</text>
+
+  <!-- banner -->
+  <text x="90" y="700" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="18" letter-spacing="3">YOUTUBE BANNER · 2560 × 1440</text>
+  <rect x="90" y="718" width="900" height="506" rx="14" fill="#0A1422" stroke="#243449"/>
+  <!-- banner constellation: left -->
+  <g>
+    <polyline points="150,852 188,820 228,838 210,872" fill="none" stroke="#E8A33D" stroke-opacity="0.45" stroke-width="1.4"/>
+    <circle cx="188" cy="820" r="12" fill="url(#starGlow)"/>
+    <circle cx="150" cy="852" r="2.4" fill="#F4EFE6" fill-opacity="0.7"/>
+    <circle cx="228" cy="838" r="3" fill="#F4EFE6" fill-opacity="0.8"/>
+    <circle cx="210" cy="872" r="2.3" fill="#F4EFE6" fill-opacity="0.6"/>
+    <path d="M188,814 C188,818.32 189.68,820 194,820 C189.68,820 188,821.68 188,826 C188,821.68 186.32,820 182,820 C186.32,820 188,818.32 188,814 Z" fill="#F4EFE6"/>
+  </g>
+  <!-- banner constellation: right -->
+  <g>
+    <polyline points="825,1100 862,1118 900,1108 884,1150" fill="none" stroke="#E8A33D" stroke-opacity="0.45" stroke-width="1.4"/>
+    <circle cx="862" cy="1118" r="12" fill="url(#starGlow)"/>
+    <circle cx="825" cy="1100" r="2.4" fill="#F4EFE6" fill-opacity="0.7"/>
+    <circle cx="900" cy="1108" r="3" fill="#F4EFE6" fill-opacity="0.8"/>
+    <circle cx="884" cy="1150" r="2.3" fill="#F4EFE6" fill-opacity="0.6"/>
+    <path d="M862,1112 C862,1116.32 863.68,1118 868,1118 C863.68,1118 862,1119.68 862,1124 C862,1119.68 860.32,1118 856,1118 C860.32,1118 862,1116.32 862,1112 Z" fill="#F4EFE6"/>
+  </g>
+  <!-- title-safe -->
+  <rect x="271" y="897" width="538" height="148" fill="none" stroke="#6B7C93" stroke-opacity="0.5" stroke-dasharray="6 6"/>
+  <text x="277" y="889" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="12">title-safe area · 1546 × 423</text>
+  <!-- banner center mark -->
+  <polyline points="514,912 540,904 566,911" fill="none" stroke="#E8A33D" stroke-opacity="0.55" stroke-width="1.4"/>
+  <circle cx="514" cy="912" r="2.2" fill="#F4EFE6"/>
+  <circle cx="566" cy="911" r="2.2" fill="#F4EFE6"/>
+  <path d="M540,899 C540,902.6 541.4,904 545,904 C541.4,904 540,905.4 540,909 C540,905.4 538.6,904 535,904 C538.6,904 540,902.6 540,899 Z" fill="#F4EFE6"/>
+  <circle cx="540" cy="930" r="13" fill="#E8A33D"/>
+  <path d="M530 951 L550 951 L557 976 L523 976 Z" fill="#E8A33D"/>
+  <circle cx="540" cy="930" r="5.5" fill="#0A1422"/>
+  <text x="540" y="1010" text-anchor="middle" fill="#F4EFE6" font-size="32" letter-spacing="5">CURATED CURIOSITIES</text>
+  <text x="540" y="1038" text-anchor="middle" fill="#E8A33D" font-family="'Trebuchet MS',sans-serif" font-size="15" letter-spacing="5">A SENSE OF WONDER</text>
+
+  <!-- bottom row -->
+  <line x1="90" y1="1268" x2="990" y2="1268" stroke="#243449" stroke-width="1.5"/>
+
+  <!-- watermark -->
+  <text x="90" y="1318" fill="#F4EFE6" font-size="24">Watermark</text>
+  <text x="90" y="1342" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="13">150 × 150 · video corner</text>
+  <rect x="90" y="1360" width="300" height="169" rx="8" fill="#16273B"/>
+  <path d="M 228 1428 l 28 16 l -28 16 Z" fill="#F4EFE6" fill-opacity="0.14"/>
+  <!-- watermark mark in corner -->
+  <polyline points="338,1470 356,1463 374,1471" fill="none" stroke="#E8A33D" stroke-opacity="0.7" stroke-width="1.2"/>
+  <circle cx="338" cy="1470" r="1.8" fill="#F4EFE6"/>
+  <circle cx="374" cy="1471" r="1.8" fill="#F4EFE6"/>
+  <circle cx="356" cy="1463" r="2.4" fill="#F4EFE6"/>
+  <circle cx="356" cy="1488" r="10" fill="#E8A33D"/>
+  <path d="M349 1497 L363 1497 L367 1514 L345 1514 Z" fill="#E8A33D"/>
+  <circle cx="356" cy="1488" r="4" fill="#16273B"/>
+  <!-- watermark enlarged -->
+  <g transform="translate(452,1432)">
+    <polyline points="-26,-44 0,-54 26,-44" fill="none" stroke="#E8A33D" stroke-opacity="0.7" stroke-width="1.6"/>
+    <circle cx="-26" cy="-44" r="2.6" fill="#F4EFE6"/>
+    <circle cx="26" cy="-44" r="2.6" fill="#F4EFE6"/>
+    <path d="M0,-62 C0,-56.4 1.6,-54 7,-54 C1.6,-54 0,-51.6 0,-46 C0,-51.6 -1.6,-54 -7,-54 C-1.6,-54 0,-56.4 0,-62 Z" fill="#F4EFE6"/>
+    <circle cx="0" cy="-14" r="18" fill="#E8A33D"/>
+    <path d="M-13 2 L13 2 L19 42 L-19 42 Z" fill="#E8A33D"/>
+    <circle cx="0" cy="-14" r="7" fill="#0E1B2C"/>
+  </g>
+
+  <!-- palette -->
+  <text x="620" y="1318" fill="#F4EFE6" font-size="24">Palette</text>
+  <g font-family="'Trebuchet MS',sans-serif" font-size="12" fill="#6B7C93">
+    <rect x="620" y="1338" width="80" height="80" rx="8" fill="#0E1B2C" stroke="#243449"/><text x="620" y="1436">#0E1B2C</text>
+    <rect x="712" y="1338" width="80" height="80" rx="8" fill="#E8A33D"/><text x="712" y="1436">#E8A33D</text>
+    <rect x="804" y="1338" width="80" height="80" rx="8" fill="#F4EFE6"/><text x="804" y="1436">#F4EFE6</text>
+    <rect x="896" y="1338" width="80" height="80" rx="8" fill="#6B7C93"/><text x="896" y="1436">#6B7C93</text>
+  </g>
+  <text x="620" y="1486" fill="#F4EFE6" font-size="24">Type</text>
+  <text x="620" y="1514" fill="#6B7C93" font-family="'Trebuchet MS',sans-serif" font-size="14">High-contrast serif + spaced caps</text>
+  <text x="620" y="1562" fill="#F4EFE6" font-size="44">Aa</text>
+  <text x="690" y="1562" fill="#E8A33D" font-family="'Trebuchet MS',sans-serif" font-size="28" letter-spacing="4">CC</text>
+</svg>
