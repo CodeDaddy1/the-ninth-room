@@ -46,12 +46,10 @@ function LoginForm({ denied }: { denied: boolean }) {
     setError(null);
     startTransition(async () => {
       const supabase = createClient();
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
+      // No emailRedirectTo — our custom email template uses {{ .SiteURL }},
+      // which is the canonical Vercel URL pinned via Management API. Passing
+      // a per-deployment origin here would be rejected by Supabase's allow-list.
+      const { error } = await supabase.auth.signInWithOtp({ email });
       if (error) {
         setError(error.message);
         return;
