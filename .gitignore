@@ -29,6 +29,10 @@ node_modules/
 dist/
 build/
 
+# Supabase CLI scratch
+supabase/.temp/
+supabase/.branches/
+
 # Python
 __pycache__/
 *.pyc
