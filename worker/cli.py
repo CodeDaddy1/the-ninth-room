@@ -1,13 +1,18 @@
 """Curated Curiosities pipeline — command-line entry point.
 
 Usage:
-    python program/cli.py init <slug>
-    python program/cli.py fetch <slug>
-    python program/cli.py voiceover <slug> [--provider elevenlabs|openai|manual]
-    python program/cli.py assemble <slug>
-    python program/cli.py run <slug>
+    python worker/cli.py init <slug>
+    python worker/cli.py fetch <slug>
+    python worker/cli.py voiceover <slug> [--provider elevenlabs|openai|manual]
+    python worker/cli.py assemble <slug>
+    python worker/cli.py run <slug>
+    python worker/cli.py validate <slug>          # validate per-video agent outputs
+    python worker/cli.py validate --planning      # validate planning outputs
+    python worker/cli.py ping                     # Supabase reachability check
+    python worker/cli.py analyst-weekly           # surface the weekly analyst command
+    python worker/cli.py daemon                   # Phase 4 (not implemented)
 
-The work dir for each video lives at program/work/<slug>/.
+The work dir for each video lives at work/<slug>/.
 """
 
 from __future__ import annotations
@@ -17,12 +22,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Allow running as `python program/cli.py` or `python -m program.cli`
+# Allow running as `python worker/cli.py` or `python -m worker.cli`
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from program import config, voiceover, assemble  # noqa: E402
+    from worker import config, voiceover, assemble, db  # noqa: E402
+    from worker.orchestrator import schemas, work_dir  # noqa: E402
 else:
-    from . import config, voiceover, assemble
+    from . import config, voiceover, assemble, db
+    from .orchestrator import schemas, work_dir
 
 
 # --- init ----------------------------------------------------------------
@@ -109,6 +116,107 @@ def cmd_run(args) -> None:
     print(f"\n[run] done. Output: {config.work_path(args.slug) / 'rough_cut.mp4'}")
 
 
+# --- validate ------------------------------------------------------------
+
+def cmd_validate(args) -> None:
+    """Validate every agent-output file present in a work dir.
+
+    For a per-video slug:  scans work/<slug>/ for script.md, shot_list.json,
+                            visuals.json, and tray/*.json.
+    For a planning slug:    pass --planning to scan work/_planning/.
+    """
+    paths_to_check: list[Path] = []
+    if args.planning:
+        for p in work_dir.planning_dir().iterdir():
+            if p.is_file():
+                paths_to_check.append(p)
+    else:
+        vd = work_dir.video_dir(args.slug)
+        for name in ("shot_list.json", "visuals.json"):
+            f = vd / name
+            if f.exists():
+                paths_to_check.append(f)
+        tray = vd / "tray"
+        if tray.exists():
+            paths_to_check.extend(p for p in tray.iterdir() if p.suffix == ".json")
+
+    if not paths_to_check:
+        print(f"[validate] no agent-output files found for '{args.slug}'.")
+        return
+
+    any_failed = False
+    for path in paths_to_check:
+        errs = schemas.load_and_validate(path)
+        if errs:
+            any_failed = True
+            print(f"  ✗ {path.relative_to(config.PROJECT_ROOT)}")
+            for e in errs:
+                print(f"      - {e}")
+        else:
+            print(f"  ✓ {path.relative_to(config.PROJECT_ROOT)}")
+
+    if any_failed:
+        sys.exit(1)
+
+
+# --- ping ---------------------------------------------------------------
+
+def cmd_ping(args) -> None:
+    """Verify Supabase reachability."""
+    ok = db.ping()
+    print(f"supabase {'OK' if ok else 'UNREACHABLE'}: {config.SUPABASE_URL}")
+    sys.exit(0 if ok else 1)
+
+
+# --- daemon (placeholder, Phase 4) -------------------------------------
+
+def cmd_daemon(args) -> None:
+    """Long-running worker loop. Built out in Phase 4."""
+    print("[daemon] not implemented yet — Phase 4 will build the queue runner.")
+    sys.exit(2)
+
+
+# --- analyst-weekly (headless brief) -----------------------------------
+
+def cmd_analyst_weekly(args) -> None:
+    """Stage metrics and shell out to `claude -p` to run the analyst subagent.
+
+    Wired by launchd Monday 09:00 (see infra/launchd/curated.analyst.plist).
+    For Phase 2 this command stages the metrics file and prints the slash
+    command to run; Phase 4 will execute it headlessly and parse the output.
+    """
+    week = args.week or _current_iso_week()
+    metrics_path = work_dir.metrics_path(week)
+    brief_path = work_dir.analyst_brief_path(week)
+
+    # Stage an empty metrics file if none exists so the analyst can run
+    # cold-start without erroring.
+    if not metrics_path.exists():
+        monday, sunday = work_dir.parse_iso_week(week)
+        metrics_path.write_text(json.dumps({
+            "week": week,
+            "since": monday.isoformat(),
+            "until": sunday.isoformat(),
+            "rows": [],
+        }, indent=2) + "\n")
+        print(f"[analyst] staged empty metrics: {metrics_path}")
+    else:
+        print(f"[analyst] using existing metrics: {metrics_path}")
+
+    slash = f'/performance-analyst week={week}'
+    print(f"\nRun this in Claude Code from {config.PROJECT_ROOT}:")
+    print(f"  {slash}")
+    print(f"\nExpected output: {brief_path}")
+    print("\nOnce written, validate with:")
+    print(f"  python worker/cli.py validate --planning {week}")
+
+
+def _current_iso_week() -> str:
+    from datetime import date
+    iso = date.today().isocalendar()
+    return f"{iso[0]}-W{iso[1]:02d}"
+
+
 # --- main ----------------------------------------------------------------
 
 def main() -> None:
@@ -138,6 +246,21 @@ def main() -> None:
     s.add_argument("--per-shot", type=int, default=3)
     s.add_argument("--provider", choices=["auto", "elevenlabs", "openai", "manual"], default="auto")
     s.set_defaults(func=cmd_run)
+
+    s = sub.add_parser("validate", help="validate agent-output files in a work dir")
+    s.add_argument("slug", nargs="?", default="")
+    s.add_argument("--planning", action="store_true", help="scan work/_planning/ instead of a video work dir")
+    s.set_defaults(func=cmd_validate)
+
+    s = sub.add_parser("ping", help="check Supabase reachability")
+    s.set_defaults(func=cmd_ping)
+
+    s = sub.add_parser("daemon", help="run the worker loop (Phase 4)")
+    s.set_defaults(func=cmd_daemon)
+
+    s = sub.add_parser("analyst-weekly", help="stage metrics and surface the analyst slash command")
+    s.add_argument("--week", help="ISO week 'YYYY-Www'; defaults to current")
+    s.set_defaults(func=cmd_analyst_weekly)
 
     args = p.parse_args()
     args.func(args)
