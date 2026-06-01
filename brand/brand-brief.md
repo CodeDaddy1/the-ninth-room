@@ -51,6 +51,6 @@ These are yours to set; fill them in and the agents will follow:
 - **Channel / account name:** "The Curated Curiosities" (on both YouTube and IG)
 - **Handles:** YouTube `@CuratedCuriosities` · IG `@CuratedCuriosities`
 - **Logos:** stay as "CURATED CURIOSITIES" (no "The" — cleaner on the mark)
-- **Founder/host POV:** `[still to decide — faceless / single host / rotating]`
+- **Founder/host POV:** Voice on, face off — Caleb narrates over b-roll. No on-camera host. Scripts written for a curious, warm, smart narrator (see `voice-and-tone.md`).
 - **Tagline:** "Look closer — we curate the wonder."
-- **One sentence we'd put in our bio:** `[draft it once host POV is decided]`
+- **One sentence we'd put in our bio:** `[draft after first batch of videos when the voice is sharp]`
