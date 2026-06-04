@@ -175,6 +175,49 @@ NEXT_ACTION: dict[str, dict[str, str]] = {
 }
 
 
+# --- daemon state-machine tables (Phase 4) -------------------------------
+# Derived from NEXT_ACTION, but split by who drives the transition. These are
+# the daemon's source of truth; keep them in lockstep with NEXT_ACTION above
+# and dashboard/src/lib/next-action.ts.
+
+# States the watcher advances purely when `expect_file` appears on disk — no
+# compute, just an agent output or a hand-dropped file showing up. Deliberately
+# EXCLUDES `tray` and `pushed`: publishing is a human gate, never auto-advanced.
+WATCHER_STATES = ("queued", "scripting", "fetching", "awaiting_vo", "ready")
+
+# States where the worker itself does the work. Maps state -> (job_type,
+# state_on_success). When a video sits in one of these, the daemon enqueues the
+# job (if not already queued/running) and the job handler advances the state.
+WORKER_STAGES = {
+    "shots": ("fetch", "fetching"),
+    "assembling": ("assemble", "ready"),
+}
+
+# Job type -> the failed_* state the video drops into when the job exhausts its
+# retries. Mirrors the videos_state_check constraint in the init migration.
+JOB_FAILURE_STATE = {
+    "fetch": "failed_fetching",
+    "assemble": "failed_assembling",
+}
+
+# Every non-terminal state the daemon should scan each tick (union of the two
+# tables above). Terminal/human-gated states (`tray`, `pushed`, `published`,
+# all `failed_*`) are intentionally absent.
+ACTIVE_STATES = tuple(WATCHER_STATES) + tuple(WORKER_STAGES.keys())
+
+
+def expect_file_for(state: str) -> str | None:
+    """The relative path the watcher waits on for `state`, or None."""
+    action = NEXT_ACTION.get(state)
+    return action.get("expect_file") if action else None
+
+
+def advances_to(state: str) -> str | None:
+    """The state `state` transitions into once its expect_file appears."""
+    action = NEXT_ACTION.get(state)
+    return action.get("advances_to") if action else None
+
+
 # --- helpers -------------------------------------------------------------
 
 def _iso_week(d: date) -> str:

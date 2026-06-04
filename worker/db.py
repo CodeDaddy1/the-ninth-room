@@ -9,12 +9,18 @@ Reads env from the repo's .env (loaded by config.py).
 
 from __future__ import annotations
 import json
+from datetime import datetime, timezone
 from typing import Any, Iterable
 from urllib.parse import urlencode
 
 import requests
 
 from . import config
+
+
+def now_iso() -> str:
+    """UTC timestamp Postgres accepts for timestamptz columns."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 class SupabaseError(RuntimeError):
@@ -41,11 +47,16 @@ def _url(path: str, params: dict[str, Any] | None = None) -> str:
     return base
 
 
-def select(table: str, *, columns: str = "*", filters: dict[str, str] | None = None, limit: int | None = None) -> list[dict[str, Any]]:
-    """SELECT from `table`. Filters use PostgREST syntax, e.g. {"slug": "eq.foo"}."""
+def select(table: str, *, columns: str = "*", filters: dict[str, str] | None = None, order: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+    """SELECT from `table`. Filters use PostgREST syntax, e.g. {"slug": "eq.foo"}.
+
+    `order` is PostgREST order syntax, e.g. "created_at.asc".
+    """
     params: dict[str, Any] = {"select": columns}
     if filters:
         params.update(filters)
+    if order:
+        params["order"] = order
     if limit is not None:
         params["limit"] = str(limit)
     r = requests.get(_url(table, params), headers=_headers(), timeout=30)
@@ -81,6 +92,25 @@ def delete(table: str, filters: dict[str, str]) -> None:
     r = requests.delete(_url(table, filters), headers=_headers(), timeout=30)
     if not r.ok:
         raise SupabaseError(f"delete {table}: {r.status_code} {r.text[:300]}")
+
+
+def claim_job(job: dict[str, Any]) -> dict[str, Any] | None:
+    """Atomically claim a queued job: queued -> running, bump attempts.
+
+    The `status=eq.queued` filter is the lock — if another worker (or a prior
+    loop iteration) already moved it, the PATCH matches nothing and returns [].
+    Returns the claimed row, or None if it was already taken.
+    """
+    rows = update(
+        "jobs",
+        {"id": f"eq.{job['id']}", "status": "eq.queued"},
+        {
+            "status": "running",
+            "started_at": now_iso(),
+            "attempts": int(job.get("attempts", 0)) + 1,
+        },
+    )
+    return rows[0] if rows else None
 
 
 def ping() -> bool:

@@ -64,9 +64,13 @@ SUPABASE_PROJECT_REF = env("SUPABASE_PROJECT_REF")
 SUPABASE_ANON_KEY = env("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_KEY = env("SUPABASE_SERVICE_KEY")
 
-# --- Worker FastAPI surface ----------------------------------------------
+# --- Worker daemon + control surface -------------------------------------
+WORKER_HOST = env("WORKER_HOST") or "127.0.0.1"   # localhost-only by default
 WORKER_PORT = int(env("WORKER_PORT") or "8787")
 WORKER_SECRET = env("WORKER_SECRET")
+# Daemon poll cadence and per-job retry budget.
+POLL_INTERVAL_SEC = float(env("POLL_INTERVAL_SEC") or "5")
+JOB_MAX_ATTEMPTS = int(env("JOB_MAX_ATTEMPTS") or "3")
 
 # --- Stock asset providers ----------------------------------------------
 PEXELS_API_KEY = env("PEXELS_API_KEY")

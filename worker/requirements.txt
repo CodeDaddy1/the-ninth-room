@@ -1,0 +1,10 @@
+# Worker runtime deps. The worker targets the system Python at
+# /usr/bin/python3 (3.9) that the launchd plists invoke — keep this list tiny.
+#
+# Install (user-site, no venv needed):
+#   /usr/bin/python3 -m pip install --user -r worker/requirements.txt
+#
+# ffmpeg is a separate system dependency for the `assemble` stage:
+#   brew install ffmpeg
+
+requests>=2.28

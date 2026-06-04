@@ -10,7 +10,7 @@ Usage:
     python worker/cli.py validate --planning      # validate planning outputs
     python worker/cli.py ping                     # Supabase reachability check
     python worker/cli.py analyst-weekly           # surface the weekly analyst command
-    python worker/cli.py daemon                   # Phase 4 (not implemented)
+    python worker/cli.py daemon [--once] [--interval N] [--no-http]
 
 The work dir for each video lives at work/<slug>/.
 """
@@ -18,18 +18,17 @@ The work dir for each video lives at work/<slug>/.
 from __future__ import annotations
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 # Allow running as `python worker/cli.py` or `python -m worker.cli`
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from worker import config, voiceover, assemble, db  # noqa: E402
-    from worker.orchestrator import schemas, work_dir  # noqa: E402
+    from worker import config, voiceover, assemble, db, jobs  # noqa: E402
+    from worker.orchestrator import schemas, work_dir, daemon  # noqa: E402
 else:
-    from . import config, voiceover, assemble, db
-    from .orchestrator import schemas, work_dir
+    from . import config, voiceover, assemble, db, jobs
+    from .orchestrator import schemas, work_dir, daemon
 
 
 # --- init ----------------------------------------------------------------
@@ -80,19 +79,12 @@ def cmd_init(args) -> None:
 # --- fetch ---------------------------------------------------------------
 
 def cmd_fetch(args) -> None:
-    work = config.work_path(args.slug)
-    shot_list = work / "shot_list.json"
-    if not shot_list.exists():
-        print(f"[fetch] missing {shot_list}", file=sys.stderr)
+    try:
+        out = jobs.run_fetch(args.slug, per_shot=args.per_shot)
+    except jobs.JobError as e:
+        print(f"[fetch] {e}", file=sys.stderr)
         sys.exit(2)
-    assets_out = work / "assets"
-    assets_out.mkdir(exist_ok=True)
-    cmd = [
-        sys.executable, str(config.FETCH_SCRIPT), str(shot_list),
-        "--out", str(assets_out), "--per-shot", str(args.per_shot),
-    ]
-    print(f"[fetch] {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
+    print(f"[fetch] ✓ {out}")
 
 
 # --- voiceover -----------------------------------------------------------
@@ -171,9 +163,13 @@ def cmd_ping(args) -> None:
 # --- daemon (placeholder, Phase 4) -------------------------------------
 
 def cmd_daemon(args) -> None:
-    """Long-running worker loop. Built out in Phase 4."""
-    print("[daemon] not implemented yet — Phase 4 will build the queue runner.")
-    sys.exit(2)
+    """Run the worker loop: poll jobs, watch work dirs, advance state.
+
+    --once       run a single tick and exit (testing / cron-style use)
+    --interval   override the poll cadence in seconds
+    --no-http    don't bind the localhost control surface
+    """
+    daemon.run(interval=args.interval, http=not args.no_http, once=args.once)
 
 
 # --- analyst-weekly (headless brief) -----------------------------------
@@ -255,7 +251,10 @@ def main() -> None:
     s = sub.add_parser("ping", help="check Supabase reachability")
     s.set_defaults(func=cmd_ping)
 
-    s = sub.add_parser("daemon", help="run the worker loop (Phase 4)")
+    s = sub.add_parser("daemon", help="run the worker loop (poll jobs + watch work dirs)")
+    s.add_argument("--once", action="store_true", help="run a single tick and exit")
+    s.add_argument("--interval", type=float, default=None, help="poll cadence in seconds")
+    s.add_argument("--no-http", action="store_true", help="don't bind the localhost control surface")
     s.set_defaults(func=cmd_daemon)
 
     s = sub.add_parser("analyst-weekly", help="stage metrics and surface the analyst slash command")
