@@ -19,7 +19,46 @@ PROJECT_NAME = "Curated Curiosities"
 DURATION_TOLERANCE_SEC = 0.75
 
 
+def project_for_slug(slug: str, fps: float, log=print) -> str:
+    """Open a per-slug Resolve project whose frame rate matches the footage.
+
+    Resolve locks a project's timeline frame rate as soon as the project holds
+    a timeline, and silently conforms mismatched clips (23.976 footage in a
+    29.97 project stretches every clip by 1.25x). One project per video keeps
+    each edit at its native rate; a project whose rate is already wrong is
+    deleted and recreated, which is safe because timelines here are generated.
+    """
+    name = "CC_%s" % slug
+    fps_str = ("%.3f" % fps).rstrip("0").rstrip(".")
+    out = ra.send("project_for_slug", '''
+local pm = resolve:GetProjectManager()
+local function setup(p)
+  p:SetSetting("timelineFrameRate", %s)
+  return tostring(p:GetSetting("timelineFrameRate"))
+end
+local proj = pm:LoadProject(%s)
+if proj then
+  local rate = tostring(proj:GetSetting("timelineFrameRate"))
+  if math.abs(tonumber(rate) - %s) > 0.01 then
+    pm:CloseProject(proj)
+    pm:DeleteProject(%s)
+    proj = nil
+  end
+end
+if not proj then
+  proj = pm:CreateProject(%s)
+  if not proj then return error("could not create project") end
+end
+return proj:GetName() .. " fps=" .. setup(proj)
+''' % (ra.lua_str(fps_str), ra.lua_str(name), fps_str, ra.lua_str(name),
+       ra.lua_str(name)), timeout=300)
+    log("[render] project %s" % out)
+    return name
+
+
 def render_timeline(slug: str, fcpxml: Path, log=print) -> Path:
+    """Import a generated FCPXML, then render it. Kept for assets Resolve's
+    importer links correctly; the DJI/HEVC path uses render_current instead."""
     ra.ensure_bridge()
     ra.open_project(PROJECT_NAME)
     # Timeline names must be unique per import or Resolve silently numbers
@@ -27,7 +66,11 @@ def render_timeline(slug: str, fcpxml: Path, log=print) -> Path:
     tl_name = "%s_%s" % (slug, time.strftime("%H%M%S"))
     info = ra.import_timeline(fcpxml, tl_name)
     log("[render] imported: %s" % info)
+    return render_current(slug, tl_name, log=log)
 
+
+def render_current(slug: str, tl_name: str, log=print) -> Path:
+    """Render whatever timeline is currently open in Resolve."""
     deliver = work_path(slug) / "deliverables"
     deliver.mkdir(exist_ok=True)
     job = ra.start_render(deliver, tl_name)

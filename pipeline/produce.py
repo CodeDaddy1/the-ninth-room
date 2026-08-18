@@ -117,8 +117,33 @@ def build_timeline(slug: str, log=print) -> Path:
     return path
 
 
+def build_assets(slug: str, log=print) -> "tuple":
+    """Plan the layout and bake overlays without writing FCPXML.
+    Returns (timeline_map, cards, caption_clips)."""
+    tl_map = timeline_mod.plan_beats(slug)
+    log("[produce] %d beats, %.1fs total @ %sfps %s"
+        % (len(tl_map["beats"]), tl_map["duration"], tl_map["fps"], tl_map["orientation"]))
+    cards = _card_clips(slug, tl_map, log)
+    caps = _beat_caption_clips(slug, tl_map, log)
+    return tl_map, cards, caps
+
+
 def produce(slug: str, log=print) -> Path:
-    """Phase 7: full auto — timeline into Resolve, render, verify."""
+    """Phase 7: full auto — timeline into Resolve, render, verify.
+
+    Timelines are built through the scripting API rather than by importing
+    the FCPXML: Resolve's importer leaves 4K HEVC (DJI) clips offline. The
+    FCPXML is still written for reference/debugging and for NLEs that read it.
+    """
+    from . import build_api
     from . import render as render_mod
-    fcpxml = build_timeline(slug, log)
-    return render_mod.render_timeline(slug, fcpxml, log=log)
+    from . import resolve_api as ra
+
+    tl_map, cards, caps = build_assets(slug, log)
+    fcpxml = timeline_mod.write_fcpxml(slug, tl_map, cards, caps)
+    log("[produce] wrote %s (reference)" % fcpxml)
+
+    ra.ensure_bridge()
+    render_mod.project_for_slug(slug, tl_map["fps"], log=log)
+    tl_name = build_api.build(slug, cards, caps, log=log)
+    return render_mod.render_current(slug, tl_name, log=log)

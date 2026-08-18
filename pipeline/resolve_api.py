@@ -196,7 +196,12 @@ return tl:GetName() .. "|tracks=" .. tl:GetTrackCount("video")
 
 
 def start_render(target_dir: Path, custom_name: str) -> str:
-    """Queue and start an H.264 mp4 render of the current timeline."""
+    """Queue and start an H.264 mp4 render of the current timeline.
+
+    SelectAllFrames is essential: without it Resolve renders only the current
+    in/out range, which on a freshly built timeline is a single frame (seen
+    2026-08-18 — a 108s edit rendered as 0.11s).
+    """
     return send("start_render", '''
 local pm = resolve:GetProjectManager()
 local proj = pm:GetCurrentProject()
@@ -205,6 +210,7 @@ if not proj:SetCurrentRenderFormatAndCodec("mp4", "H264") then
   return error("SetCurrentRenderFormatAndCodec(mp4, H264) failed")
 end
 proj:SetRenderSettings({
+  ["SelectAllFrames"] = true,
   ["TargetDir"] = %s,
   ["CustomName"] = %s,
 })
@@ -215,18 +221,32 @@ return job
 ''' % (lua_str(str(target_dir)), lua_str(custom_name)), timeout=300)
 
 
-def rendering_in_progress() -> bool:
+def rendering_in_progress(timeout: float = 300.0) -> bool:
     out = send("render_poll", '''
 local pm = resolve:GetProjectManager()
 return tostring(pm:GetCurrentProject():IsRenderingInProgress())
-''', timeout=60)
+''', timeout=timeout)
     return out == "true"
 
 
-def wait_for_render(timeout: float = 3600.0, poll_sec: float = 5.0) -> None:
+def wait_for_render(timeout: float = 7200.0, poll_sec: float = 10.0) -> None:
+    """Poll until the render queue drains.
+
+    A rendering Resolve answers the bridge slowly, so a slow poll means "still
+    busy", not "broken" — swallow those and keep waiting until the overall
+    deadline. Two consecutive idle answers confirm completion (the queue
+    reports idle for a moment between queued jobs).
+    """
     deadline = time.time() + timeout
+    idle_streak = 0
     while time.time() < deadline:
-        if not rendering_in_progress():
+        try:
+            busy = rendering_in_progress()
+        except BridgeError:
+            time.sleep(poll_sec)
+            continue
+        idle_streak = 0 if busy else idle_streak + 1
+        if idle_streak >= 2:
             return
         time.sleep(poll_sec)
     raise BridgeError("render did not finish within %.0fs" % timeout)

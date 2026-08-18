@@ -61,10 +61,14 @@ class FrameGrid:
         return int(round(Fraction(seconds).limit_denominator(100000) / self.frame))
 
     def rt(self, seconds: float) -> str:
-        """Rational-seconds string snapped to the grid, e.g. '3003/24000s'."""
+        """Rational-seconds string snapped to the grid, e.g. '3003/24000s'.
+
+        The denominator is ALWAYS the format's timebase: Fraction would reduce
+        685685/24000 to 137137/4800, and Resolve rejects the whole file (import
+        returns nil, no error) when times aren't on the declared timebase.
+        """
         n = self.frames(seconds)
-        f = n * self.frame
-        return "%d/%ds" % (f.numerator, f.denominator)
+        return "%d/%ds" % (n * self.frame.numerator, self.frame.denominator)
 
     def snap(self, seconds: float) -> float:
         return float(self.frames(seconds) * self.frame)
@@ -275,37 +279,50 @@ def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
     for i, beat in enumerate(tl_map["beats"]):
         f = file_by_name[beat["file"]]
         aid = register(f["name"], f["path"], f["duration"], f.get("has_audio", False))
+
+        # Every overlay attaches to the segment whose record window CONTAINS
+        # its start — attaching elsewhere makes the child offset negative,
+        # which silently kills the whole import (found on the first
+        # multi-segment beat). A connected clip may extend past its parent's
+        # end; FCPXML allows that.
+        seg_windows = []
+        for seg in beat["segments"]:
+            seg_windows.append((seg, seg["record_s"],
+                                seg["record_s"] + (seg["src_e"] - seg["src_s"])))
+
+        def containing_segment(rec_t: float):
+            for seg, lo, hi in seg_windows:
+                if lo <= rec_t < hi:
+                    return seg
+            return seg_windows[0][0] if rec_t < seg_windows[0][1] else seg_windows[-1][0]
+
+        children_by_seg: "dict[int, list]" = {id(seg): [] for seg in beat["segments"]}
+        beat_overlays = (
+            [(1, "broll", item) for item in beat["broll"]] +
+            [(2, "card", item) for item in overlays_in(beat["record_s"], beat["record_e"], cards)] +
+            [(3, "cap", item) for item in overlays_in(beat["record_s"], beat["record_e"], caption_clips)]
+        )
+        for lane, kind, item in beat_overlays:
+            if kind == "broll":
+                bf = file_by_name[item["file"]]
+                cid = register(bf["name"], bf["path"], bf["duration"], bf.get("has_audio", False))
+                src_start = item.get("src_s", 0.0)
+            else:
+                cid = register(Path(item["path"]).name, item["path"],
+                               item["duration"], False)
+                src_start = 0.0
+            seg = containing_segment(item["record_s"])
+            rec_t = max(item["record_s"], seg["record_s"])
+            # child offset is in the PARENT'S source-time coordinates
+            child_off = seg["src_s"] + (rec_t - seg["record_s"])
+            children_by_seg[id(seg)].append(
+                '<video lane="%d" ref="%s" name=%s offset="%s" start="%s" duration="%s"/>'
+                % (lane, cid, quoteattr(kind + "_" + str(item.get("clip_id") or item.get("id"))),
+                   grid.rt(child_off), grid.rt(src_start), grid.rt(item["duration"])))
+
         for j, seg in enumerate(beat["segments"]):
             dur = seg["src_e"] - seg["src_s"]
-            children = []
-            if j == len(beat["segments"]) - 1:
-                # attach this beat's overlays to its last segment (widest window)
-                seg_rec_e = seg["record_s"] + dur
-                lane_items = (
-                    [(1, "broll", beat["broll"])] +
-                    [(2, "card", overlays_in(beat["record_s"], beat["record_e"], cards))] +
-                    [(3, "cap", overlays_in(beat["record_s"], beat["record_e"], caption_clips))]
-                )
-            else:
-                seg_rec_e = seg["record_s"] + dur
-                lane_items = [(1, "broll", [x for x in beat["broll"]
-                                            if seg["record_s"] <= x["record_s"] < seg_rec_e])]
-            for lane, kind, items in lane_items:
-                for item in items:
-                    if kind == "broll":
-                        bf = file_by_name[item["file"]]
-                        cid = register(bf["name"], bf["path"], bf["duration"], bf.get("has_audio", False))
-                        src_start = item.get("src_s", 0.0)
-                    else:
-                        cid = register(Path(item["path"]).name, item["path"],
-                                       item["duration"], False)
-                        src_start = 0.0
-                    # child offset is in the PARENT'S source-time coordinates
-                    child_off = seg["src_s"] + (item["record_s"] - seg["record_s"])
-                    children.append(
-                        '<video lane="%d" ref="%s" name=%s offset="%s" start="%s" duration="%s"/>'
-                        % (lane, cid, quoteattr(kind + "_" + str(item.get("clip_id") or item.get("id"))),
-                           grid.rt(child_off), grid.rt(src_start), grid.rt(item["duration"])))
+            children = children_by_seg[id(seg)]
             if j == 0 and beat["transition_in"] == "dissolve" and spine_parts:
                 spine_parts.append(
                     '<transition name="Cross Dissolve" offset="%s" duration="%s">'

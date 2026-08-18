@@ -87,7 +87,7 @@ def span_volume_db(path: str, s: float, e: float) -> "float | None":
     real take and transcribed passers-by."""
     proc = subprocess.run(
         ["ffmpeg", "-ss", "%.3f" % s, "-t", "%.3f" % max(e - s, 0.1),
-         "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+         "-i", path, "-vn", "-af", "volumedetect", "-f", "null", "-"],
         capture_output=True, text=True)
     for line in proc.stderr.splitlines():
         if "mean_volume" in line:

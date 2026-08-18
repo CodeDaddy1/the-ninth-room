@@ -81,14 +81,9 @@ while true do
     return
   end
   ticks = ticks + 1
-  if ticks % 40 == 0 then
-    local probe = Resolve()
-    if probe == nil then
-      print("[curated-bridge] Resolve is gone — exiting")
-      return
-    end
-    resolve = probe
-  end
+  -- No periodic Resolve() probe here: calling it on a loop destabilized the
+  -- bridge (2026-08-18). A dead Resolve shows up as a stale heartbeat, which
+  -- the Python side already treats as "down" and recovers from by restarting.
 
   for _, name in ipairs(list_inbox()) do
     local path = SPOOL .. "/inbox/" .. name

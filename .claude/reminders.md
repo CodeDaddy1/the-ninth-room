@@ -27,3 +27,16 @@ console settings, recordings, decisions). Check items off when done.
 
 - [x] 2026-08-18 — Started the Curated Bridge once so Phase 0 could verify
   the in-app scripting route.
+
+## Added 2026-08-18 (HMNS render)
+
+- [ ] **Give DaVinci Resolve permission to read the Desktop.** System Settings ▸
+  Privacy & Security ▸ **Files and Folders** ▸ DaVinci Resolve ▸ enable
+  "Desktop Folder" (or grant **Full Disk Access** to DaVinci Resolve, which
+  covers every future footage location). Verified 2026-08-18: Resolve cannot
+  open `~/Desktop/Curated Curiosities/DJI/...` at all (`io.open` → BLOCKED),
+  so `ImportMedia`/`ImportTimelineFromFile` return nil for that footage while
+  files under `~/Projects/` import fine. **Workaround already in place:** the
+  pipeline copies footage into the repo's `work/<slug>/footage/`, which
+  Resolve can read — so this grant is optional, but it saves the copy step
+  and 62GB of duplication for future shoots.
