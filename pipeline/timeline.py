@@ -130,14 +130,51 @@ def plan_beats(slug: str) -> "dict":
     fps = speech_fps[0] if speech_fps else 30.0
     grid = FrameGrid(fps)
 
+    words_cache: "dict[str, list]" = {}
+
+    def file_words(f: "dict") -> "list[dict]":
+        if f["name"] not in words_cache:
+            wf = f.get("words_file")
+            words_cache[f["name"]] = (
+                json.loads((out / wf).read_text()) if wf and (out / wf).exists() else [])
+        return words_cache[f["name"]]
+
+    def snap_to_words(f: "dict", s: float, e: float) -> "tuple":
+        """Editors (human or agent) hand us approximate trims; cutting
+        mid-word sounds broken, so pull s back to the start of the word it
+        lands in (or forward to the next word) and push e to the end of the
+        word it lands in. No word within reach leaves the value alone."""
+        words = file_words(f)
+        if not words:
+            return s, e
+        starts = [w["s"] for w in words]
+        new_s = s
+        inside = [w for w in words if w["s"] - 0.05 <= s < w["e"]]
+        if inside:
+            new_s = inside[0]["s"]
+        else:
+            nxt = [t for t in starts if t >= s]
+            if nxt and nxt[0] - s <= 1.5:
+                new_s = nxt[0]
+        new_e = e
+        inside_e = [w for w in words if w["s"] < e <= w["e"] + 0.05]
+        if inside_e:
+            new_e = inside_e[0]["e"]
+        else:
+            prev = [w["e"] for w in words if w["e"] <= e]
+            if prev and e - prev[-1] <= 1.5:
+                new_e = prev[-1]
+        return (new_s, new_e) if new_e > new_s else (s, e)
+
     beats_out = []
     record = 0.0
     for b in plan["beats"]:
         take = take_by_id[b["take_id"]]
         f = file_by_name[take["file"]]
         trim = b.get("trim") or {"s": take["s"], "e": take["e"]}
-        span_s = max(0.0, trim["s"] - HEAD_PAD_SEC)
-        span_e = min(f["duration"], trim["e"] + TAIL_PAD_SEC)
+        snap_s, snap_e = snap_to_words(f, trim["s"], trim["e"])
+        span_s = max(0.0, snap_s - HEAD_PAD_SEC)
+        span_e = min(f["duration"], snap_e + TAIL_PAD_SEC)
         segments = cut_dead_space(span_s, span_e, f.get("silence", []))
 
         transition = b.get("transition_in", "cut")
