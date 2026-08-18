@@ -144,7 +144,15 @@ def ingest(slug: str, log=print) -> Path:
                                        "audio" if entry["kind"] == "audio" else
                                        "%dx%d@%s" % (entry.get("width", 0), entry.get("height", 0), entry.get("fps"))))
         if entry["has_audio"]:
-            words = transcribe(path)
+            # Transcriptions are cached per file so a rerun (or a timeout
+            # recovery) never repeats whisper work it already did.
+            words_file = entry["name"] + ".words.json"
+            words_path = out / words_file
+            if words_path.exists():
+                words = json.loads(words_path.read_text())
+            else:
+                words = transcribe(path)
+                words_path.write_text(json.dumps(words))
             n = len(words)
             minutes = entry["duration"] / 60.0 if entry["duration"] else 1.0
             wpm = n / minutes
@@ -152,10 +160,8 @@ def ingest(slug: str, log=print) -> Path:
             entry["class"] = "speech" if is_speech else "broll"
             entry["n_words"] = n
             entry["wpm"] = round(wpm, 1)
+            entry["words_file"] = words_file
             if is_speech:
-                words_file = entry["name"] + ".words.json"
-                (out / words_file).write_text(json.dumps(words))
-                entry["words_file"] = words_file
                 entry["silence"] = silence_gaps(words, entry["duration"])
                 log("         speech: %d words (%.0f wpm), %d silence gaps"
                     % (n, wpm, len(entry["silence"])))

@@ -22,6 +22,28 @@ def cmd_ingest(args) -> int:
     return 0
 
 
+def cmd_takes(args) -> int:
+    from . import takes
+    from .ingest import IngestError
+    try:
+        takes.analyze(args.slug)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_broll(args) -> int:
+    from . import broll
+    from .ingest import IngestError
+    try:
+        broll.catalog_broll(args.slug)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_bridge(args) -> int:
     from . import resolve_api as ra
     if args.action == "install":
@@ -45,6 +67,14 @@ def main(argv=None) -> int:
     p = sub.add_parser("ingest", help="probe + transcribe work/<slug>/footage/")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_ingest)
+
+    p = sub.add_parser("takes", help="segment speech into takes, group retakes")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_takes)
+
+    p = sub.add_parser("broll", help="catalog b-roll + contact sheets")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_broll)
 
     p = sub.add_parser("bridge", help="manage the in-app Resolve bridge")
     p.add_argument("action", choices=["install", "ensure", "stop", "status"])
