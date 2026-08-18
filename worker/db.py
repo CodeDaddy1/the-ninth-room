@@ -117,3 +117,27 @@ def ping() -> bool:
     """Quick reachability check used by `worker/cli.py ping`."""
     r = requests.get(_url(""), headers=_headers(), timeout=10)
     return r.status_code == 200
+
+
+# --- Storage (Phase 5) ----------------------------------------------------
+# The dashboard can only show what lives in Supabase Storage (thumbnails,
+# low-res previews). Uploads always upsert so a refetch/re-assemble replaces
+# the object at the same path instead of accumulating orphans.
+
+def storage_upload(bucket: str, path: str, data: bytes, content_type: str) -> None:
+    """Upload (upsert) `data` to `bucket/path` via the Storage REST API."""
+    url = config.SUPABASE_URL.rstrip("/") + f"/storage/v1/object/{bucket}/{path}"
+    h = _headers()
+    h["Content-Type"] = content_type
+    h["x-upsert"] = "true"
+    r = requests.post(url, headers=h, data=data, timeout=120)
+    if not r.ok:
+        raise SupabaseError(f"storage upload {bucket}/{path}: {r.status_code} {r.text[:300]}")
+
+
+def storage_remove(bucket: str, paths: list[str]) -> None:
+    """Delete objects from a bucket. Missing objects are not an error."""
+    url = config.SUPABASE_URL.rstrip("/") + f"/storage/v1/object/{bucket}"
+    r = requests.delete(url, headers=_headers(), data=json.dumps({"prefixes": paths}), timeout=60)
+    if not r.ok:
+        raise SupabaseError(f"storage remove {bucket}: {r.status_code} {r.text[:300]}")

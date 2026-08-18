@@ -1,0 +1,12 @@
+# Remote config for the Curated Curiosities Supabase project.
+# Deliberately minimal: `supabase config push` applies only the keys present
+# here, so this file pins exactly the auth URLs the magic-link flow needs
+# (see dashboard/src/app/auth/confirm/route.ts) and nothing else.
+project_id = "curated-curiosities"
+
+[auth]
+site_url = "https://curated-curiosities.vercel.app"
+additional_redirect_urls = [
+  "https://curated-curiosities.vercel.app/**",
+  "http://localhost:3000/**",
+]
