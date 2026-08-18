@@ -48,15 +48,46 @@ local function list_inbox()
   return names
 end
 
-write_file(SPOOL .. "/bridge.alive", tostring(os.time()))
-print("[curated-bridge] up — spool: " .. SPOOL)
+-- Single-instance guard: the Scripts menu runs this file as an external
+-- fuscript process that can OUTLIVE Resolve itself (verified 2026-08-18: an
+-- orphaned bridge from a quit Resolve kept stealing commands it could no
+-- longer execute). Each new bridge claims ownership; older instances notice
+-- and exit. A dead resolve handle also self-exits.
+math.randomseed(os.time())
+local OWNER = tostring(os.time()) .. "-" .. tostring(math.random(1, 1e9))
+write_file(SPOOL .. "/bridge.owner", OWNER)
 
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local v = f:read("*a")
+  f:close()
+  return v
+end
+
+write_file(SPOOL .. "/bridge.alive", tostring(os.time()))
+print("[curated-bridge] up — spool: " .. SPOOL .. " owner: " .. OWNER)
+
+local ticks = 0
 while true do
   local stopf = io.open(SPOOL .. "/stop", "r")
   if stopf then
     stopf:close()
     os.remove(SPOOL .. "/stop")
     break
+  end
+  if read_file(SPOOL .. "/bridge.owner") ~= OWNER then
+    print("[curated-bridge] newer bridge took over — exiting")
+    return
+  end
+  ticks = ticks + 1
+  if ticks % 40 == 0 then
+    local probe = Resolve()
+    if probe == nil then
+      print("[curated-bridge] Resolve is gone — exiting")
+      return
+    end
+    resolve = probe
   end
 
   for _, name in ipairs(list_inbox()) do
