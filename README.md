@@ -1,58 +1,20 @@
 # Curated Curiosities
 
 A social-media brand that brings **curated content that piques curiosity** —
-mainly on **Instagram** and **YouTube**. This repo holds the brand foundation,
-the production workflows, and a team of AI subagents that run the content
-pipeline.
+and the fully local program that edits its videos automatically.
 
-## What's here
+Caleb shoots raw footage (talking-head takes + b-roll), drops it in
+`work/<slug>/footage/`, and runs `/produce <slug>` in Claude Code. The
+pipeline transcribes, picks best takes, cuts dead space, designs the story,
+builds the timeline in DaVinci Resolve — cuts, transitions, brand design
+cards, captions — and renders the finished video. No cloud, no paid APIs.
 
-```
-curated-curiosities/
-├── CLAUDE.md                  ← start here: master context for the whole project
-├── README.md                  ← you are here
-├── brand/                     ← who the brand is
-│   ├── brand-brief.md
-│   ├── audience.md
-│   ├── content-pillars.md
-│   ├── voice-and-tone.md
-│   └── visual-identity.md
-├── workflows/                 ← how content gets made
-│   ├── content-workflow.md
-│   ├── posting-cadence.md
-│   └── platform-specs.md
-└── .claude/
-    └── agents/                ← the AI team
-        ├── curiosity-scout.md
-        ├── content-strategist.md
-        ├── youtube-scriptwriter.md
-        ├── instagram-copywriter.md
-        ├── visual-director.md
-        └── performance-analyst.md
-```
+- Start here: `CLAUDE.md` (context) → `ULTRA-PLAN.md` (build plan) →
+  `docs/resolve-findings.md` (Resolve ground rules)
+- Stack: Python 3.9 (`/usr/bin/python3` only) + ffmpeg + faster-whisper +
+  Pillow + headless Chrome + DaVinci Resolve (free) via the in-app Lua bridge
+- AI judgment: Claude Code subagents in `.claude/agents/` — no API calls
 
-## How to use the agents
-
-The files in `.claude/agents/` are subagent definitions. Each has a `name`,
-a `description` that tells Claude when to reach for it, and a system prompt
-that gives it its role and output format.
-
-A typical week:
-
-1. Ask **curiosity-scout** to surface 8–10 fact-checked topic candidates.
-2. Hand those to **content-strategist** to build the week's slate across
-   pillars and platforms.
-3. For each piece, route to **youtube-scriptwriter** and/or
-   **instagram-copywriter**, with **visual-director** for thumbnails/carousels.
-4. After things publish, give **performance-analyst** the numbers; its
-   learnings become the next brief for the scout.
-
-## Getting started from scratch
-
-1. Read `CLAUDE.md`.
-2. Fill in any `[BRACKETED]` placeholders in the brand docs — these are the
-   decisions only you can make (handles, exact palette, founder POV, etc.).
-3. Run the scout for your first batch of topics and start the loop.
-
-The brand docs are written as living documents — update them as the brand's
-voice and audience sharpen with real data.
+v1 (stock-footage pipeline + Supabase dashboard + worker daemon) was retired
+on 2026-08-18; its proven rendering techniques live on in
+`docs/reference-renderers/`.
