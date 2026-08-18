@@ -44,6 +44,29 @@ def cmd_broll(args) -> int:
     return 0
 
 
+def cmd_build_timeline(args) -> int:
+    from . import produce
+    from .ingest import IngestError
+    try:
+        produce.build_timeline(args.slug)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_produce(args) -> int:
+    from . import produce
+    from .ingest import IngestError
+    from .resolve_api import BridgeError
+    try:
+        produce.produce(args.slug)
+    except (IngestError, BridgeError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_bridge(args) -> int:
     from . import resolve_api as ra
     if args.action == "install":
@@ -75,6 +98,14 @@ def main(argv=None) -> int:
     p = sub.add_parser("broll", help="catalog b-roll + contact sheets")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_broll)
+
+    p = sub.add_parser("build-timeline", help="edit_plan -> captions/cards -> timeline.fcpxml")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_build_timeline)
+
+    p = sub.add_parser("produce", help="full auto: timeline -> Resolve -> rendered mp4")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_produce)
 
     p = sub.add_parser("bridge", help="manage the in-app Resolve bridge")
     p.add_argument("action", choices=["install", "ensure", "stop", "status"])
