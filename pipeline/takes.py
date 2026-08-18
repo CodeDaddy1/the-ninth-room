@@ -20,6 +20,7 @@ from __future__ import annotations
 import difflib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from .ingest import analysis_dir, IngestError
@@ -80,6 +81,23 @@ def take_metrics(take_words: "list[dict]") -> "dict":
     }
 
 
+def span_volume_db(path: str, s: float, e: float) -> "float | None":
+    """Mean volume of one take's audio span. Close-mic'd narration sits far
+    above background crowd chatter — the strongest cheap separator between a
+    real take and transcribed passers-by."""
+    proc = subprocess.run(
+        ["ffmpeg", "-ss", "%.3f" % s, "-t", "%.3f" % max(e - s, 0.1),
+         "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True)
+    for line in proc.stderr.splitlines():
+        if "mean_volume" in line:
+            try:
+                return float(line.split("mean_volume:")[1].split("dB")[0])
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
 def group_takes(takes: "list[dict]") -> "list[dict]":
     """Group takes by transcript similarity (same content, different attempts).
 
@@ -126,6 +144,9 @@ def analyze(slug: str, log=print) -> Path:
                 "s": round(run[0]["s"], 3),
                 "e": round(run[-1]["e"], 3),
             })
+            vol = span_volume_db(f["path"], m["s"], m["e"])
+            if vol is not None:
+                m["mean_volume_db"] = vol
             takes.append(m)
             log("[takes] %s %s %.1f–%.1fs %dw%s%s%s" % (
                 m["id"], f["name"], m["s"], m["e"], m["n_words"],
