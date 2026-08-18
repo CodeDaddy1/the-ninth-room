@@ -138,8 +138,20 @@ def ingest(slug: str, log=print) -> Path:
 
     out = analysis_dir(slug)
     entries = []
+    skipped = []
     for path in files:
-        entry = probe_file(path)
+        # One corrupt clip (e.g. a DJI recording stub cut off mid-write) must
+        # never sink the whole batch — skip it loudly and move on.
+        try:
+            entry = probe_file(path)
+        except IngestError as e:
+            skipped.append(path.name)
+            log("[ingest] SKIP %s — unreadable (%s)" % (path.name, e))
+            continue
+        if entry["duration"] <= 0:
+            skipped.append(path.name)
+            log("[ingest] SKIP %s — zero duration (interrupted recording?)" % path.name)
+            continue
         log("[ingest] %s  %.1fs %s" % (entry["name"], entry["duration"],
                                        "audio" if entry["kind"] == "audio" else
                                        "%dx%d@%s" % (entry.get("width", 0), entry.get("height", 0), entry.get("fps"))))
@@ -176,6 +188,7 @@ def ingest(slug: str, log=print) -> Path:
         "slug": slug,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "files": entries,
+        "skipped": skipped,
     }
     from . import schemas
     errors = schemas.validate_catalog(catalog)
