@@ -24,8 +24,21 @@ TILE_W, TILE_H = 480, 270  # 16:9 tiles; portrait sources letterbox inside
 GRID = 3  # 3x3 = 9 frames per sheet
 
 
+def _prefer_proxy(src: Path) -> Path:
+    """Use a DJI .LRF low-res proxy for frame grabs when one sits next to the
+    real file — decoding 720p H.264 beats decoding 4K HEVC ~10x. The sheet is
+    only 480px tiles, so proxy quality is plenty."""
+    real = src.resolve()
+    for suffix in (".LRF", ".lrf"):
+        proxy = real.with_suffix(suffix)
+        if proxy.exists() and proxy.stat().st_size > 100_000:
+            return proxy
+    return real
+
+
 def contact_sheet(src: Path, duration: float, dest: Path, tmp_dir: Path) -> None:
     """Grab GRID*GRID evenly spaced frames and paste them into one jpg."""
+    src = _prefer_proxy(src)
     n = GRID * GRID
     tmp_dir.mkdir(parents=True, exist_ok=True)
     frames = []
