@@ -1,31 +1,60 @@
 ---
-description: Full auto — raw footage in work/<slug>/footage/ becomes a rendered video in work/<slug>/deliverables/
-argument-hint: <slug> [--review]
+description: Produce a video from raw footage in checkpointed stages, stopping for Caleb's review at each one
+argument-hint: <slug> [--resume <checkpoint>] [--auto]
 ---
 
-Produce the video for slug `$ARGUMENTS` end to end. Footage must already be
-in `work/<slug>/footage/`. All Python runs with `/usr/bin/python3` from the
-repo root.
+Produce the video for slug `$ARGUMENTS`. Footage must already be in
+`work/<slug>/footage/`. All Python runs with `/usr/bin/python3` from the repo
+root.
 
-1. **Analyze** (skip any step whose output already exists and is newer than
-   the footage):
-   - `/usr/bin/python3 -m pipeline.cli ingest <slug>`
-   - `/usr/bin/python3 -m pipeline.cli takes <slug>`
-   - `/usr/bin/python3 -m pipeline.cli broll <slug>`
-2. **Story** — use the **story-designer** subagent for `<slug>`. It writes
-   `work/<slug>/edit_plan.json` and must report VALID.
-3. If `--review` was passed: stop here, show Caleb the plan summary, and wait
-   for his go-ahead before continuing.
-4. **Graphics** — use the **graphics-director** subagent for `<slug>`.
-5. **Captions** — use the **caption-editor** subagent for `<slug>`.
-6. **Build + render**:
-   - `/usr/bin/python3 -m pipeline.cli produce <slug>`
-   - If the bridge is down, this fails with the exact manual step (start
-     `Workspace ▸ Scripts ▸ Curated Bridge` in Resolve). Relay it verbatim,
-     then retry once the bridge heartbeat is alive.
-7. **QC** — use the **qc-reviewer** subagent on the rendered file. On
-   `QC: FAIL`, fix what it names (edit plan / cards / captions), re-run step
-   6, and re-review — at most two repair loops before reporting to Caleb.
+**This workflow stops for review.** Caleb evaluates and gives feedback at each
+checkpoint; do not run past one without his go-ahead. `--auto` runs straight
+through (use only when he says so); `--resume <checkpoint>` picks up at a
+named checkpoint after changes.
 
-Finish by reporting: the deliverable path, runtime, the three-line story
-(hook / build / payoff), and the QC verdict.
+## CP0 — Analysis (no review needed)
+
+- `pipeline.cli ingest <slug>` — probe + transcribe (slow on big shoots;
+  transcriptions are cached, so a rerun is cheap)
+- `pipeline.cli takes <slug>` — segment takes, flag flubs, measure levels
+- `pipeline.cli broll <slug>` — contact sheets
+
+Then survey what the footage actually contains: cluster clips by their
+embedded timestamps into sections, sample the strongest takes per section,
+and report the day's map.
+
+## CP1 — Scope 🛑 REVIEW
+
+Report the footage map and propose: format, runtime, chapters, and anything
+that needs a decision (unusable audio, missing coverage). **Stop for Caleb.**
+
+## CP2 — Story 🛑 REVIEW
+
+Use the **story-designer** subagent → `work/<slug>/edit_plan.json` (must
+validate). Present the chapter-by-chapter outline, the verbatim hook and
+closing line, and what strong material didn't fit. **Stop for Caleb.**
+
+## CP3 — Graphics & captions 🛑 REVIEW
+
+Use **graphics-director** → `graphics_plan.json` and **caption-editor** →
+`captions.json`. Render sample stills/animations (`pipeline.animate`) and show
+them composited over real frames. **Stop for Caleb.**
+
+## CP4 — Assembly 🛑 REVIEW
+
+`pipeline.cli produce <slug>` — builds the Resolve timeline, grades, renders.
+Send the preview (downscale if over ~25 MB) with the QC numbers: runtime,
+audio level, highlight clipping, shadow crush. **Stop for Caleb.**
+
+## CP5 — Finish
+
+Apply his notes, re-render, run the **qc-reviewer** subagent, and deliver the
+master path plus a preview.
+
+## Rules
+
+- Use the **post-production** subagent for anything about grading, cuts,
+  animation, or Resolve misbehaving.
+- Never report a stage done without measuring it (see that agent's checklist).
+- If the bridge is down, `pipeline.cli bridge ensure` starts Resolve and the
+  bridge; relay the manual step verbatim only if that fails.
