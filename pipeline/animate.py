@@ -207,17 +207,29 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
         png_path = (frames_dir / ("f%04d.png" % i)).resolve()
         html_path.write_text(_kit_html(card, w, h, t_ms) if use_kit
                              else _animated_html(card, w, h, preset, t_ms, duration_ms))
-        proc = subprocess.run(
-            [CHROME, "--headless=new", "--disable-gpu",
-             "--force-device-scale-factor=1",
-             "--window-size=%d,%d" % (w, h),
-             "--default-background-color=00000000",
-             "--screenshot=" + str(png_path), "file://" + str(html_path)],
-            capture_output=True, text=True, timeout=120)
+        cmd = [CHROME, "--headless=new", "--disable-gpu",
+               "--force-device-scale-factor=1",
+               "--window-size=%d,%d" % (w, h),
+               "--default-background-color=00000000",
+               "--screenshot=" + str(png_path), "file://" + str(html_path)]
+        # Chrome occasionally hangs under system load (a single hung frame
+        # sank a 30-minute produce on 2026-08-19); a fresh launch almost
+        # always succeeds, so retry before giving up on the whole card.
+        err = ""
+        for attempt in range(3):
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True,
+                                      timeout=120)
+                err = (proc.stderr or "")[-200:]
+            except subprocess.TimeoutExpired:
+                err = "chrome timed out after 120s"
+                continue
+            if proc.returncode == 0 and png_path.exists():
+                break
         html_path.unlink(missing_ok=True)
-        if proc.returncode != 0 or not png_path.exists():
+        if not png_path.exists():
             raise IngestError("animation frame %d failed for %s: %s"
-                              % (i, card["id"], (proc.stderr or "")[-200:]))
+                              % (i, card["id"], err))
 
     # Frames are independent, so shoot them concurrently. Chrome is heavy;
     # more than a handful at once just thrashes.
