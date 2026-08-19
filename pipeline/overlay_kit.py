@@ -512,24 +512,38 @@ def transition(card: "dict") -> str:
 
 
 def emoji_pop(card: "dict") -> str:
-    """Hype layer: one or more emoji popping in at a moment.
+    """Hype layer: emoji popping in at a moment — the FALLBACK treatment.
 
-    Emoji render from the system color-emoji font — free, sharp at any size,
-    and exactly what the genre uses. `emojis` is a list of {char, x, y,
-    size?, delay_ms?, wobble?}; coordinates are on the 1920x1080 stage. Keep
-    it to 1-3 emoji per moment: an emoji is a punchline mark, not confetti.
+    Policy (Caleb, 2026-08-19): an emoji rides inside the captions whenever a
+    caption is on screen at that moment (pipeline/captions.py renders it in
+    the line). This standalone card is only for caption-less moments, and it
+    goes big, front and center, on an ink disc so it never ghosts into the
+    footage. `emojis` is a list of {char, x?, y?, size?, delay_ms?, wobble?};
+    coordinates are on the 1920x1080 stage and default to centered. Keep it
+    to 1-3 emoji per moment: an emoji is a punchline mark, not confetti.
     """
     spans = []
+    n = len(card.get("emojis", []))
     for i, e in enumerate(card.get("emojis", [])):
         anim = ("bWobble 460ms %s %dms both" if e.get("wobble", True)
                 else "bPop 340ms %s %dms both") % (EASE_OUT, int(e.get("delay_ms", i * 120)))
+        size = int(e.get("size", 260))
+        pad = int(size * 0.30)
+        # default layout: centered row, upper third (clear of faces mid-frame
+        # and captions at the bottom)
+        x = int(e.get("x", 960 - (n * (size + pad * 2) + (n - 1) * 40) // 2
+                + i * (size + pad * 2 + 40)))
+        y = int(e.get("y", 240))
         spans.append(
-            '<div style="position:absolute;left:%dpx;top:%dpx;font-size:%dpx;'
-            'font-family:\'Apple Color Emoji\',sans-serif;line-height:1;'
-            'filter:drop-shadow(0 6px 18px rgba(0,0,0,.45));'
-            'animation:%s">%s</div>'
-            % (int(e.get("x", 960)), int(e.get("y", 300)),
-               int(e.get("size", 150)), anim, _e(e.get("char", "😱"))))
+            '<div style="position:absolute;left:%dpx;top:%dpx;'
+            'width:%dpx;height:%dpx;border-radius:50%%;'
+            'background:radial-gradient(circle at 50%% 42%%,rgba(16,16,20,.92),rgba(9,9,11,.92));'
+            'border:1px solid %s;box-shadow:0 18px 50px rgba(0,0,0,.5);'
+            'display:flex;align-items:center;justify-content:center;'
+            'font-size:%dpx;font-family:\'Apple Color Emoji\',sans-serif;'
+            'line-height:1;animation:%s">%s</div>'
+            % (x, y, size + pad * 2, size + pad * 2, HAIRLINE, size, anim,
+               _e(e.get("char", "😱"))))
     return "".join(spans)
 
 

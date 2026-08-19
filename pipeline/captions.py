@@ -50,6 +50,50 @@ SHADOW_OFFSET = 6
 POP_SCALE = 1.06              # the active word is drawn slightly larger
 
 
+# --- emoji in captions (Caleb, 2026-08-19) --------------------------------
+# Emoji ride INSIDE the caption line, popping with the spoken word — attached
+# to the joke, never covering a face, inheriting the caption's visibility
+# treatment. A standalone centered emoji card (overlay_kit.emoji_pop) is the
+# fallback only for moments with no caption on screen.
+EMOJI_TTC = "/System/Library/Fonts/Apple Color Emoji.ttc"
+EMOJI_SCALE = 1.22            # relative to the caption font size
+_EMOJI_CACHE: "dict" = {}
+
+
+def _is_emoji(tok: str) -> bool:
+    """True for tokens that are pictographs, not words (no letters/digits)."""
+    t = tok.strip()
+    return bool(t) and not any(c.isalnum() for c in t) and \
+        any(ord(c) >= 0x2190 for c in t)
+
+
+def _emoji_img(tok: str, px: int) -> "Image.Image | None":
+    """The emoji rendered to a tight RGBA image `px` tall (cached).
+
+    Apple Color Emoji is a bitmap (sbix) font: Pillow 11 scales most sizes
+    but rejects a few (137). Render at 160 and resize — always works.
+    """
+    key = (tok, px)
+    if key in _EMOJI_CACHE:
+        return _EMOJI_CACHE[key]
+    try:
+        f = ImageFont.truetype(EMOJI_TTC, 160)
+    except OSError:
+        _EMOJI_CACHE[key] = None
+        return None
+    canvas = Image.new("RGBA", (200 * len(tok), 220), (0, 0, 0, 0))
+    ImageDraw.Draw(canvas).text((20, 20), tok, font=f, embedded_color=True)
+    bb = canvas.getbbox()
+    if not bb:
+        _EMOJI_CACHE[key] = None
+        return None
+    img = canvas.crop(bb)
+    img = img.resize((max(1, round(img.width * px / img.height)), px),
+                     Image.LANCZOS)
+    _EMOJI_CACHE[key] = img
+    return img
+
+
 def _font(size: int, heavy: bool = True):
     """Brand body face. Avenir Next Heavy (index 8) is the punchy weight that
     holds up over busy footage; Bold and Arial Bold are the fallbacks."""
@@ -81,6 +125,10 @@ def group_phrases(timed_words: "list[dict]") -> "list[list[dict]]":
                         sum(len(x["disp"]) + 1 for x in cur) + len(w["disp"]) > PHRASE_MAX_CHARS)
             paused = w["t"] - prev["t"] >= PHRASE_GAP_SEC
             ended = prev["disp"].rstrip().endswith((".", "!", "?", ","))
+            # an emoji reacts to the phrase it follows — never orphan it into
+            # its own phrase just because the line it tags ended in punctuation
+            if _is_emoji(w["disp"]):
+                too_long = ended = False
             if too_long or paused or ended:
                 phrases.append(cur)
                 cur = []
@@ -106,17 +154,36 @@ def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
     d = ImageDraw.Draw(img)
 
     # Lay the words out on one line, measuring with each word's own font so
-    # the popped word doesn't overlap its neighbours.
+    # the popped word doesn't overlap its neighbours. Emoji tokens measure by
+    # their rendered image (slightly taller than the type, more when active).
     space = d.textlength(" ", font=base_font)
-    widths = []
+    widths, emoji_imgs = [], {}
     for i, word in enumerate(words):
-        f = pop_font if i == active else base_font
-        widths.append(d.textlength(word, font=f))
+        if _is_emoji(word):
+            px = int(size * EMOJI_SCALE * (1.12 if i == active else 1.0))
+            em = _emoji_img(word, px)
+            emoji_imgs[i] = em
+            widths.append(em.width if em else 0)
+        else:
+            f = pop_font if i == active else base_font
+            widths.append(d.textlength(word, font=f))
     total = sum(widths) + space * (len(words) - 1)
     x = (w - total) / 2
     y = PHRASE_BASELINE[orientation]
 
     for i, word in enumerate(words):
+        if i in emoji_imgs:
+            em = emoji_imgs[i]
+            if em is not None:
+                # center on the type's visual middle; soft shadow from the
+                # emoji's own alpha so it survives bright footage
+                ey = int(y + size * 0.55 - em.height / 2)
+                shadow = Image.new("RGBA", em.size, (0, 0, 0, 0))
+                shadow.paste((0, 0, 0, 110), mask=em.getchannel("A"))
+                img.alpha_composite(shadow, (int(x) + SHADOW_OFFSET, ey + SHADOW_OFFSET))
+                img.alpha_composite(em, (int(x), ey))
+            x += widths[i] + space
+            continue
         f = pop_font if i == active else base_font
         color = AMBER if i == active else CREAM
         # popped word sits slightly higher so both baselines look aligned
@@ -144,8 +211,10 @@ def align_words(display_text: str, whisper_words: "list[dict]") -> "list[dict]":
     anchors, so a mis-heard word still pops at roughly the right moment.
     """
     disp = [tok.strip(".,—") for tok in display_text.replace("—", " ").split()
-            if _norm(tok)]
-    S = [_norm(d) for d in disp]
+            if _norm(tok) or _is_emoji(tok)]
+    # emoji never match the transcript — a sentinel keeps difflib from
+    # pairing their empty normalization with a stray empty whisper token
+    S = ["\x00emoji" if _is_emoji(d) else _norm(d) for d in disp]
     T = [_norm(w["w"]) for w in whisper_words]
     Tt = [w["s"] for w in whisper_words]
     times: "list" = [None] * len(S)
@@ -169,6 +238,12 @@ def align_words(display_text: str, whisper_words: "list[dict]") -> "list[dict]":
             else:
                 times[idx] = nxt[0][1]
     out = [{"disp": d, "t": round(float(t), 3)} for d, t in zip(disp, times)]
+    out.sort(key=lambda x: x["t"])
+    # an emoji tagged onto a line inherits its neighbour's timestamp — pop it
+    # a breath AFTER the word it reacts to instead of on top of it
+    for i, o in enumerate(out):
+        if _is_emoji(o["disp"]) and i > 0 and o["t"] <= out[i - 1]["t"] + 0.05:
+            o["t"] = round(out[i - 1]["t"] + 0.3, 3)
     out.sort(key=lambda x: x["t"])
     return out
 

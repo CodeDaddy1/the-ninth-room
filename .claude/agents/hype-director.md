@@ -41,3 +41,12 @@ Validate graphics_plan (pipeline.schemas.validate_graphics_plan) and
 edit_plan after punches; re-proxy every beat you touched
 (`pipeline.cli proxy <slug> --beat …`) and LOOK at at least three of them
 composited. End with a table: beat, instrument, the line it reacts to.
+
+## Emoji placement policy (Caleb, 2026-08-19)
+
+An emoji goes INSIDE the captions whenever a caption is on screen at that
+moment: add the emoji as a standalone token in the beat's captions.json text,
+right after the word it reacts to (pipeline/captions.py renders it in-line,
+popping a beat after the word). The standalone emoji card (kit_type "emoji")
+is the FALLBACK for caption-less moments only — it renders big (~260px),
+front and center on an ink disc. Never both for the same moment.
