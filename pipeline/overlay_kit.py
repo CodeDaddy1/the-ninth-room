@@ -446,13 +446,16 @@ def vote(card: "dict") -> str:
                    "value": _e(r.get("value", "")), "pct": max(pct, 4),
                    "bar": ACCENT if lead else "rgba(252,252,250,.34)",
                    "ease": EASE_OUT, "delay": 120 + i * 110})
-    # The tally sits on an opaque ink panel like the scoreboard does — the
-    # bare version ghosted into bright footage and the joke never landed
-    # (QC, 2026-08-19). Solid navy-to-black, same treatment as the cards.
+    # The tally sits on an ink panel like the scoreboard does — the bare
+    # version ghosted into bright footage and the joke never landed
+    # (QC, 2026-08-19). Caleb's Edit Room pass (2026-08-19): slightly smaller,
+    # horizontally centered, and slightly translucent — but the panel must
+    # stay >= ~0.88 alpha or text drowns in bright footage (the drawer-bg
+    # lesson: near-transparent panels bleed the background through).
     return """
-<div style="position:absolute;right:120px;top:230px;width:860px;
-            background:linear-gradient(135deg,#101014 0%%,#09090B 100%%);
-            border:1px solid %(hair)s;border-radius:16px;padding:34px 40px 40px;
+<div style="position:absolute;left:0;right:0;margin:0 auto;top:230px;width:720px;
+            background:linear-gradient(135deg,rgba(16,16,20,.9) 0%%,rgba(9,9,11,.9) 100%%);
+            border:1px solid %(hair)s;border-radius:16px;padding:30px 36px 36px;
             color:%(text)s;font-family:%(body_font)s;
             box-shadow:0 24px 60px rgba(0,0,0,.5);
             animation:bPop 320ms %(ease)s both">
