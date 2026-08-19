@@ -46,22 +46,31 @@ _BASE_CSS = """
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: %(w)spx; height: %(h)spx; background: transparent; }
 body { font-family: "Avenir Next", "Helvetica Neue", sans-serif; color: %(cream)s;
-       display: flex; align-items: %(valign)s; justify-content: center; }
-.card { background: %(navy)sE6; border-left: 10px solid %(amber)s;
-        border-radius: 28px; padding: 64px 72px; max-width: 82%%;
-        margin-bottom: %(mb)spx; margin-top: %(mt)spx; }
-.kicker { color: %(amber)s; font-size: 34px; letter-spacing: 0.18em;
-          text-transform: uppercase; font-weight: 600; margin-bottom: 18px; }
+       display: flex; align-items: %(valign)s; justify-content: %(halign)s;
+       padding: %(pad)spx; }
+/* A translucent slab reads as a lower-third, not a dialog box: no hard
+   border, a soft shadow to lift it off the footage, and an amber rule under
+   the kicker instead of a border on the side. */
+.card { background: linear-gradient(135deg, %(navy)sF2 0%%, %(navy)sD9 100%%);
+        border-radius: 22px; padding: 48px 60px 52px; max-width: %(maxw)s%%;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+        border-top: 3px solid %(amber)s66; }
+.kicker { color: %(amber)s; font-size: %(kicker)spx; letter-spacing: 0.2em;
+          text-transform: uppercase; font-weight: 700; margin-bottom: 14px; }
+.kicker::after { content: ""; display: block; width: 64px; height: 3px;
+                 background: %(amber)s; margin-top: 14px; border-radius: 2px; }
 .display { font-family: Didot, "Bodoni 72", serif; font-weight: 700;
-           font-size: 92px; line-height: 1.08; }
+           font-size: %(display)spx; line-height: 1.06;
+           text-shadow: 0 3px 18px rgba(0,0,0,0.35); }
 .display .em { color: %(amber)s; }
-.body { font-size: 40px; line-height: 1.35; color: %(cream)s; }
-.stat-number { font-family: Didot, "Bodoni 72", serif; font-size: 200px;
-               line-height: 1; color: %(amber)s; }
-.stat-label { font-size: 44px; margin-top: 12px; }
+.body { font-size: %(body)spx; line-height: 1.35; color: %(cream)s; opacity: 0.92; }
+.stat-number { font-family: Didot, "Bodoni 72", serif; font-size: %(stat)spx;
+               line-height: 1; color: %(amber)s;
+               text-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+.stat-label { font-size: %(body)spx; margin-top: 10px; }
 .quote-mark { color: %(amber)s; font-family: Didot, serif; font-size: 120px;
               line-height: 0.6; }
-.attribution { color: %(slate)s; font-size: 36px; margin-top: 24px; }
+.attribution { color: %(slate)s; font-size: 34px; margin-top: 22px; }
 """
 
 
@@ -76,11 +85,23 @@ def _emphasize(text: str, emphasis: "list[str]") -> str:
 
 def card_html(card: "dict", w: int, h: int) -> str:
     ctype = card["type"]
-    # Hooks sit slightly above center (thumb-zone safe); others center.
-    valign, mt, mb = ("center", 0, int(h * 0.12)) if ctype == "hook_title" else ("center", 0, 0)
-    css = _BASE_CSS % {"w": w, "h": h, "navy": NAVY, "amber": AMBER,
-                       "cream": CREAM, "slate": SLATE,
-                       "valign": valign, "mt": mt, "mb": mb}
+    portrait = h > w
+    # Landscape cards sit low-left like a broadcast lower-third and leave the
+    # frame's centre (usually the person) clear; portrait cards centre above
+    # the caption band. Type scales with the canvas so 4K and 1080 match.
+    if portrait:
+        valign, halign, maxw = "center", "center", 84
+        scale = w / 1080.0
+    else:
+        valign, halign, maxw = "flex-end", "flex-start", 52
+        scale = w / 1920.0
+    css = _BASE_CSS % {
+        "w": w, "h": h, "navy": NAVY, "amber": AMBER, "cream": CREAM,
+        "slate": SLATE, "valign": valign, "halign": halign, "maxw": maxw,
+        "pad": int((110 if portrait else 96) * scale),
+        "kicker": int(30 * scale), "display": int((86 if portrait else 76) * scale),
+        "body": int(38 * scale), "stat": int(180 * scale),
+    }
     kicker = ('<div class="kicker">%s</div>' % html.escape(card["kicker"])) if card.get("kicker") else ""
     if ctype in ("hook_title", "section", "outro"):
         body = '%s<div class="display">%s</div>' % (

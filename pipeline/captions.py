@@ -26,6 +26,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .ingest import IngestError
 
 CREAM = (244, 239, 230)
+AMBER = (232, 163, 61)
 NAVY_CHIP = (14, 27, 44, 190)
 
 # Caption baseline sits above the platform UI safe zone (bottom caption bar,
@@ -33,12 +34,28 @@ NAVY_CHIP = (14, 27, 44, 190)
 CHIP_ANCHOR_Y = {"portrait": 1290, "landscape": 830}
 CHIP_FONT_SIZE = {"portrait": 110, "landscape": 84}
 
+# --- phrase captions (the YouTube-grade style) ---------------------------
+# A single word in a box reads as a 2010s subtitle. What modern short-form
+# uses instead: a short PHRASE held on screen with the word being spoken
+# highlighted, set in heavy type with an outline and a soft shadow so it
+# survives any background without a box.
+PHRASE_MAX_WORDS = 4
+PHRASE_MAX_CHARS = 26
+PHRASE_GAP_SEC = 0.9          # a pause this long always starts a new phrase
+PHRASE_FONT_SIZE = {"portrait": 96, "landscape": 78}
+PHRASE_BASELINE = {"portrait": 1330, "landscape": 858}   # top of the text block
+PHRASE_LINE_GAP = 12
+STROKE_PX = {"portrait": 9, "landscape": 7}
+SHADOW_OFFSET = 6
+POP_SCALE = 1.06              # the active word is drawn slightly larger
 
-def _font(size: int):
-    """Brand body is a humanist sans; Avenir Next ships with macOS. Arial
-    Bold is the proven fallback."""
+
+def _font(size: int, heavy: bool = True):
+    """Brand body face. Avenir Next Heavy (index 8) is the punchy weight that
+    holds up over busy footage; Bold and Arial Bold are the fallbacks."""
     candidates = [
-        ("/System/Library/Fonts/Avenir Next.ttc", 2),  # index 2 ≈ Bold face
+        ("/System/Library/Fonts/Avenir Next.ttc", 8 if heavy else 0),
+        ("/System/Library/Fonts/Avenir Next.ttc", 0),
         ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 0),
         ("/System/Library/Fonts/Helvetica.ttc", 0),
     ]
@@ -49,6 +66,66 @@ def _font(size: int):
             except OSError:
                 continue
     return ImageFont.load_default()
+
+
+def group_phrases(timed_words: "list[dict]") -> "list[list[dict]]":
+    """Chunk timed words into short phrases: break on a long pause, on
+    sentence-ending punctuation, or when the line gets too long to read."""
+    phrases: "list[list[dict]]" = []
+    cur: "list[dict]" = []
+    for i, w in enumerate(timed_words):
+        if cur:
+            prev = cur[-1]
+            too_long = (len(cur) >= PHRASE_MAX_WORDS or
+                        sum(len(x["disp"]) + 1 for x in cur) + len(w["disp"]) > PHRASE_MAX_CHARS)
+            paused = w["t"] - prev["t"] >= PHRASE_GAP_SEC
+            ended = prev["disp"].rstrip().endswith((".", "!", "?", ","))
+            if too_long or paused or ended:
+                phrases.append(cur)
+                cur = []
+        cur.append(w)
+    if cur:
+        phrases.append(cur)
+    return phrases
+
+
+def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
+               orientation: str) -> None:
+    """Render one phrase with `active` highlighted in amber.
+
+    Heavy type, dark stroke and a soft drop shadow — legible over bright
+    foliage or dark cave walls without a box behind it.
+    """
+    size = PHRASE_FONT_SIZE[orientation]
+    stroke = STROKE_PX[orientation]
+    base_font = _font(size)
+    pop_font = _font(int(size * POP_SCALE))
+
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    # Lay the words out on one line, measuring with each word's own font so
+    # the popped word doesn't overlap its neighbours.
+    space = d.textlength(" ", font=base_font)
+    widths = []
+    for i, word in enumerate(words):
+        f = pop_font if i == active else base_font
+        widths.append(d.textlength(word, font=f))
+    total = sum(widths) + space * (len(words) - 1)
+    x = (w - total) / 2
+    y = PHRASE_BASELINE[orientation]
+
+    for i, word in enumerate(words):
+        f = pop_font if i == active else base_font
+        color = AMBER if i == active else CREAM
+        # popped word sits slightly higher so both baselines look aligned
+        wy = y - (pop_font.size - base_font.size) * 0.72 if i == active else y
+        d.text((x + SHADOW_OFFSET, wy + SHADOW_OFFSET), word, font=f,
+               fill=(0, 0, 0, 110), stroke_width=stroke, stroke_fill=(0, 0, 0, 110))
+        d.text((x, wy), word, font=f, fill=color,
+               stroke_width=stroke, stroke_fill=(12, 20, 32, 235))
+        x += widths[i] + space
+    img.save(dest)
 
 
 def _norm(s: str) -> str:
@@ -117,25 +194,44 @@ def word_chip(word: str, dest: Path, w: int, h: int, orientation: str) -> None:
 def bake_caption_clip(timed_words: "list[dict]", duration: float, out_mov: Path,
                       w: int, h: int, orientation: str, tmp_dir: Path,
                       fps: int = 30) -> None:
-    """Bake one beat's word-pop caption track as a transparent ProRes clip.
+    """Bake one beat's caption track as a transparent ProRes clip.
 
     timed_words: [{"disp","t"}] with t RELATIVE to the clip start (the caller
-    retimes source seconds to beat-local seconds). Each word shows from its t
-    until the next word's t (last word holds to the end).
+    retimes source seconds to beat-local seconds). Words are grouped into
+    short phrases; one frame-state per word shows the whole phrase with the
+    spoken word highlighted, held from its start until the next word begins.
     """
     if not timed_words:
         raise IngestError("bake_caption_clip: no words")
     tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    phrases = group_phrases(timed_words)
+    states = []  # (png_path, start, end)
+    idx = 0
+    for p_i, phrase in enumerate(phrases):
+        words = [x["disp"] for x in phrase]
+        for w_i, word in enumerate(phrase):
+            png = tmp_dir / ("cap_%03d.png" % idx)
+            phrase_png(words, w_i, png, w, h, orientation)
+            start = word["t"]
+            if w_i + 1 < len(phrase):
+                end = phrase[w_i + 1]["t"]
+            elif p_i + 1 < len(phrases):
+                # hold the finished phrase until the next one starts, but not
+                # through a long silence — drop it after a beat of quiet.
+                end = min(phrases[p_i + 1][0]["t"], start + 1.6)
+            else:
+                end = duration
+            states.append((png, start, end))
+            idx += 1
+
     inputs = ["-f", "lavfi", "-i",
               "color=c=black@0.0:s=%dx%d:r=%d:d=%.3f,format=rgba" % (w, h, fps, duration)]
     chains = []
     prev = "[0:v]"
-    for i, tw_ in enumerate(timed_words):
-        png = tmp_dir / ("cap_%03d.png" % i)
-        word_chip(tw_["disp"], png, w, h, orientation)
+    for i, (png, s, e) in enumerate(states):
         inputs += ["-loop", "1", "-t", "%.3f" % duration, "-r", str(fps), "-i", str(png)]
-        s = max(0.0, min(tw_["t"], duration - 0.05))
-        e = timed_words[i + 1]["t"] if i + 1 < len(timed_words) else duration
+        s = max(0.0, min(s, duration - 0.05))
         e = max(s + 0.05, min(e, duration))
         chains.append("%s[%d:v]overlay=0:0:format=auto:enable='between(t,%.3f,%.3f)'[v%d]"
                       % (prev, i + 1, s, e, i))

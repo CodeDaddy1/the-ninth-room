@@ -58,6 +58,18 @@ return tostring(items and #items or 0)
 ''' % lua_list, timeout=900)
     log("[build] media pool: %s/%d clips" % (got, len(uniq)))
 
+    # Measure every camera clip now so its grade is ready to apply once the
+    # timeline exists. We measure rather than assume a log profile — see the
+    # pipeline/color.py docstring for why the filename suffix lies.
+    from . import color as color_mod
+    color_mod.use_standard_color_science(log=log)
+    camera_files = {}
+    for b in tl_map["beats"]:
+        camera_files[by_name[b["file"]]["name"]] = by_name[b["file"]]
+        for br in b["broll"]:
+            camera_files[by_name[br["file"]]["name"]] = by_name[br["file"]]
+    grades = color_mod.plan_grade(slug, list(camera_files.values()), log=log)
+
     # 2. Fresh empty timeline at the right rate/resolution.
     from .timeline import CANVAS
     w, h = CANVAS[tl_map["orientation"]]
@@ -237,4 +249,7 @@ return msg
             % dissolves_lost)
     if "MISSING=" in out or "FAILED=" in out:
         raise IngestError("timeline build incomplete: %s" % out)
+
+    color_mod.apply_grade({k: v for k, v in grades.items() if k in camera_files},
+                          log=log)
     return tl_name
