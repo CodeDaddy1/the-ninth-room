@@ -117,7 +117,7 @@ def build_timeline(slug: str, log=print) -> Path:
     log("[produce] %d beats, %.1fs total @ %sfps %s"
         % (len(tl_map["beats"]), tl_map["duration"], tl_map["fps"], tl_map["orientation"]))
     cards = _card_clips(slug, tl_map, log)
-    caps = _beat_caption_clips(slug, tl_map, log)
+    caps = _beat_caption_clips(slug, tl_map, log=log)
     path = timeline_mod.write_fcpxml(slug, tl_map, cards, caps)
     log("[produce] wrote %s" % path)
     return path
@@ -146,7 +146,7 @@ def build_assets(slug: str, log=print) -> "tuple":
     log("[produce] %d beats, %.1fs total @ %sfps %s"
         % (len(tl_map["beats"]), tl_map["duration"], tl_map["fps"], tl_map["orientation"]))
     cards = _card_clips(slug, tl_map, log)
-    caps = _beat_caption_clips(slug, tl_map, log)
+    caps = _beat_caption_clips(slug, tl_map, log=log)
     return tl_map, cards, caps
 
 
