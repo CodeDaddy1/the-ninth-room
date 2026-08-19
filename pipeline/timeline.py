@@ -31,10 +31,11 @@ from xml.sax.saxutils import escape, quoteattr
 
 from .ingest import work_path, analysis_dir, IngestError
 
-MAX_KEEP_GAP_SEC = 0.9   # in-take silence longer than this is dead space
-KEEP_PAD_SEC = 0.25      # breathing room kept on each side of a dead-space cut
-HEAD_PAD_SEC = 0.15      # lead-in kept before a take's first word
-TAIL_PAD_SEC = 0.30      # room kept after a take's last word
+MAX_KEEP_GAP_SEC = 0.65  # in-take silence longer than this is dead space
+                         # (0.9 read as documentary pacing; YouTube cuts tighter)
+KEEP_PAD_SEC = 0.2       # breathing room kept on each side of a dead-space cut
+HEAD_PAD_SEC = 0.12      # lead-in kept before a take's first word
+TAIL_PAD_SEC = 0.22      # room kept after a take's last word
 DISSOLVE_SEC = 1.0
 MIN_SEGMENT_SEC = 0.4    # segments shorter than this merge into their neighbor
 
