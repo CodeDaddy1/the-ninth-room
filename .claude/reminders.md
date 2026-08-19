@@ -40,3 +40,12 @@ console settings, recordings, decisions). Check items off when done.
   pipeline copies footage into the repo's `work/<slug>/footage/`, which
   Resolve can read — so this grant is optional, but it saves the copy step
   and 62GB of duplication for future shoots.
+
+## Added 2026-08-18 (music)
+
+- [ ] **Confirm the music licence before publishing.** The library in
+  `brand/design-system/Music copy/` looks like Epidemic Sound (the `ES_` file
+  prefixes). Epidemic requires an active subscription tied to the channel, and
+  YouTube needs the channel connected in the Epidemic dashboard or the upload
+  can still get a claim. Per-chapter credits are written to
+  `work/<slug>/music_credits.json` for the video description.

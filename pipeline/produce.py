@@ -146,4 +146,13 @@ def produce(slug: str, log=print) -> Path:
     ra.ensure_bridge()
     render_mod.project_for_slug(slug, tl_map["fps"], log=log)
     tl_name = build_api.build(slug, cards, caps, log=log)
-    return render_mod.render_current(slug, tl_name, log=log)
+    master = render_mod.render_current(slug, tl_name, log=log)
+
+    # Music is mixed onto the master, not inside Resolve — the API has no
+    # audio-track or gain control (see pipeline/music.py).
+    try:
+        from . import music as music_mod
+        return music_mod.score(slug, master, log=log)
+    except IngestError as e:
+        log("[music] skipped: %s" % e)
+        return master
