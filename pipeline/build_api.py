@@ -72,6 +72,13 @@ def build(slug: str, cards: "list[dict]", caption_clips: "list[dict]", log=print
     got = ra.send("preload_media", '''
 local mp = resolve:GetProjectManager():GetCurrentProject():GetMediaPool()
 local items = mp:ImportMedia({%s})
+-- Stash THIS build's imports by name. Rebuilds regenerate overlay .movs at
+-- the same paths, and the pool can hold stale same-name items from earlier
+-- builds whose files were replaced or missing; a name-only scan could pick
+-- an offline one. Bridge globals persist within a session, so later append
+-- commands prefer these fresh handles.
+_cc_imported = _cc_imported or {}
+for _, it in ipairs(items or {}) do _cc_imported[it:GetName()] = it end
 return tostring(items and #items or 0)
 ''' % lua_list, timeout=900)
     log("[build] media pool: %s/%d clips" % (got, len(uniq)))
@@ -146,6 +153,7 @@ local function scan(f)
   for _, s in ipairs(f:GetSubFolderList()) do scan(s) end
 end
 scan(mp:GetRootFolder())
+for n, it in pairs(_cc_imported or {}) do byname[n] = it end
 local infos = {}
 for _, e in ipairs({%s}) do
   local item = byname[e.n]

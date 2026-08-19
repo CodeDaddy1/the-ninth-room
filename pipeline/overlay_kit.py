@@ -217,7 +217,7 @@ def scoreboard(card: "dict") -> str:
 def stat(card: "dict") -> str:
     """A number card in the kit's language: label, then the figure pops."""
     return """
-<div style="position:absolute;left:110px;top:130px;background:%(ink)s;border:1px solid %(hair)s;
+<div style="position:absolute;left:110px;top:130px;background:linear-gradient(135deg,#101014 0%%,#09090B 100%%);box-shadow:0 24px 60px rgba(0,0,0,.5);border:1px solid %(hair)s;
             border-radius:16px;padding:30px 40px 34px;color:%(text)s;font-family:%(body_font)s;
             animation:bPlate 260ms %(ease_std)s both">
   <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
@@ -478,7 +478,9 @@ def transition(card: "dict") -> str:
     return """
 <div style="position:absolute;inset:0;overflow:hidden">
   <div style="position:absolute;inset:0;background:linear-gradient(100deg,
-              rgba(9,9,11,.97) 0%%, rgba(22,22,26,.94) 55%%, rgba(9,9,11,.97) 100%%);
+              rgba(9,9,11,.68) 0%%, rgba(20,20,24,.55) 45%%,
+              rgba(252,252,250,.05) 52%%, rgba(20,20,24,.55) 59%%,
+              rgba(9,9,11,.68) 100%%);
               animation:bSweepIn %(sweep)dms %(ease)s both,
                         bSweepOut %(sweep)dms %(ease_in)s %(out)dms both">
     <div style="position:absolute;left:130px;top:0;bottom:0;display:flex;flex-direction:column;
