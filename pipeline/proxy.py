@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -75,6 +76,10 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
     work = work_path(slug)
     src = catalog[beat["file"]]["path"]
     rec0 = beat["record_s"]
+    # ffmpeg writes to a temp name the Edit Room's BT*.mp4 glob can't see,
+    # then an atomic rename publishes it — a browser must never fetch a
+    # half-encoded proxy (that is exactly how BT103 broke).
+    tmp_path = out_path.parent / ("_tmp.%s" % out_path.name)
 
     # --- inputs -----------------------------------------------------------
     inputs, seg_labels = [], []
@@ -139,10 +144,13 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
     cmd = (["ffmpeg", "-y", "-loglevel", "error"] + inputs +
            ["-filter_complex", ";".join(fc), "-map", "[%s]" % cur, "-map", "[aud]",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF),
-            "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(out_path)])
+            "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(tmp_path)])
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
+        if tmp_path.exists():
+            tmp_path.unlink()
         raise IngestError("proxy %s failed: %s" % (beat["id"], proc.stderr[-300:]))
+    os.replace(tmp_path, out_path)
     return out_path
 
 
@@ -151,6 +159,8 @@ def build(slug: str, only_beats: "list | None" = None, log=print) -> "dict":
     tl, catalog, caps, cards_by_beat = _load(slug)
     proxy_dir = work_path(slug) / "proxies"
     proxy_dir.mkdir(exist_ok=True)
+    for orphan in proxy_dir.glob("_tmp.*.mp4"):  # leftovers from a crashed run
+        orphan.unlink()
     result, fresh = {}, 0
     for beat in tl["beats"]:
         bid = beat["id"]
