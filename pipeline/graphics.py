@@ -188,8 +188,15 @@ def bake_mov(png: Path, out_mov: Path, duration: float, w: int, h: int,
 
 # --- the stage ------------------------------------------------------------
 
-def build_cards(slug: str, orientation: str = "portrait", log=print) -> "list[Path]":
-    """Render every card in work/<slug>/graphics_plan.json to graphics/<id>.mov."""
+def build_cards(slug: str, orientation: str = "portrait",
+                only_ids: "list | None" = None, log=print) -> "list[Path]":
+    """Render every card in work/<slug>/graphics_plan.json to graphics/<id>.mov.
+
+    only_ids: render just these card ids (the shot-fixer's surgical path).
+    Cards marked "prebaked": true are hand-baked effect clips (e.g. an
+    ffmpeg-built zoom/desaturate on real footage) — their .mov is used as-is
+    and NEVER re-rendered through the kit, which would clobber it.
+    """
     work = work_path(slug)
     plan_path = work / "graphics_plan.json"
     if not plan_path.exists():
@@ -220,7 +227,16 @@ def build_cards(slug: str, orientation: str = "portrait", log=print) -> "list[Pa
     tmp_dir = out_dir / "tmp"
     movs = []
     for card in plan["cards"]:
+        if only_ids and card["id"] not in only_ids:
+            continue
         mov = out_dir / (card["id"] + ".mov")
+        if card.get("prebaked"):
+            if not mov.exists():
+                raise IngestError("card %s is prebaked but %s does not exist"
+                                  % (card["id"], mov))
+            movs.append(mov)
+            log("[graphics] %s (prebaked, kept as-is)" % card["id"])
+            continue
         preset = PRESET_FOR.get(card.get("animation", "slide_up"), "reveal_up")
         spec = dict(card)
         spec.setdefault("kit_type", KIT_FOR.get(card["type"], "lower_third"))

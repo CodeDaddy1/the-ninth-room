@@ -34,8 +34,12 @@ def retime(t: float, segments: "list[dict]") -> "float | None":
     return None
 
 
-def _beat_caption_clips(slug: str, tl_map: "dict", log=print) -> "list[dict]":
-    """Bake one word-pop caption clip per beat from captions.json (if present)."""
+def _beat_caption_clips(slug: str, tl_map: "dict",
+                        only_beats: "list | None" = None, log=print) -> "list[dict]":
+    """Bake one word-pop caption clip per beat from captions.json (if present).
+
+    only_beats: bake just these beat ids (the shot-fixer's surgical path).
+    """
     work = work_path(slug)
     cap_path = work / "captions.json"
     if not cap_path.exists():
@@ -53,6 +57,8 @@ def _beat_caption_clips(slug: str, tl_map: "dict", log=print) -> "list[dict]":
     cap_dir.mkdir(exist_ok=True)
     clips = []
     for beat in tl_map["beats"]:
+        if only_beats and beat["id"] not in only_beats:
+            continue
         spec = by_beat.get(beat["id"])
         if not spec or not spec.get("text"):
             continue
@@ -115,6 +121,22 @@ def build_timeline(slug: str, log=print) -> Path:
     path = timeline_mod.write_fcpxml(slug, tl_map, cards, caps)
     log("[produce] wrote %s" % path)
     return path
+
+
+def rebake(slug: str, beat_ids: "list | None" = None,
+           card_ids: "list | None" = None, log=print) -> "dict":
+    """The shot-fixer's surgical rebuild: regenerate the timeline map from
+    the (edited) plan, then re-bake ONLY the named caption beats and card
+    ids. Nothing else is touched — no Resolve, no renders, no full bakes.
+    """
+    tl_map = timeline_mod.plan_beats(slug)
+    log("[rebake] %d beats, %.1fs total" % (len(tl_map["beats"]), tl_map["duration"]))
+    if card_ids:
+        graphics_mod.build_cards(slug, orientation=tl_map["orientation"],
+                                 only_ids=card_ids, log=log)
+    if beat_ids:
+        _beat_caption_clips(slug, tl_map, only_beats=beat_ids, log=log)
+    return tl_map
 
 
 def build_assets(slug: str, log=print) -> "tuple":

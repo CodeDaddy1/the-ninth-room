@@ -56,18 +56,43 @@ def _load(slug: str) -> "tuple":
     return tl, catalog, caps, cards_by_beat
 
 
+def _relative_beat(beat: "dict") -> "dict":
+    """The beat with all record times rebased to 0.
+
+    A beat's pixels depend only on beat-RELATIVE timing (segments are
+    concatenated, overlays are placed at `record - rec0`), so the cache key
+    must not include absolute record position — otherwise removing one shot
+    invalidates every proxy downstream of it, which is exactly the
+    full-re-render loop this cache exists to break.
+    """
+    import copy
+    b = copy.deepcopy(beat)
+    r0 = b["record_s"]
+    b["record_s"] = 0.0
+    b["record_e"] = round(b["record_e"] - r0, 6)
+    for seg in b.get("segments", []):
+        if "record_s" in seg:
+            seg["record_s"] = round(seg["record_s"] - r0, 6)
+        if "record_e" in seg:
+            seg["record_e"] = round(seg["record_e"] - r0, 6)
+    for br in b.get("broll", []):
+        if "record_s" in br:
+            br["record_s"] = round(br["record_s"] - r0, 6)
+    return b
+
+
 def beat_spec(beat: "dict", caption_text: str, cards: "list") -> "dict":
     """Everything that shapes this beat's pixels — the cache key."""
     from . import timeline as tl_mod
     return {
-        "beat": beat, "caption": caption_text,
+        "beat": _relative_beat(beat), "caption": caption_text,
         "cards": [{k: c.get(k) for k in ("id", "type", "kit_type", "at", "duration",
                                           "kicker", "text", "stat", "subtext",
                                           "emphasis", "rows", "entries", "animation")}
                   for c in cards],
         "pace": [tl_mod.MAX_KEEP_GAP_SEC, tl_mod.KEEP_PAD_SEC,
                  tl_mod.HEAD_PAD_SEC, tl_mod.TAIL_PAD_SEC],
-        "v": 3,  # bump to invalidate every cached proxy after a renderer change
+        "v": 4,  # bump to invalidate every cached proxy after a renderer change
     }
 
 

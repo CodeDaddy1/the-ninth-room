@@ -90,6 +90,18 @@ def cmd_proxy(args) -> int:
     return 0
 
 
+def cmd_rebake(args) -> int:
+    from . import produce
+    from .ingest import IngestError
+    try:
+        produce.rebake(args.slug, beat_ids=args.beat or None,
+                       card_ids=args.card or None)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_editroom(args) -> int:
     from . import editroom
     editroom.serve(args.slug, port=args.port)
@@ -150,6 +162,12 @@ def main(argv=None) -> int:
     p.add_argument("slug")
     p.add_argument("--beat", action="append", help="only these beat ids")
     p.set_defaults(fn=cmd_proxy)
+
+    p = sub.add_parser("rebake", help="regen timeline map + re-bake only named captions/cards")
+    p.add_argument("slug")
+    p.add_argument("--beat", action="append", help="re-bake captions for these beat ids")
+    p.add_argument("--card", action="append", help="re-render these card ids")
+    p.set_defaults(fn=cmd_rebake)
 
     p = sub.add_parser("editroom", help="serve the shot-review UI on localhost")
     p.add_argument("slug")
