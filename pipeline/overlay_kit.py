@@ -58,6 +58,13 @@ KEYFRAMES = """
 @keyframes bPop{0%{opacity:0;transform:scale(.7)}60%{opacity:1;transform:scale(1.14)}100%{opacity:1;transform:scale(1)}}
 @keyframes bTick{0%{transform:translateY(0) scale(1)}35%{transform:translateY(-16px) scale(1.3)}100%{transform:translateY(0) scale(1)}}
 @keyframes bStamp{0%{opacity:0;transform:rotate(-14deg) scale(1.9)}55%{opacity:1;transform:rotate(-4deg) scale(.94)}75%{transform:rotate(-8deg) scale(1.04)}100%{opacity:1;transform:rotate(-6deg) scale(1)}}
+@keyframes bBurst{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(0,-260px) scale(.3)}}
+@keyframes bFlash{0%{opacity:0;transform:scale(.4)}30%{opacity:1;transform:scale(1.1)}100%{opacity:0;transform:scale(1.5)}}
+@keyframes bWobble{0%{opacity:0;transform:rotate(-7deg) scale(.8)}45%{opacity:1;transform:rotate(4deg) scale(1.08)}70%{transform:rotate(-2deg) scale(.98)}100%{opacity:1;transform:rotate(-2deg) scale(1)}}
+@keyframes bBar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes bFlap{0%,100%{transform:scaleX(1) rotate(0)}50%{transform:scaleX(.72) rotate(-5deg)}}
+@keyframes bSweepIn{from{transform:translateX(-105%)}to{transform:translateX(0)}}
+@keyframes bSweepOut{from{transform:translateX(0)}to{transform:translateX(105%)}}
 """
 
 # Overlay types this module renders. `compare`, `contact`, `vote` and
@@ -104,7 +111,7 @@ def hook(card: "dict") -> str:
     """01 Hook — eyebrow with a live dot, then two lines wiping up."""
     body = emphasize(card.get("text", ""), card.get("emphasis"))
     return """
-<div style="position:absolute;left:120px;bottom:150px;color:%(text)s;font-family:%(body_font)s">
+<div style="position:absolute;left:120px;top:130px;color:%(text)s;font-family:%(body_font)s">
   <div style="display:flex;align-items:center;gap:14px;animation:bFade 240ms ease both">
     <div style="width:10px;height:10px;border-radius:999px;background:%(accent)s"></div>
     <span style="font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase">%(kicker)s</span>
@@ -118,7 +125,7 @@ def hook(card: "dict") -> str:
 def lower_third(card: "dict") -> str:
     """03 Lower third — accent spine, label wipes right, then the big line."""
     return """
-<div style="position:absolute;left:120px;bottom:150px;display:flex;align-items:stretch;
+<div style="position:absolute;left:120px;top:130px;display:flex;align-items:stretch;
             animation:bUp 260ms %(ease_std)s both;font-family:%(body_font)s">
   <div style="width:6px;background:%(accent)s"></div>
   <div style="background:%(ink)s;border:1px solid %(hair)s;border-left:0;padding:26px 40px 28px;
@@ -210,7 +217,7 @@ def scoreboard(card: "dict") -> str:
 def stat(card: "dict") -> str:
     """A number card in the kit's language: label, then the figure pops."""
     return """
-<div style="position:absolute;left:110px;bottom:150px;background:%(ink)s;border:1px solid %(hair)s;
+<div style="position:absolute;left:110px;top:130px;background:%(ink)s;border:1px solid %(hair)s;
             border-radius:16px;padding:30px 40px 34px;color:%(text)s;font-family:%(body_font)s;
             animation:bPlate 260ms %(ease_std)s both">
   <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
@@ -364,10 +371,137 @@ def flight_path(card: "dict") -> str:
              "text_line": _e(card.get("text", ""))}
 
 
+def contact(card: "dict") -> str:
+    """13 Contact — a ring flash and drifting dots on the frame something
+    lands. The smallest moment in the footage gets the biggest reaction."""
+    import random
+    x = int(card.get("x", 1120))
+    y = int(card.get("y", 560))
+    rng = random.Random(card.get("id", "contact"))
+    dots = []
+    for i in range(7):
+        size = rng.choice([14, 16, 22, 26, 26, 36])
+        dx = x + 60 + rng.randint(0, 200)
+        dy = y + 130 + rng.randint(0, 40)
+        colour = ACCENT if i % 3 else TEXT
+        dots.append('<div style="position:absolute;left:%dpx;top:%dpx;width:%dpx;height:%dpx;'
+                    'border-radius:999px;background:%s;opacity:.%d;'
+                    'animation:bBurst %dms %s %dms both"></div>'
+                    % (dx, dy, size, size, colour, rng.randint(7, 9),
+                       900 + i * 30, EASE_OUT, 80 + i * 60))
+    return """
+<div style="position:absolute;inset:0">
+  <div style="position:absolute;left:%(x)dpx;top:%(y)dpx;width:300px;height:300px;
+              border:4px solid %(accent)s;border-radius:999px;
+              animation:bFlash 620ms ease-out both"></div>
+  %(dots)s
+</div>""" % {"x": x, "y": y, "accent": ACCENT, "dots": "".join(dots)}
+
+
+def reaction(card: "dict") -> str:
+    """14 Reaction — a quoted line at full volume, wobbling in."""
+    lines = card.get("text", "").split("\n")
+    parts = []
+    for i, line in enumerate(lines):
+        marked = i == len(lines) - 1 and card.get("mark_last", True)
+        style = ("background:%s;color:%s;padding:0 16px;" % (ACCENT, TEXT)) if marked else ""
+        parts.append('<div style="display:inline-block;font-family:%s;font-size:108px;'
+                     'line-height:1;font-weight:800;letter-spacing:-.05em;color:%s;'
+                     'text-shadow:0 4px 22px rgba(9,9,11,.85);%s'
+                     'margin-top:%dpx;animation:bWobble 460ms %s %dms both">%s</div>'
+                     % (FONT_DISPLAY, TEXT, style, 14 if i else 0, EASE_OUT,
+                        i * 160, _e(line)))
+    return """
+<div style="position:absolute;left:140px;top:230px;right:520px;font-family:%(body_font)s">
+  %(parts)s
+  %(attr)s
+</div>""" % {"body_font": FONT_BODY, "parts": "".join(parts),
+             "attr": ('<div style="font-size:30px;font-weight:700;letter-spacing:.16em;'
+                      'text-transform:uppercase;color:%s;margin-top:26px;'
+                      'animation:bFade 220ms ease 520ms both">%s</div>'
+                      % (ACCENT, _e(card["attribution"]))) if card.get("attribution") else ""}
+
+
+def vote(card: "dict") -> str:
+    """15 Vote — a tally with bars that grow; the punchline is the last row."""
+    total = max((int(r.get("value", 0)) for r in card.get("rows", [])), default=1) or 1
+    rows = []
+    for i, r in enumerate(card.get("rows", [])):
+        lead = r.get("highlight")
+        pct = 100.0 * int(r.get("value", 0)) / total
+        rows.append("""
+      <div style="margin-top:%(mt)dpx">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;
+                    font-family:%(display)s;font-size:40px;font-weight:800;
+                    letter-spacing:-.025em;%(dim)s">
+          <span>%(label)s</span><span%(vcol)s>%(value)s</span></div>
+        <div style="height:14px;background:rgba(252,252,250,.14);border-radius:999px;
+                    margin-top:12px;overflow:hidden">
+          <div style="height:100%%;width:%(pct).1f%%;background:%(bar)s;transform-origin:left;
+                      animation:bBar 520ms %(ease)s %(delay)dms both"></div></div>
+      </div>""" % {"mt": 34 if i == 0 else 30, "display": FONT_DISPLAY,
+                   "dim": "" if lead else "color:#B5B5AF;",
+                   "label": _e(r.get("label", "")),
+                   "vcol": ' style="color:%s"' % ACCENT if lead else "",
+                   "value": _e(r.get("value", "")), "pct": max(pct, 4),
+                   "bar": ACCENT if lead else "rgba(252,252,250,.34)",
+                   "ease": EASE_OUT, "delay": 120 + i * 110})
+    return """
+<div style="position:absolute;right:120px;top:250px;width:820px;color:%(text)s;
+            font-family:%(body_font)s">
+  <div style="font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+              color:%(accent)s;animation:bFade 220ms ease both">%(kicker)s</div>
+  %(rows)s
+</div>""" % {"text": TEXT, "body_font": FONT_BODY, "accent": ACCENT,
+             "kicker": _e(card.get("kicker", "")), "rows": "".join(rows)}
+
+
+def transition(card: "dict") -> str:
+    """A glass panel that sweeps across the cut, carrying the next title.
+
+    Hard cuts between chapters read as abrupt; Resolve's API cannot add a
+    dissolve, so the transition is drawn instead: a near-opaque ink panel
+    wipes in over the outgoing shot, holds the title, and wipes off the
+    incoming one. Place it centred on the cut so it hides the seam.
+    """
+    total = int(float(card.get("duration", 1.4)) * 1000)
+    sweep = 380
+    hold = max(total - 2 * sweep, 200)
+    return """
+<div style="position:absolute;inset:0;overflow:hidden">
+  <div style="position:absolute;inset:0;background:linear-gradient(100deg,
+              rgba(9,9,11,.97) 0%%, rgba(22,22,26,.94) 55%%, rgba(9,9,11,.97) 100%%);
+              animation:bSweepIn %(sweep)dms %(ease)s both,
+                        bSweepOut %(sweep)dms %(ease_in)s %(out)dms both">
+    <div style="position:absolute;left:130px;top:0;bottom:0;display:flex;flex-direction:column;
+                justify-content:center;gap:16px;color:%(text)s;font-family:%(body_font)s">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="width:70px;height:3px;background:%(accent)s;transform-origin:left;
+                    animation:bGrowX 260ms %(ease)s %(sweep)dms both"></div>
+        <span style="font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+                     color:%(accent)s;animation:bFade 200ms ease %(sweep)dms both">%(kicker)s</span>
+      </div>
+      <div style="font-family:%(display)s;font-size:104px;line-height:1;font-weight:800;
+                  letter-spacing:-.05em;overflow:hidden">
+        <div style="animation:bWipeUp 380ms %(ease)s %(t2)dms both">%(text)s</div>
+      </div>
+    </div>
+  </div>
+</div>""" % {"sweep": sweep, "ease": EASE_OUT, "ease_in": EASE_STD,
+             "out": sweep + hold, "text": TEXT, "body_font": FONT_BODY,
+             "accent": ACCENT, "display": FONT_DISPLAY, "t2": sweep + 80,
+             "kicker": _e(card.get("kicker", "")),
+             "text": _e(card.get("text", ""))}
+
+
 RENDERERS = {
     "hook": hook,
     "compare": compare,
     "flight_path": flight_path,
+    "contact": contact,
+    "reaction": reaction,
+    "vote": vote,
+    "transition": transition,
     "hook_title": hook,          # aliases so existing graphics plans keep working
     "lower_third": lower_third,
     "section": lower_third,
