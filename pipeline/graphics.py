@@ -28,10 +28,19 @@ from .ingest import work_path, IngestError
 
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
-NAVY = "#0E1B2C"
-AMBER = "#E8A33D"
-CREAM = "#F4EFE6"
-SLATE = "#6B7C93"
+# Brand values come from the synced design system so the video matches the
+# thumbnails, site, and social kits (pipeline/design_tokens.py). The literals
+# below are only the fallback when the token files are missing.
+from . import design_tokens as _dt  # noqa: E402
+
+_PAL = _dt.palette()
+NAVY = _PAL["navy"]
+AMBER = _PAL["amber"]
+CREAM = _PAL["cream"]
+SLATE = _PAL["slate"]
+FONT_DISPLAY = _PAL["font_display"]
+FONT_SANS = _PAL["font_sans"]
+LS_EYEBROW = _PAL["ls_eyebrow"]
 
 CARD_TYPES = ("hook_title", "section", "stat", "quote", "outro")
 ANIMATIONS = ("slide_up", "slide_down", "fade")
@@ -45,7 +54,7 @@ CANVAS = {"portrait": (1080, 1920), "landscape": (1920, 1080)}
 _BASE_CSS = """
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: %(w)spx; height: %(h)spx; background: transparent; }
-body { font-family: "Avenir Next", "Helvetica Neue", sans-serif; color: %(cream)s;
+body { font-family: %(font_sans)s; color: %(cream)s;
        display: flex; align-items: %(valign)s; justify-content: %(halign)s;
        padding: %(pad)spx; }
 /* A translucent slab reads as a lower-third, not a dialog box: no hard
@@ -55,20 +64,20 @@ body { font-family: "Avenir Next", "Helvetica Neue", sans-serif; color: %(cream)
         border-radius: 22px; padding: 48px 60px 52px; max-width: %(maxw)s%%;
         box-shadow: 0 24px 60px rgba(0,0,0,0.45);
         border-top: 3px solid %(amber)s66; }
-.kicker { color: %(amber)s; font-size: %(kicker)spx; letter-spacing: 0.2em;
+.kicker { color: %(amber)s; font-size: %(kicker)spx; letter-spacing: %(ls_eyebrow)s;
           text-transform: uppercase; font-weight: 700; margin-bottom: 14px; }
 .kicker::after { content: ""; display: block; width: 64px; height: 3px;
                  background: %(amber)s; margin-top: 14px; border-radius: 2px; }
-.display { font-family: Didot, "Bodoni 72", serif; font-weight: 700;
+.display { font-family: %(font_display)s; font-weight: 700;
            font-size: %(display)spx; line-height: 1.06;
            text-shadow: 0 3px 18px rgba(0,0,0,0.35); }
 .display .em { color: %(amber)s; }
 .body { font-size: %(body)spx; line-height: 1.35; color: %(cream)s; opacity: 0.92; }
-.stat-number { font-family: Didot, "Bodoni 72", serif; font-size: %(stat)spx;
+.stat-number { font-family: %(font_display)s; font-size: %(stat)spx;
                line-height: 1; color: %(amber)s;
                text-shadow: 0 4px 24px rgba(0,0,0,0.4); }
 .stat-label { font-size: %(body)spx; margin-top: 10px; }
-.quote-mark { color: %(amber)s; font-family: Didot, serif; font-size: 120px;
+.quote-mark { color: %(amber)s; font-family: %(font_display)s; font-size: 120px;
               line-height: 0.6; }
 .attribution { color: %(slate)s; font-size: 34px; margin-top: 22px; }
 """
@@ -98,6 +107,8 @@ def card_html(card: "dict", w: int, h: int) -> str:
     css = _BASE_CSS % {
         "w": w, "h": h, "navy": NAVY, "amber": AMBER, "cream": CREAM,
         "slate": SLATE, "valign": valign, "halign": halign, "maxw": maxw,
+        "font_display": FONT_DISPLAY, "font_sans": FONT_SANS,
+        "ls_eyebrow": LS_EYEBROW,
         "pad": int((110 if portrait else 96) * scale),
         "kicker": int(30 * scale), "display": int((86 if portrait else 76) * scale),
         "body": int(38 * scale), "stat": int(180 * scale),

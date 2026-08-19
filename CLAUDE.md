@@ -47,6 +47,19 @@ ProRes 4444 alpha clips** with ffmpeg before they reach the timeline.
    lines (text from the cleaned script, timing from whisper — never caption
    raw transcript).
 4. **qc-reviewer** — checks the rendered output against the edit plan.
+5. **post-production** — editing, color grading, and motion-graphics
+   specialist. Use it when a render looks wrong (blown highlights, muddy
+   shadows, bad cuts), when cards/captions/animation need designing or
+   fixing, or when Resolve misbehaves. It measures and looks at frames
+   rather than trusting settings.
+
+## Brand tokens come from the design system
+
+`brand/design-system/tokens/*.css` is synced from the "Curated Curiosities
+Design System" project on claude.ai/design. `pipeline/design_tokens.py` reads
+it, so cards use the same navy/amber/cream, Playfair Display, and Work Sans
+as the thumbnails, site, and social kits. Re-pull the tokens after changing
+the design system; don't hardcode brand values in the pipeline.
 
 Dormant survivors from v1: `instagram-copywriter` (post copy, reactivate
 later), `performance-analyst` (metrics loop, deferred).
