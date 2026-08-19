@@ -79,6 +79,23 @@ def cmd_snap_cuts(args) -> int:
     return 0
 
 
+def cmd_proxy(args) -> int:
+    from . import proxy
+    from .ingest import IngestError
+    try:
+        proxy.build(args.slug, only_beats=args.beat or None)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_editroom(args) -> int:
+    from . import editroom
+    editroom.serve(args.slug, port=args.port)
+    return 0
+
+
 def cmd_bridge(args) -> int:
     from . import resolve_api as ra
     if args.action == "install":
@@ -128,6 +145,16 @@ def main(argv=None) -> int:
     p = sub.add_parser("snap-cuts", help="snap explicit cut edges to acoustic silence")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_snap_cuts)
+
+    p = sub.add_parser("proxy", help="render per-beat 480p proxies (cached)")
+    p.add_argument("slug")
+    p.add_argument("--beat", action="append", help="only these beat ids")
+    p.set_defaults(fn=cmd_proxy)
+
+    p = sub.add_parser("editroom", help="serve the shot-review UI on localhost")
+    p.add_argument("slug")
+    p.add_argument("--port", type=int, default=8765)
+    p.set_defaults(fn=cmd_editroom)
 
     p = sub.add_parser("bridge", help="manage the in-app Resolve bridge")
     p.add_argument("action", choices=["install", "ensure", "stop", "status"])
