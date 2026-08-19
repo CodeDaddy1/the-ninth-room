@@ -474,7 +474,7 @@ def transition(card: "dict") -> str:
               animation:bSweepIn %(sweep)dms %(ease)s both,
                         bSweepOut %(sweep)dms %(ease_in)s %(out)dms both">
     <div style="position:absolute;left:130px;top:0;bottom:0;display:flex;flex-direction:column;
-                justify-content:center;gap:16px;color:%(text)s;font-family:%(body_font)s">
+                justify-content:center;gap:16px;color:%(fg)s;font-family:%(body_font)s">
       <div style="display:flex;align-items:center;gap:16px">
         <div style="width:70px;height:3px;background:%(accent)s;transform-origin:left;
                     animation:bGrowX 260ms %(ease)s %(sweep)dms both"></div>
@@ -488,9 +488,13 @@ def transition(card: "dict") -> str:
     </div>
   </div>
 </div>""" % {"sweep": sweep, "ease": EASE_OUT, "ease_in": EASE_STD,
-             "out": sweep + hold, "text": TEXT, "body_font": FONT_BODY,
+             "out": sweep + hold, "fg": TEXT, "body_font": FONT_BODY,
              "accent": ACCENT, "display": FONT_DISPLAY, "t2": sweep + 80,
              "kicker": _e(card.get("kicker", "")),
+             # NB: the colour key is "fg", not "text" — a second "text" entry
+             # here (the title) silently overwrote the first, so `color:` got
+             # the title string, was dropped as invalid, and every chapter
+             # transition rendered black-on-black (found 2026-08-18).
              "text": _e(card.get("text", ""))}
 
 
