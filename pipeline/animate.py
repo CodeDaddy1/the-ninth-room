@@ -23,6 +23,7 @@ the clip loses alpha (see the ProRes flags in `encode_frames`).
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -40,9 +41,51 @@ HOLD_MS = int(str(_dt.resolve(_TOKENS, "reveal-hold", "900ms")).replace("ms", ""
 EASE = _dt.resolve(_TOKENS, "ease-out-soft", "cubic-bezier(0.16,1,0.3,1)")
 EASE_INOUT = _dt.resolve(_TOKENS, "ease-in-out", "cubic-bezier(0.45,0,0.55,1)")
 
-# Chrome cold-starts in ~2.3s per frame, so frames render concurrently.
-# Six is about where this Mac stops gaining and starts thrashing.
-PARALLEL = 6
+
+def _perf_cores() -> int:
+    """Physical performance cores, or 0 if the platform will not say.
+
+    `os.cpu_count()` counts *logical* CPUs, which on Apple silicon includes the
+    efficiency cores. Frame rendering is CPU-bound and gets scheduled onto the
+    performance cores, so sizing the pool off the logical count oversubscribes
+    them by more than half.
+    """
+    try:
+        out = subprocess.run(["sysctl", "-n", "hw.perflevel0.logicalcpu"],
+                             capture_output=True, text=True, timeout=5)
+        return int(out.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
+
+
+def _default_parallel() -> int:
+    """How many headless Chromes may run at once.
+
+    One headless Chrome is not one process: it is a browser process plus a
+    renderer, a GPU process and utility helpers -- roughly five processes and
+    ~500 MB each. A hard-coded 6 on this 10-core M5 (4 performance + 6
+    efficiency) put ~30 processes and 6.3 GB against 4 usable cores and drove
+    the load average past 30, which makes the whole machine unusable for the
+    length of a render (observed 2026-08-18, 21-card video).
+
+    So: one Chrome per performance core, clamped to 2..8, overridable with
+    CC_RENDER_WORKERS when rendering on a bigger box.
+
+    What breaks if this is wrong: too high and the Mac locks up while a video
+    renders, and frames start tripping the 120s timeout in `shoot`; too low and
+    a long video takes noticeably longer than it needs to.
+    """
+    env = os.environ.get("CC_RENDER_WORKERS", "").strip()
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass  # a typo in the override must never stop a render
+    cores = _perf_cores() or max(1, (os.cpu_count() or 4) // 2)
+    return max(2, min(8, cores))
+
+
+PARALLEL = _default_parallel()
 
 # Animation presets, expressed the way the design system would express them.
 # `enter` runs at the start, `exit` at the end; both use brand easing.

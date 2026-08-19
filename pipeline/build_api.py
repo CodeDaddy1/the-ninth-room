@@ -129,9 +129,13 @@ return tl:GetName() .. " tracks=" .. tl:GetTrackCount("video") .. " fps=" .. got
     for beat in tl_map["beats"]:
         src = source_for(beat["file"])
         for seg in beat["segments"]:
+            # endFrame is EXCLUSIVE: a clip from s to e runs e-s frames, not
+            # e-s+1. Subtracting one here cost exactly one frame per segment,
+            # which is invisible on a single cut and 3.4s across 83 of them
+            # (measured 2026-08-18: 734.51s rendered vs 737.90s planned).
             v1.append('{n=%s,s=%d,e=%d}' % (ra.lua_str(src["name"]),
                                             _f(seg["src_s"], fps),
-                                            _f(seg["src_e"], fps) - 1))
+                                            _f(seg["src_e"], fps)))
     out = ra.send("append_v1", '''
 local proj = resolve:GetProjectManager():GetCurrentProject()
 local mp = proj:GetMediaPool()
