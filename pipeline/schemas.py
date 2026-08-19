@@ -284,6 +284,41 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
                 errors.append("beat %s: cuts[%d] %.2f-%.2f outside trim %.2f-%.2f"
                               % (b.get("id"), j, c["s"], c["e"], trim["s"], trim["e"]))
 
+    # No beat may cut mid-sentence (Caleb, 2026-08-19). The take's transcript
+    # is checked at both trim boundaries: the last word inside the trim must
+    # close a sentence, and the first word must open one (start of take, or
+    # preceded by a sentence-closing word). Intentional partial lines —
+    # a reaction fragment, an interrupted joke — carry `"fragment": true`.
+    _terminal = (".", "!", "?", "…", '."', '!"', '?"', ",”", ".”")
+
+    def _beat_sentence_errors(b) -> "list[str]":
+        t = take_by_id.get(b.get("take_id"))
+        if not t or b.get("fragment"):
+            return []
+        trim = b.get("trim") or {"s": t["s"], "e": t["e"]}
+        toks = t.get("transcript", "").split()
+        if not toks:
+            return []
+        # Approximate word times across the take span to find boundary words.
+        span = max(t["e"] - t["s"], 0.001)
+        errs = []
+        # last word fully inside the trim
+        idx_end = min(len(toks) - 1,
+                      int((trim["e"] - t["s"]) / span * len(toks)))
+        last = toks[max(0, idx_end)].rstrip()
+        if not last.endswith(_terminal):
+            errs.append("beat %s: ends mid-sentence near %r — extend the trim to the "
+                        "sentence end or mark fragment:true" % (b.get("id"), last))
+        idx_start = max(0, int((trim["s"] - t["s"]) / span * len(toks)))
+        if idx_start > 0 and not toks[idx_start - 1].rstrip().endswith(_terminal):
+            errs.append("beat %s: starts mid-sentence near %r — pull the trim back to "
+                        "the sentence start or mark fragment:true"
+                        % (b.get("id"), toks[idx_start]))
+        return errs
+
+    for b in plan["beats"]:
+        errors.extend(_beat_sentence_errors(b))
+
     first = plan["beats"][0]
     if first.get("purpose") != "hook":
         errors.append("plan: first beat must be the hook")

@@ -77,8 +77,23 @@ class FrameGrid:
 
 # --- segment planning ------------------------------------------------------
 
+_TERMINAL = (".", "!", "?", "…", '."', '!"', '?"')
+
+
+def _sentence_ends_before(words: "list[dict]", t: float) -> bool:
+    """True when the last word spoken before time t closes a sentence."""
+    prev = None
+    for w in words:
+        if w["e"] <= t + 0.05:
+            prev = w
+        else:
+            break
+    return bool(prev) and prev["w"].rstrip().endswith(_TERMINAL)
+
+
 def cut_dead_space(span_s: float, span_e: float, gaps: "list[dict]",
-                   hard_cuts: "list[dict] | None" = None) -> "list[tuple]":
+                   hard_cuts: "list[dict] | None" = None,
+                   words: "list[dict] | None" = None) -> "list[tuple]":
     """Split [span_s, span_e] wherever a silence gap exceeds MAX_KEEP_GAP_SEC,
     and remove every `hard_cuts` span outright.
 
@@ -90,8 +105,15 @@ def cut_dead_space(span_s: float, span_e: float, gaps: "list[dict]",
     removals = []
     for g in gaps:
         gs, ge = max(g["s"], span_s), min(g["e"], span_e)
-        if ge - gs > MAX_KEEP_GAP_SEC:
-            removals.append((gs + KEEP_PAD_SEC, ge - KEEP_PAD_SEC))
+        if ge - gs <= MAX_KEEP_GAP_SEC:
+            continue
+        # Never auto-cut a pause mid-sentence (Caleb's rule, 2026-08-19): a
+        # splice is only allowed where the preceding word ends the sentence.
+        # A long mid-sentence pause stays; if it is genuinely bad it is the
+        # editor's call via an explicit per-beat cut, not the machine's.
+        if words is not None and not _sentence_ends_before(words, gs):
+            continue
+        removals.append((gs + KEEP_PAD_SEC, ge - KEEP_PAD_SEC))
     for c in hard_cuts or []:
         cs, ce = max(c["s"], span_s), min(c["e"], span_e)
         if ce > cs:
@@ -197,7 +219,8 @@ def plan_beats(slug: str) -> "dict":
         span_s = max(0.0, snap_s - HEAD_PAD_SEC)
         span_e = min(f["duration"], snap_e + TAIL_PAD_SEC)
         segments = cut_dead_space(span_s, span_e, f.get("silence", []),
-                                  hard_cuts=b.get("cuts"))
+                                  hard_cuts=b.get("cuts"),
+                                  words=file_words(f))
 
         transition = b.get("transition_in", "cut")
         if transition == "dissolve" and beats_out:
