@@ -54,3 +54,10 @@ console settings, recordings, decisions). Check items off when done.
   CC BY-SA 4.0 (creativecommons.org/licenses/by-sa/4.0), cropped.` The
   share-alike term also means that image and any edit of it stays CC BY-SA 4.0.
   The monarch chrysalis (USFWS) is public domain and needs no credit.
+
+## Added 2026-08-19
+
+- [ ] **Rotate the OpenAI API key.** It was pasted into the Claude chat
+  (2026-08-19), so it exists in the conversation transcript. Create a new key
+  at platform.openai.com/api-keys, update `~/.config/watch/.env`, revoke the
+  old one. Takes two minutes.
