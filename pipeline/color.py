@@ -37,11 +37,19 @@ REC709 = "Rec.709 Gamma 2.4"
 
 # 10-bit code values (0-1023). Targets leave headroom: we are correcting, not
 # crushing — YouTube compression punishes clipped blacks and whites.
-TARGET_LOW = 0.055      # normalized black point after the grade
-TARGET_HIGH = 0.88      # normalized white point after the grade
-SLOPE_RANGE = (0.95, 1.9)
-OFFSET_RANGE = (-0.22, 0.06)
-SAT_RANGE = (1.0, 1.25)
+TARGET_LOW = 0.045      # normalized black point after the grade
+TARGET_HIGH = 0.82      # where the 95th percentile would ideally land
+# The brightest measured pixel must stay below this after grading. Without
+# this ceiling the slope that lifts the 95th percentile also shoves every
+# specular highlight past white: measured 0.25% -> 6.9% clipped pixels on the
+# HMNS grade, which reads as blown-out leaves and windows.
+HIGHLIGHT_CEILING = 0.985
+SLOPE_RANGE = (0.95, 1.45)
+OFFSET_RANGE = (-0.35, 0.06)
+# Below 1.0 lifts midtones. Bounded so a dark clip cannot be gamma-boosted
+# into a milky, washed-out image.
+POWER_RANGE = (0.80, 1.05)
+SAT_RANGE = (1.0, 1.18)
 SAT_REFERENCE = 55.0    # SATAVG a well-saturated Rec.709 frame lands near
 SAMPLE_TIMES = (0.25, 0.5, 0.75)   # fractions of the clip to measure
 
@@ -88,18 +96,36 @@ def compute_cdl(stats: "dict") -> "dict":
         return {"slope": 1.0, "offset": 0.0, "power": 1.0, "saturation": 1.0}
     low = stats.get("YLOW", 64.0) / 1023.0
     high = stats.get("YHIGH", 940.0) / 1023.0
-    span = max(high - low, 0.05)
-    slope = (TARGET_HIGH - TARGET_LOW) / span
+    ymax = max(stats.get("YMAX", 1023.0) / 1023.0, high + 0.01)
+
+    # Two candidate slopes: the one that puts the 95th percentile on target,
+    # and the one that keeps the brightest pixel under HIGHLIGHT_CEILING.
+    # Always take the gentler — protecting highlights outranks hitting the
+    # contrast target, because clipped detail cannot be recovered.
+    slope_target = (TARGET_HIGH - TARGET_LOW) / max(high - low, 0.05)
+    slope_ceiling = (HIGHLIGHT_CEILING - TARGET_LOW) / max(ymax - low, 0.05)
+    slope = min(slope_target, slope_ceiling)
     slope = max(SLOPE_RANGE[0], min(SLOPE_RANGE[1], slope))
     offset = TARGET_LOW - low * slope
     offset = max(OFFSET_RANGE[0], min(OFFSET_RANGE[1], offset))
     sat_avg = stats.get("SATAVG", SAT_REFERENCE)
     saturation = 1.0 + max(0.0, (SAT_REFERENCE - sat_avg) / SAT_REFERENCE) * 0.35
     saturation = max(SAT_RANGE[0], min(SAT_RANGE[1], saturation))
-    # A touch of gamma keeps midtones from flattening once contrast is added.
-    power = 1.03 if slope > 1.15 else 1.0
+
+    # Dropping the black point on a hazy shot also drags the midtones down —
+    # the image ends up correctly contrasty but too dark. Gamma pulls the
+    # midtones back toward their original brightness; because CDL applies
+    # power last, it lifts mids hard, blacks a little, and highlights almost
+    # not at all, which is exactly the shape we want here.
+    yavg = stats.get("YAVG", 0.0) / 1023.0
+    mid_after = yavg * slope + offset
+    power = 1.0
+    if 0.02 < mid_after < 0.99 and yavg > 0.02:
+        import math
+        power = math.log(yavg) / math.log(mid_after)
+        power = max(POWER_RANGE[0], min(POWER_RANGE[1], power))
     return {"slope": round(slope, 4), "offset": round(offset, 4),
-            "power": power, "saturation": round(saturation, 3)}
+            "power": round(power, 4), "saturation": round(saturation, 3)}
 
 
 def plan_grade(slug: str, files: "list[dict]", log=print) -> "dict":
