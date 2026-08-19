@@ -11,10 +11,29 @@ earns its place on screen and what it says.
 ## Card types (rendered by `pipeline/graphics.py`, brand-locked)
 
 - `hook_title` — the video's title card over the hook. Almost always present.
-- `section` — act/beat marker at a topic turn.
-- `stat` — a number that deserves to be seen, with a label.
+- `section` — act/beat marker at a topic turn; also the **chapter opener** in
+  long-form (kicker = "Chapter Two", text = the chapter title).
+- `stat` — a number that deserves to be seen, with a label. The workhorse of
+  a facts video: put the number on screen the moment it is spoken.
 - `quote` — a spoken line worth staring at.
 - `outro` — closing card (kicker + text + optional `subtext` CTA).
+
+## Long-form (chaptered) videos
+
+When `edit_plan.json` has `chapters[]`, every chapter gets an opener card on
+its first beat, and the pacing budget is per chapter rather than per video:
+roughly one card per 45–60s of runtime, plus the openers. A 12-minute video
+lands around 16–22 cards. Never two cards on screen at once.
+
+Cards carry the channel's humor too — a dry stat card under an absurd fact is
+funnier than any joke you could write. State the real number; let it land.
+
+## Animation
+
+`animation` is one of `slide_up` (default), `slide_down`, `fade`, or
+`wipe_left`. These render as real CSS animations using the design system's
+motion tokens (700ms reveal on `ease-out-soft`), so a card needs at least
+~2.0s of `duration` to read: reveal, hold, exit.
 
 ## Output: `work/<slug>/graphics_plan.json`
 

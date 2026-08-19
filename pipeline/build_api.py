@@ -40,11 +40,29 @@ def build(slug: str, cards: "list[dict]", caption_clips: "list[dict]", log=print
     by_name = {f["name"]: f for f in catalog["files"]}
     fps = tl_map["fps"]
 
+    # 0. Level the narration first — Resolve has no clip-gain API, so quiet
+    #    chapters must be fixed on the media (see pipeline/audio.py). A
+    #    normalized file substitutes for the original everywhere below, under
+    #    its own name so the media pool never has two clips with one name.
+    from . import audio as audio_mod
+    speech_files = [by_name[b["file"]] for b in tl_map["beats"]]
+    norm = audio_mod.normalize_files(slug, list({f["name"]: f for f in speech_files}.values()),
+                                     log=log)
+    for original, leveled in norm.items():
+        entry = dict(by_name[original])
+        entry["path"] = leveled
+        entry["name"] = Path(leveled).name
+        by_name[original + "::norm"] = entry
+
+    def source_for(name: str) -> "dict":
+        """The file to actually use for a clip: leveled if one was made."""
+        return by_name.get(name + "::norm", by_name[name])
+
     # 1. Collect every media file this edit needs, import it, and map
     #    file path -> media pool item (by name, which Resolve preserves).
     paths = []
     for b in tl_map["beats"]:
-        paths.append(by_name[b["file"]]["path"])
+        paths.append(source_for(b["file"])["path"])
         for br in b["broll"]:
             paths.append(by_name[br["file"]]["path"])
     for item in list(cards) + list(caption_clips):
@@ -65,7 +83,7 @@ return tostring(items and #items or 0)
     color_mod.use_standard_color_science(log=log)
     camera_files = {}
     for b in tl_map["beats"]:
-        camera_files[by_name[b["file"]]["name"]] = by_name[b["file"]]
+        camera_files[source_for(b["file"])["name"]] = source_for(b["file"])
         for br in b["broll"]:
             camera_files[by_name[br["file"]]["name"]] = by_name[br["file"]]
     grades = color_mod.plan_grade(slug, list(camera_files.values()), log=log)
@@ -109,7 +127,7 @@ return tl:GetName() .. " tracks=" .. tl:GetTrackCount("video") .. " fps=" .. got
     dissolves_lost = sum(1 for b in tl_map["beats"] if b["transition_in"] == "dissolve")
     v1 = []
     for beat in tl_map["beats"]:
-        src = by_name[beat["file"]]
+        src = source_for(beat["file"])
         for seg in beat["segments"]:
             v1.append('{n=%s,s=%d,e=%d}' % (ra.lua_str(src["name"]),
                                             _f(seg["src_s"], fps),
