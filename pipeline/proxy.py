@@ -116,11 +116,20 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
 
     idx = n_seg
     overlay_inputs = []  # (input_idx, kind, start_rel, dur, path)
+    beat_len = beat["record_e"] - rec0
     for br in beat.get("broll", []):
         bsrc = catalog[br["file"]]["path"]
+        # A b-roll clamped to the beat's end must outlast the base in the
+        # filter graph: the concat base rounds UP a frame or two at fps=24
+        # while an exactly-trimmed overlay rounds DOWN, so the A-roll flashed
+        # through for the final frames (BT94's mammoth, 2026-08-19). Padding
+        # the input is safe — overlay ends with the base, extra frames drop.
+        # Mid-beat b-roll is NOT padded: it would show longer than it ships.
+        at_rel = br["record_s"] - rec0
+        pad = 0.3 if at_rel + br["duration"] >= beat_len - 0.05 else 0.0
         inputs += ["-ss", "%.3f" % br.get("src_s", 0.0),
-                   "-t", "%.3f" % br["duration"], "-i", bsrc]
-        overlay_inputs.append((idx, "broll", br["record_s"] - rec0, br["duration"], bsrc))
+                   "-t", "%.3f" % (br["duration"] + pad), "-i", bsrc]
+        overlay_inputs.append((idx, "broll", at_rel, br["duration"], bsrc))
         idx += 1
     missing = []
     cap_mov = work / "captions" / ("%s.mov" % beat["id"])
@@ -143,8 +152,22 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
     # --- filter graph -----------------------------------------------------
     fc = []
     for i in seg_labels:
-        fc.append("[%d:v]scale=%d:%d,fps=24,setsar=1[v%d];[%d:a]aformat=sample_rates=48000:"
-                  "channel_layouts=stereo[a%d]" % (i, W, H, i, i, i))
+        seg = beat["segments"][i]
+        seg_dur = seg["src_e"] - seg["src_s"]
+        # Trim BOTH streams to the exact segment length before concat. The
+        # aac decoder hands back whole packets (a priming packet rides in at
+        # negative pts) and the fps filter rounds frames up, so every segment
+        # overran by a frame or two and the overruns ACCUMULATE through
+        # concat: on six-segment BT101 the tail ran ~0.3s long and "Monopoly"
+        # played clipped at the file end (Caleb's round-2 flag). Video trims
+        # by frame count (round, not ceil/floor — the error must not
+        # accumulate); audio trims to [0, dur) so the negative-pts priming
+        # packet is dropped. Measured after the fix: A/V within 4ms.
+        n_frames = max(1, int(round(seg_dur * 24)))
+        fc.append("[%d:v]scale=%d:%d,fps=24,setsar=1,trim=end_frame=%d,"
+                  "setpts=PTS-STARTPTS[v%d];[%d:a]atrim=start=0:end=%.3f,"
+                  "asetpts=PTS-STARTPTS,aformat=sample_rates=48000:"
+                  "channel_layouts=stereo[a%d]" % (i, W, H, n_frames, i, i, seg_dur, i))
     fc.append("%sconcat=n=%d:v=1:a=1[base][aud]"
               % ("".join("[v%d][a%d]" % (i, i) for i in seg_labels), n_seg))
     cur = "base"

@@ -297,7 +297,13 @@ def bake_caption_clip(timed_words: "list[dict]", duration: float, out_mov: Path,
                 # through a long silence — drop it after a beat of quiet.
                 end = min(phrases[p_i + 1][0]["t"], start + 1.6)
             else:
-                end = duration
+                # The final phrase also drops after a beat of quiet instead of
+                # holding to the clip end: when a beat's captions are cut short
+                # on purpose (BT09, Caleb's round-2 review), speech continues
+                # uncaptioned and a stale held phrase reads as a caption bug.
+                # Beats whose audio ends with the last word are unaffected —
+                # their tail pad is far shorter than the 1.6s hold.
+                end = min(duration, start + 1.6)
             states.append((png, start, end))
             idx += 1
 
