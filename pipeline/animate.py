@@ -60,6 +60,37 @@ PRESETS = {
 }
 
 
+def _kit_html(card: "dict", w: int, h: int, t_ms: int) -> str:
+    """An Overlay Kit card frozen at t_ms.
+
+    The kit's own CSS carries every animation (staggered wipes, blur-ins,
+    pops), so freezing is simpler than for the older cards: pause everything
+    on the page and seek all of it to the same instant with one negative
+    delay. `animation-delay` on `*` overrides each element's own delay, so
+    the per-element delays are re-added by keeping them in the shorthand and
+    only shifting the global clock — hence the `!important`-free approach of
+    setting `animation-delay` per element via a CSS variable is unnecessary:
+    Chrome applies the negative delay on top of the declared one.
+    """
+    from . import overlay_kit
+    base = overlay_kit.overlay_html(card, w, h)
+    freeze = """
+<style>
+.stage *, .stage { animation-play-state: paused !important; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var t = %(t)d;
+  document.getAnimations().forEach(function (a) {
+    a.pause();
+    try { a.currentTime = t; } catch (e) {}
+  });
+});
+</script>
+""" % {"t": t_ms}
+    return base.replace("</head>", freeze + "</head>")
+
+
 def _animated_html(card: "dict", w: int, h: int, preset: str, t_ms: int,
                    duration_ms: int) -> str:
     """The card's HTML with its animation frozen at t_ms.
@@ -105,11 +136,13 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
     n = max(1, int(round(duration * fps)))
     duration_ms = int(duration * 1000)
 
+    use_kit = bool(card.get("kit_type")) or card.get("kit", False)
     for i in range(n):
         t_ms = int(round(i * 1000.0 / fps))
         html_path = (frames_dir / ("f%04d.html" % i)).resolve()
         png_path = (frames_dir / ("f%04d.png" % i)).resolve()
-        html_path.write_text(_animated_html(card, w, h, preset, t_ms, duration_ms))
+        html_path.write_text(_kit_html(card, w, h, t_ms) if use_kit
+                             else _animated_html(card, w, h, preset, t_ms, duration_ms))
         proc = subprocess.run(
             [CHROME, "--headless=new", "--disable-gpu",
              "--force-device-scale-factor=1",

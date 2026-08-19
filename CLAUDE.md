@@ -104,3 +104,17 @@ the content delivers the payoff. The non-negotiable rule:
 5. **One voice** (`brand/voice-and-tone.md`) — Caleb's, since he's on camera.
 6. **Platform-native** (`workflows/platform-specs.md`): safe zones, lengths,
    burned-in captions for mute-first viewing.
+
+## Overlays come from Claude Design
+
+`pipeline/overlay_kit.py` is the runtime version of the **HMNS Overlay Kit v2**
+canvas in the "YouTube text overlay project" on claude.ai/design — same markup,
+CSS keyframes, easing and delays, with the copy parameterised. Accent is
+`#12B76A`, type is Gabarito + Manrope. `pipeline/animate.py` renders it by
+pausing every CSS animation and seeking `currentTime` frame by frame in
+headless Chrome, so what ships is what the canvas shows.
+
+To evolve the look: use the **overlay-designer** subagent to write a brief for
+Claude Design, design it there, then re-implement the returned canvas here.
+Imagery an overlay needs comes from the **asset-sourcer** subagent, which
+verifies the license on every file.
