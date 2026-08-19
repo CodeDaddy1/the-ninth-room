@@ -389,8 +389,6 @@ def overlay_html(card: "dict", w: int = 1920, h: int = 1080) -> str:
     if render is None:
         raise ValueError("no kit renderer for type %r" % kind)
     return """<!doctype html><html><head><meta charset="utf-8">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gabarito:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:%(w)dpx;height:%(h)dpx;background:transparent}

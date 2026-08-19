@@ -23,7 +23,9 @@ the clip loses alpha (see the ProRes flags in `encode_frames`).
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import design_tokens as _dt
@@ -37,6 +39,10 @@ REVEAL_MS = int(str(_dt.resolve(_TOKENS, "dur-reveal", "700ms")).replace("ms", "
 HOLD_MS = int(str(_dt.resolve(_TOKENS, "reveal-hold", "900ms")).replace("ms", "") or 900)
 EASE = _dt.resolve(_TOKENS, "ease-out-soft", "cubic-bezier(0.16,1,0.3,1)")
 EASE_INOUT = _dt.resolve(_TOKENS, "ease-in-out", "cubic-bezier(0.45,0,0.55,1)")
+
+# Chrome cold-starts in ~2.3s per frame, so frames render concurrently.
+# Six is about where this Mac stops gaining and starts thrashing.
+PARALLEL = 6
 
 # Animation presets, expressed the way the design system would express them.
 # `enter` runs at the start, `exit` at the end; both use brand easing.
@@ -137,7 +143,22 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
     duration_ms = int(duration * 1000)
 
     use_kit = bool(card.get("kit_type")) or card.get("kit", False)
-    for i in range(n):
+
+    # A card is: reveal, hold, exit. Every frame of the hold is byte-identical,
+    # and a Chrome launch costs ~2.3s, so rendering the hold would burn minutes
+    # per card producing copies of one image. Render the moving parts only and
+    # copy the held frame across the middle.
+    move_ms = REVEAL_MS + 120
+    exit_from = max(duration_ms - REVEAL_MS - 120, move_ms)
+    def moving(i):
+        t = i * 1000.0 / fps
+        return t <= move_ms or t >= exit_from
+
+    todo = [i for i in range(n) if moving(i)]
+    # The held frame is the last one of the reveal — the settled state.
+    hold_src = max([i for i in todo if i * 1000.0 / fps <= move_ms] or [0])
+
+    def shoot(i):
         t_ms = int(round(i * 1000.0 / fps))
         html_path = (frames_dir / ("f%04d.html" % i)).resolve()
         png_path = (frames_dir / ("f%04d.png" % i)).resolve()
@@ -149,12 +170,24 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
              "--window-size=%d,%d" % (w, h),
              "--default-background-color=00000000",
              "--screenshot=" + str(png_path), "file://" + str(html_path)],
-            capture_output=True, text=True, timeout=90)
+            capture_output=True, text=True, timeout=120)
+        html_path.unlink(missing_ok=True)
         if proc.returncode != 0 or not png_path.exists():
             raise IngestError("animation frame %d failed for %s: %s"
                               % (i, card["id"], (proc.stderr or "")[-200:]))
-        html_path.unlink()
-    log("[animate] %s: %d frames @ %dfps (%s)" % (card["id"], n, fps, preset))
+
+    # Frames are independent, so shoot them concurrently. Chrome is heavy;
+    # more than a handful at once just thrashes.
+    with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
+        list(pool.map(shoot, todo))
+
+    src = frames_dir / ("f%04d.png" % hold_src)
+    for i in range(n):
+        if not moving(i):
+            shutil.copyfile(src, frames_dir / ("f%04d.png" % i))
+
+    log("[animate] %s: %d frames @ %dfps (%d rendered, %d held)"
+        % (card["id"], n, fps, len(todo), n - len(todo)))
     return encode_frames(frames_dir, out_mov, fps)
 
 
