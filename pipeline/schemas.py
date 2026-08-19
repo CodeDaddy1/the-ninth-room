@@ -226,6 +226,64 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
         if chapter_ids and b.get("chapter_id") and b["chapter_id"] not in chapter_ids:
             errors.append("%s: unknown chapter '%s'" % (where, b["chapter_id"]))
 
+    # --- editing-quality rules (added after the 4/10 review, 2026-08-19) ---
+
+    # A b-roll clip may appear ONCE in the whole video. Reused cutaways read
+    # as filler and viewers notice the second time even when they can't say
+    # why. 150 placements over 111 clips meant ~39 repeats.
+    seen_clips: "dict[str, str]" = {}
+    for b in plan["beats"]:
+        for br in b.get("broll", []):
+            cid = br.get("clip_id")
+            if cid in seen_clips:
+                errors.append("beat %s: b-roll %s already used in beat %s — one use per clip"
+                              % (b.get("id"), cid, seen_clips[cid]))
+            else:
+                seen_clips[cid] = b.get("id")
+
+    # The edit runs in shoot order. Museum days have a natural arc, and
+    # jumping around reads as random. Exceptions: the intro (everything before
+    # the first chapter_open may flash forward) and beats explicitly marked
+    # `"foreshadow": true`, which must carry a `foreshadow_note` saying what
+    # they set up.
+    import re as _re
+
+    def shoot_key(b):
+        t = take_by_id.get(b.get("take_id"))
+        if not t:
+            return None
+        m = _re.search(r"DJI_(\d{14})", t["file"])
+        return (m.group(1), t["s"]) if m else None
+
+    intro_chapter = plan.get("chapters", [{}])[0].get("id") if plan.get("chapters") else None
+    prev_key, prev_id = None, None
+    for b in plan["beats"]:
+        if b.get("chapter_id") == intro_chapter or b.get("purpose") == "hook":
+            continue  # the intro may flash forward freely
+        if b.get("foreshadow"):
+            if not b.get("foreshadow_note"):
+                errors.append("beat %s: foreshadow beats need a foreshadow_note" % b.get("id"))
+            continue
+        key = shoot_key(b)
+        if key and prev_key and key < prev_key:
+            errors.append("beat %s: jumps backward in the day (before %s) — keep the edit "
+                          "linear, or mark it foreshadow with a note" % (b.get("id"), prev_id))
+        if key:
+            prev_key, prev_id = key, b.get("id")
+
+    # Explicit in-beat cuts (bad audio, flubs) must stay inside the trim.
+    for b in plan["beats"]:
+        t = take_by_id.get(b.get("take_id"))
+        if not t:
+            continue
+        trim = b.get("trim") or {"s": t["s"], "e": t["e"]}
+        for j, c in enumerate(b.get("cuts", [])):
+            if not (isinstance(c, dict) and "s" in c and "e" in c):
+                errors.append("beat %s: cuts[%d] needs s and e" % (b.get("id"), j))
+            elif not (trim["s"] - 0.01 <= c["s"] < c["e"] <= trim["e"] + 0.01):
+                errors.append("beat %s: cuts[%d] %.2f-%.2f outside trim %.2f-%.2f"
+                              % (b.get("id"), j, c["s"], c["e"], trim["s"], trim["e"]))
+
     first = plan["beats"][0]
     if first.get("purpose") != "hook":
         errors.append("plan: first beat must be the hook")

@@ -76,23 +76,39 @@ class FrameGrid:
 
 # --- segment planning ------------------------------------------------------
 
-def cut_dead_space(span_s: float, span_e: float, gaps: "list[dict]") -> "list[tuple]":
-    """Split [span_s, span_e] wherever a silence gap exceeds MAX_KEEP_GAP_SEC.
+def cut_dead_space(span_s: float, span_e: float, gaps: "list[dict]",
+                   hard_cuts: "list[dict] | None" = None) -> "list[tuple]":
+    """Split [span_s, span_e] wherever a silence gap exceeds MAX_KEEP_GAP_SEC,
+    and remove every `hard_cuts` span outright.
 
-    Each cut keeps KEEP_PAD_SEC after the last word and before the next one,
-    so speech never starts abruptly on a cut.
+    Silence cuts keep KEEP_PAD_SEC of breathing room on each side. Hard cuts
+    (flubs, cross-talk, bad audio, marked per-beat in the edit plan as
+    `cuts: [{s,e}]`) are removed exactly as given — the editor already chose
+    the boundary, usually on a word edge.
     """
-    segments = []
-    cur = span_s
+    removals = []
     for g in gaps:
         gs, ge = max(g["s"], span_s), min(g["e"], span_e)
-        if ge - gs <= MAX_KEEP_GAP_SEC:
-            continue
-        cut_from = gs + KEEP_PAD_SEC
-        cut_to = ge - KEEP_PAD_SEC
-        if cut_from > cur:
-            segments.append((cur, cut_from))
-        cur = cut_to
+        if ge - gs > MAX_KEEP_GAP_SEC:
+            removals.append((gs + KEEP_PAD_SEC, ge - KEEP_PAD_SEC))
+    for c in hard_cuts or []:
+        cs, ce = max(c["s"], span_s), min(c["e"], span_e)
+        if ce > cs:
+            removals.append((cs, ce))
+    removals.sort()
+    merged_removals: "list[list]" = []
+    for s, e in removals:
+        if merged_removals and s <= merged_removals[-1][1]:
+            merged_removals[-1][1] = max(merged_removals[-1][1], e)
+        else:
+            merged_removals.append([s, e])
+
+    segments = []
+    cur = span_s
+    for s, e in merged_removals:
+        if s > cur:
+            segments.append((cur, s))
+        cur = max(cur, e)
     if span_e > cur:
         segments.append((cur, span_e))
     # merge slivers into the previous segment's tail
@@ -179,7 +195,8 @@ def plan_beats(slug: str) -> "dict":
         snap_s, snap_e = snap_to_words(f, trim["s"], trim["e"])
         span_s = max(0.0, snap_s - HEAD_PAD_SEC)
         span_e = min(f["duration"], snap_e + TAIL_PAD_SEC)
-        segments = cut_dead_space(span_s, span_e, f.get("silence", []))
+        segments = cut_dead_space(span_s, span_e, f.get("silence", []),
+                                  hard_cuts=b.get("cuts"))
 
         transition = b.get("transition_in", "cut")
         if transition == "dissolve" and beats_out:
