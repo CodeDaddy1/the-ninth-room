@@ -446,13 +446,21 @@ def vote(card: "dict") -> str:
                    "value": _e(r.get("value", "")), "pct": max(pct, 4),
                    "bar": ACCENT if lead else "rgba(252,252,250,.34)",
                    "ease": EASE_OUT, "delay": 120 + i * 110})
+    # The tally sits on an opaque ink panel like the scoreboard does — the
+    # bare version ghosted into bright footage and the joke never landed
+    # (QC, 2026-08-19). Solid navy-to-black, same treatment as the cards.
     return """
-<div style="position:absolute;right:120px;top:250px;width:820px;color:%(text)s;
-            font-family:%(body_font)s">
+<div style="position:absolute;right:120px;top:230px;width:860px;
+            background:linear-gradient(135deg,#101014 0%%,#09090B 100%%);
+            border:1px solid %(hair)s;border-radius:16px;padding:34px 40px 40px;
+            color:%(text)s;font-family:%(body_font)s;
+            box-shadow:0 24px 60px rgba(0,0,0,.5);
+            animation:bPop 320ms %(ease)s both">
   <div style="font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-              color:%(accent)s;animation:bFade 220ms ease both">%(kicker)s</div>
+              color:%(accent)s">%(kicker)s</div>
   %(rows)s
-</div>""" % {"text": TEXT, "body_font": FONT_BODY, "accent": ACCENT,
+</div>""" % {"hair": HAIRLINE, "text": TEXT, "body_font": FONT_BODY,
+             "ease": EASE_OUT, "accent": ACCENT,
              "kicker": _e(card.get("kicker", "")), "rows": "".join(rows)}
 
 
