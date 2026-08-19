@@ -96,12 +96,32 @@ def click_bridge_menu() -> "tuple[bool, str]":
     return False, (proc.stderr or proc.stdout).strip()
 
 
+def _handle_is_live() -> bool:
+    """A fresh heartbeat is not enough: the bridge is a separate fuscript
+    process that survives Resolve quitting, and its `resolve` handle then
+    points at a dead session (seen 2026-08-19 — heartbeat current, every API
+    call failing). Only an actual API round trip proves the handle."""
+    try:
+        return send("probe", '''
+local ok, pm = pcall(function() return resolve:GetProjectManager() end)
+if ok and pm then return "ok" end
+return error("stale resolve handle")
+''', timeout=15) == "ok"
+    except BridgeError:
+        return False
+
+
 def ensure_bridge(boot_timeout: float = 180.0) -> None:
     """Make the bridge reachable, launching Resolve and auto-clicking the menu
     when permissions allow. Raises BridgeError with the exact manual step when
     automation isn't possible."""
     if alive():
-        return
+        if resolve_running() and _handle_is_live():
+            return
+        stop_bridge()
+        deadline = time.time() + 15
+        while time.time() < deadline and alive():
+            time.sleep(1)
     install_bridge()
     if not resolve_running():
         launch_resolve()
