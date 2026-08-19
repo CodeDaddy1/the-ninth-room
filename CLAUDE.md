@@ -64,6 +64,14 @@ the design system; don't hardcode brand values in the pipeline.
 Dormant survivors from v1: `instagram-copywriter` (post copy, reactivate
 later), `performance-analyst` (metrics loop, deferred).
 
+## The channel's personality
+
+**Family friendly, fun, funny while learning.** Kids watch with parents. The
+humor comes from how genuinely strange the real world is, and from the family's
+real reactions on camera — never from mockery, profanity, or shock. A video
+should teach something true and make someone laugh on the way. See
+`brand/voice-and-tone.md`.
+
 ## The core mechanic: the curiosity gap
 
 Every video opens a loop the viewer *needs* closed. The hook creates the gap;
