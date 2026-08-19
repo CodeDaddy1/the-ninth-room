@@ -38,6 +38,7 @@ NAVY = _PAL["navy"]
 AMBER = _PAL["amber"]
 CREAM = _PAL["cream"]
 SLATE = _PAL["slate"]
+NAVY_DEEP = _PAL["navy_deep"]
 FONT_DISPLAY = _PAL["font_display"]
 FONT_SANS = _PAL["font_sans"]
 LS_EYEBROW = _PAL["ls_eyebrow"]
@@ -60,7 +61,7 @@ body { font-family: %(font_sans)s; color: %(cream)s;
 /* A translucent slab reads as a lower-third, not a dialog box: no hard
    border, a soft shadow to lift it off the footage, and an amber rule under
    the kicker instead of a border on the side. */
-.card { background: linear-gradient(135deg, %(navy)sF2 0%%, %(navy)sD9 100%%);
+.card { background: linear-gradient(135deg, %(navy)s 0%%, %(navy_deep)s 100%%);
         border-radius: 22px; padding: 48px 60px 52px; max-width: %(maxw)s%%;
         box-shadow: 0 24px 60px rgba(0,0,0,0.45);
         border-top: 3px solid %(amber)s66; }
@@ -74,7 +75,7 @@ body { font-family: %(font_sans)s; color: %(cream)s;
 .display .em { color: %(amber)s; }
 .body { font-size: %(body)spx; line-height: 1.35; color: %(cream)s; opacity: 0.92; }
 .stat-number { font-family: %(font_display)s; font-size: %(stat)spx;
-               line-height: 1; color: %(amber)s;
+               line-height: 0.92; letter-spacing: -0.02em; color: %(amber)s;
                text-shadow: 0 4px 24px rgba(0,0,0,0.4); }
 .stat-label { font-size: %(body)spx; margin-top: 10px; }
 .quote-mark { color: %(amber)s; font-family: %(font_display)s; font-size: 120px;
@@ -106,12 +107,13 @@ def card_html(card: "dict", w: int, h: int) -> str:
         scale = w / 1920.0
     css = _BASE_CSS % {
         "w": w, "h": h, "navy": NAVY, "amber": AMBER, "cream": CREAM,
-        "slate": SLATE, "valign": valign, "halign": halign, "maxw": maxw,
+        "slate": SLATE, "navy_deep": NAVY_DEEP,
+        "valign": valign, "halign": halign, "maxw": maxw,
         "font_display": FONT_DISPLAY, "font_sans": FONT_SANS,
         "ls_eyebrow": LS_EYEBROW,
         "pad": int((110 if portrait else 96) * scale),
         "kicker": int(30 * scale), "display": int((86 if portrait else 76) * scale),
-        "body": int(38 * scale), "stat": int(180 * scale),
+        "body": int(38 * scale), "stat": int(250 * scale),
     }
     kicker = ('<div class="kicker">%s</div>' % html.escape(card["kicker"])) if card.get("kicker") else ""
     if ctype in ("hook_title", "section", "outro"):
