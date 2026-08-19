@@ -274,8 +274,93 @@ def caption_plate(card: "dict") -> str:
              "ease_std": EASE_STD, "spans": " ".join(spans)}
 
 
+def compare(card: "dict") -> str:
+    """07 Compare — the teaching moment, full frame, two images side by side.
+
+    Images are file paths (footage stills or licensed stock, see
+    brand/design-system/overlay-assets/); they are inlined as file:// URLs
+    because the renderer screenshots a local page.
+    """
+    cols = []
+    for i, side in enumerate(card.get("sides", [])[:2]):
+        cols.append("""
+      <div style="flex:1;animation:bUp 340ms %(ease)s %(delay)dms both">
+        <img src="file://%(src)s" alt="" style="display:block;width:100%%;height:330px;
+             object-fit:cover;border-radius:12px;border:1px solid %(hair)s">
+        <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+                    color:%(label_color)s;margin-top:18px">%(label)s</div>
+        <div style="font-family:%(display)s;font-size:52px;font-weight:800;letter-spacing:-.03em;
+                    margin-top:6px">%(title)s</div>
+        <div style="font-size:24px;color:%(muted)s;margin-top:8px">%(note)s</div>
+      </div>""" % {"ease": EASE_OUT, "delay": 120 + i * 140,
+                   "src": side.get("image", ""), "hair": HAIRLINE,
+                   "label_color": ACCENT if side.get("highlight") else MUTED,
+                   "label": _e(side.get("label", "")), "display": FONT_DISPLAY,
+                   "title": _e(side.get("title", "")), "muted": MUTED,
+                   "note": _e(side.get("note", ""))})
+    return """
+<div style="position:absolute;inset:0;background:%(ink_solid)s;
+            animation:bFade 240ms ease both"></div>
+<div style="position:absolute;left:150px;right:150px;top:0;bottom:0;display:flex;
+            flex-direction:column;justify-content:center;color:%(text)s;font-family:%(body_font)s">
+  <div style="font-family:%(display)s;font-size:64px;font-weight:800;letter-spacing:-.04em;
+              margin-bottom:34px;overflow:hidden">
+    <div style="animation:bWipeUp 380ms %(ease)s both">%(headline)s</div>
+  </div>
+  <div style="display:flex;gap:44px;align-items:flex-start">%(cols)s</div>
+</div>""" % {"ink_solid": "#09090B", "text": TEXT, "body_font": FONT_BODY,
+             "display": FONT_DISPLAY, "ease": EASE_OUT,
+             "headline": _e(card.get("text", "")), "cols": "".join(cols)}
+
+
+def flight_path(card: "dict") -> str:
+    """16 Flight path — a dashed trail draws across frame with a butterfly on it.
+
+    The trail and the butterfly are SVG (see overlay-assets/marks.py), so the
+    stroke draws itself and the wings hinge independently — both impossible
+    with the original flat PNGs.
+    """
+    import sys
+    from pathlib import Path
+    assets = Path(__file__).resolve().parent.parent / "brand" / "design-system" / "overlay-assets"
+    sys.path.insert(0, str(assets))
+    import marks  # noqa: E402
+
+    travel = card.get("travel_ms", 2200)
+    return """
+<style>
+.trail{stroke-dashoffset:100;animation:draw %(travel)dms %(ease)s 120ms both}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes fly{from{offset-distance:0%%}to{offset-distance:100%%}}
+@keyframes flapL{0%%,100%%{transform:rotateY(0deg)}50%%{transform:rotateY(58deg)}}
+@keyframes flapR{0%%,100%%{transform:rotateY(0deg)}50%%{transform:rotateY(-58deg)}}
+.flier .wing-l{animation:flapL 480ms ease-in-out infinite}
+.flier .wing-r{animation:flapR 480ms ease-in-out infinite}
+.flier{offset-path:path("M20 250C170 250 250 60 430 60S760 210 960 90");
+       animation:fly %(travel)dms %(ease)s 120ms both}
+</style>
+<div style="position:absolute;left:420px;top:290px;width:1000px">%(arrow)s
+  <div class="flier" style="position:absolute;left:0;top:0">%(fly)s</div>
+</div>
+<div style="position:absolute;left:130px;bottom:150px;color:%(text)s;font-family:%(body_font)s">
+  <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+              color:%(accent)s;animation:bFade 220ms ease both">%(kicker)s</div>
+  <div style="font-family:%(display)s;font-size:76px;font-weight:800;letter-spacing:-.04em;
+              margin-top:10px;overflow:hidden">
+    <div style="animation:bWipeUp 380ms %(ease)s 160ms both">%(text_line)s</div>
+  </div>
+</div>""" % {"travel": travel, "ease": EASE_OUT,
+             "arrow": marks.dashed_arrow(1000, ACCENT),
+             "fly": marks.butterfly(110, ACCENT),
+             "text": TEXT, "body_font": FONT_BODY, "accent": ACCENT,
+             "display": FONT_DISPLAY, "kicker": _e(card.get("kicker", "")),
+             "text_line": _e(card.get("text", ""))}
+
+
 RENDERERS = {
     "hook": hook,
+    "compare": compare,
+    "flight_path": flight_path,
     "hook_title": hook,          # aliases so existing graphics plans keep working
     "lower_third": lower_third,
     "section": lower_third,
