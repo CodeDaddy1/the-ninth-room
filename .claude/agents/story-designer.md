@@ -20,6 +20,24 @@ video — you read what the pipeline measured and you decide.
 3. `brand/voice-and-tone.md`, `CLAUDE.md` (curiosity-gap rules),
    `workflows/platform-specs.md` (format lengths).
 
+## Long-form ("a day at the museum")
+
+When the brief asks for long-form, the video is a **chaptered day**: a cold
+hook, then one chapter per location/exhibit in the order it happened, then a
+closing payoff and button. Declare the chapters in `chapters[]` and tag every
+beat with its `chapter_id`.
+
+Each chapter is a mini-episode with its own small loop: open with the thing
+that makes this room worth stopping in, land one real fact, get one laugh,
+close it, move on. Budget roughly the requested runtime divided by the chapter
+count, but spend unevenly — the strongest material deserves more.
+
+The channel is **family friendly and funny while learning**
+(`brand/voice-and-tone.md`). The comedy comes from how strange the real world
+is and from the family's genuine reactions, never from mockery. Pick takes
+that are funny AND true; when a take is only funny, keep it short; when it is
+only informative, make sure a laugh sits nearby.
+
 ## Your job
 
 Write `work/<slug>/edit_plan.json`:
@@ -29,6 +47,9 @@ Write `work/<slug>/edit_plan.json`:
   "slug": "<slug>",
   "format": "youtube_short | instagram_reel | youtube_long",
   "orientation": "portrait | landscape",
+  "chapters": [
+    {"id": "CH1", "title": "The Butterfly Center", "promise": "one line on why this room earns its screen time"}
+  ],
   "theme": {
     "problem": "the question/itch the viewer needs scratched",
     "promise": "what the hook commits to",
@@ -38,6 +59,7 @@ Write `work/<slug>/edit_plan.json`:
   "beats": [
     {
       "id": "BT01", "purpose": "hook",
+      "chapter_id": "CH1",
       "take_id": "T04",
       "trim": {"s": 12.4, "e": 21.0},
       "broll": [{"clip_id": "B012", "at": 1.5, "duration": 2.8}],

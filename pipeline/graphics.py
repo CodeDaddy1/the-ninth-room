@@ -198,17 +198,24 @@ def build_cards(slug: str, orientation: str = "portrait", log=print) -> "list[Pa
     if errors:
         raise IngestError("graphics_plan failed validation:\n  " + "\n  ".join(errors))
 
+    # Animate in the browser with the design system's own motion tokens.
+    # Imported lazily because pipeline.animate imports card_html from here.
+    from . import animate as animate_mod
+
+    # graphics_plan speaks in simple names; map them to the CSS presets.
+    PRESET_FOR = {"slide_up": "reveal_up", "slide_down": "reveal_down",
+                  "fade": "fade", "wipe_left": "wipe_left"}
+
     w, h = CANVAS[orientation]
     out_dir = work / "graphics"
     out_dir.mkdir(exist_ok=True)
     tmp_dir = out_dir / "tmp"
     movs = []
     for card in plan["cards"]:
-        png = tmp_dir / (card["id"] + ".png")
         mov = out_dir / (card["id"] + ".mov")
-        render_png(card, png, w, h, tmp_dir)
-        bake_mov(png, mov, float(card["duration"]), w, h,
-                 anim=card.get("animation", "slide_up"))
+        preset = PRESET_FOR.get(card.get("animation", "slide_up"), "reveal_up")
+        animate_mod.render_animation(card, mov, float(card["duration"]), w, h,
+                                     tmp_dir, preset=preset, log=log)
         movs.append(mov)
         log("[graphics] %s (%s, %.1fs) -> %s" % (card["id"], card["type"],
                                                  card["duration"], mov.name))

@@ -130,7 +130,8 @@ def validate_broll(data: "dict[str, Any]") -> "list[str]":
     return errors
 
 
-BEAT_PURPOSES = ("hook", "stakes", "build", "payoff", "button")
+BEAT_PURPOSES = ("hook", "stakes", "build", "payoff", "button",
+                 "chapter_open", "chapter_close")
 FORMATS = ("youtube_short", "instagram_reel", "youtube_long")
 TRANSITIONS = ("cut", "dissolve")
 MAX_HOOK_SEC = 15.0
@@ -163,6 +164,20 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
     if not _req(errors, plan, "beats", list, "plan") or not plan["beats"]:
         errors.append("plan: no beats")
         return errors
+
+    # Long-form videos are organized into chapters (one per museum hall, say).
+    # Chapters are optional so short-form plans stay valid unchanged.
+    chapter_ids = set()
+    for i, ch in enumerate(plan.get("chapters", [])):
+        where = "chapters[%d]" % i
+        if not isinstance(ch, dict):
+            errors.append(where + ": not an object")
+            continue
+        if _req(errors, ch, "id", str, where):
+            if ch["id"] in chapter_ids:
+                errors.append("%s: duplicate chapter id '%s'" % (where, ch["id"]))
+            chapter_ids.add(ch["id"])
+        _req(errors, ch, "title", str, where)
 
     used_groups: "dict[str, str]" = {}
     killed = {k.get("take_id") for k in plan.get("kill_list", [])}
@@ -208,6 +223,8 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
         tr = b.get("transition_in", "cut")
         if tr not in TRANSITIONS:
             errors.append("%s: transition_in '%s' not in %s" % (where, tr, TRANSITIONS))
+        if chapter_ids and b.get("chapter_id") and b["chapter_id"] not in chapter_ids:
+            errors.append("%s: unknown chapter '%s'" % (where, b["chapter_id"]))
 
     first = plan["beats"][0]
     if first.get("purpose") != "hook":
