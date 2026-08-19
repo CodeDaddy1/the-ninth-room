@@ -326,6 +326,13 @@ def flight_path(card: "dict") -> str:
     sys.path.insert(0, str(assets))
     import marks  # noqa: E402
 
+    # Prefer the real artwork when it is on disk (cut out of the kit's
+    # reference image and recoloured to the accent); fall back to the vector
+    # silhouette, which is serviceable but plainly a silhouette.
+    png = assets / "butterfly.png"
+    flier = ('<img src="file://%s" alt="" style="width:110px;display:block">' % png
+             if png.exists() else marks.butterfly(110, ACCENT))
+
     travel = card.get("travel_ms", 2200)
     return """
 <style>
@@ -351,7 +358,7 @@ def flight_path(card: "dict") -> str:
   </div>
 </div>""" % {"travel": travel, "ease": EASE_OUT,
              "arrow": marks.dashed_arrow(1000, ACCENT),
-             "fly": marks.butterfly(110, ACCENT),
+             "fly": flier,
              "text": TEXT, "body_font": FONT_BODY, "accent": ACCENT,
              "display": FONT_DISPLAY, "kicker": _e(card.get("kicker", "")),
              "text_line": _e(card.get("text", ""))}

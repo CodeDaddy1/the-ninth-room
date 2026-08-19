@@ -208,6 +208,12 @@ def build_cards(slug: str, orientation: str = "portrait", log=print) -> "list[Pa
     PRESET_FOR = {"slide_up": "reveal_up", "slide_down": "reveal_down",
                   "fade": "fade", "wipe_left": "wipe_left"}
 
+    # Cards render through the Overlay Kit (approved 2026-08-18). The plan's
+    # generic types map onto the kit's screens; anything unmapped falls back
+    # to the lower third, which suits a label on any beat.
+    KIT_FOR = {"hook_title": "hook", "section": "lower_third", "stat": "stat",
+               "quote": "payoff", "outro": "chapter", "chapter": "chapter"}
+
     w, h = CANVAS[orientation]
     out_dir = work / "graphics"
     out_dir.mkdir(exist_ok=True)
@@ -216,7 +222,9 @@ def build_cards(slug: str, orientation: str = "portrait", log=print) -> "list[Pa
     for card in plan["cards"]:
         mov = out_dir / (card["id"] + ".mov")
         preset = PRESET_FOR.get(card.get("animation", "slide_up"), "reveal_up")
-        animate_mod.render_animation(card, mov, float(card["duration"]), w, h,
+        spec = dict(card)
+        spec.setdefault("kit_type", KIT_FOR.get(card["type"], "lower_third"))
+        animate_mod.render_animation(spec, mov, float(card["duration"]), w, h,
                                      tmp_dir, preset=preset, log=log)
         movs.append(mov)
         log("[graphics] %s (%s, %.1fs) -> %s" % (card["id"], card["type"],

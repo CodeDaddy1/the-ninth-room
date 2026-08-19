@@ -25,9 +25,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .ingest import IngestError
 
-CREAM = (244, 239, 230)
-AMBER = (232, 163, 61)
-NAVY_CHIP = (14, 27, 44, 190)
+CREAM = (252, 252, 250)   # kit --text
+AMBER = (18, 183, 106)    # kit accent (green); name kept for call sites
+NAVY_CHIP = (9, 9, 11, 210)  # kit ink plate
 
 # Caption baseline sits above the platform UI safe zone (bottom caption bar,
 # right-side action buttons) — the y values proven in the v1 renders.
@@ -54,6 +54,7 @@ def _font(size: int, heavy: bool = True):
     """Brand body face. Avenir Next Heavy (index 8) is the punchy weight that
     holds up over busy footage; Bold and Arial Bold are the fallbacks."""
     candidates = [
+        (str(Path.home() / "Library/Fonts/Gabarito-Variable.ttf"), 0),
         ("/System/Library/Fonts/Avenir Next.ttc", 8 if heavy else 0),
         ("/System/Library/Fonts/Avenir Next.ttc", 0),
         ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 0),
