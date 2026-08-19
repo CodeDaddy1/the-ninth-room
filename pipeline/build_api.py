@@ -177,6 +177,31 @@ return out
     if len(actual) != len(v1):
         raise IngestError("V1 placement mismatch: %d of %d segments" % (len(actual), len(v1)))
 
+    # Zoom punches: static per-clip transforms on the marked segments (the
+    # API supports SetProperty ZoomX/Y; animated keyframes it does not).
+    zoom_specs = []
+    seg_idx = 0
+    for beat in tl_map["beats"]:
+        for seg in beat["segments"]:
+            seg_idx += 1
+            if seg.get("zoom"):
+                zoom_specs.append((seg_idx, float(seg["zoom"])))
+    if zoom_specs:
+        lua_z = ",".join("{i=%d,z=%.3f}" % s for s in zoom_specs)
+        zout = ra.send("apply_zooms", '''
+local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
+local items = tl:GetItemListInTrack("video", 1)
+local done = 0
+for _, e in ipairs({%s}) do
+  local it = items[e.i]
+  if it and it:SetProperty("ZoomX", e.z) and it:SetProperty("ZoomY", e.z) then
+    done = done + 1
+  end
+end
+return "zoomed=" .. done
+''' % lua_z, timeout=300)
+        log("[build] %s of %d punch segments" % (zout, len(zoom_specs)))
+
     # 3b. Map each beat to the real record frame of its first segment, then
     #     place overlays relative to that.
     beat_start_frame = {}

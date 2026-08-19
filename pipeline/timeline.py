@@ -233,13 +233,51 @@ def plan_beats(slug: str) -> "dict":
             if prev_tail < DISSOLVE_SEC / 2 or head < DISSOLVE_SEC / 2:
                 transition = "cut"
 
+        # Zoom punches (hype layer): `punches: [{"at": sec-rel-to-beat,
+        # "zoom": 1.12}]` split the containing segment at that point and mark
+        # the following piece with a zoom. On screen: the Hangtime jump-cut —
+        # same shot, suddenly 12% closer. Resolve applies the scale as a
+        # static transform per clip (SetProperty), which the API does support.
+        punch_srcs = []
+        for p in b.get("punches", []):
+            elapsed, target = 0.0, None
+            for (s, e) in segments:
+                if elapsed + (e - s) > p["at"]:
+                    target = s + (p["at"] - elapsed)
+                    break
+                elapsed += e - s
+            if target is not None:
+                punch_srcs.append((grid.snap(target), float(p.get("zoom", 1.12))))
+        if punch_srcs:
+            split: "list[tuple]" = []
+            for (s, e) in segments:
+                pieces = [(s, e, None)]
+                for pt, z in punch_srcs:
+                    nxt = []
+                    for (ps, pe, pz) in pieces:
+                        if ps < pt < pe:
+                            nxt.append((ps, pt, pz))
+                            nxt.append((pt, pe, z))
+                        else:
+                            nxt.append((ps, pe, pz))
+                    pieces = nxt
+                split.extend(pieces)
+            segments = [(s, e) for (s, e, _z) in split]
+            zoom_of = {(s, e): z for (s, e, z) in split}
+        else:
+            zoom_of = {}
+
         beat_rec_start = record
         seg_out = []
         for (s, e) in segments:
+            z = zoom_of.get((s, e))  # look up BEFORE snapping rebinds the key
             s, e = grid.snap(s), grid.snap(e)
             if e <= s:
                 continue
-            seg_out.append({"src_s": s, "src_e": e, "record_s": grid.snap(record)})
+            seg = {"src_s": s, "src_e": e, "record_s": grid.snap(record)}
+            if z:
+                seg["zoom"] = z
+            seg_out.append(seg)
             record = grid.snap(record + (e - s))
 
         broll_out = []

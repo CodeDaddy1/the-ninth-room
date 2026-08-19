@@ -508,6 +508,28 @@ def transition(card: "dict") -> str:
              "text": _e(card.get("text", ""))}
 
 
+def emoji_pop(card: "dict") -> str:
+    """Hype layer: one or more emoji popping in at a moment.
+
+    Emoji render from the system color-emoji font — free, sharp at any size,
+    and exactly what the genre uses. `emojis` is a list of {char, x, y,
+    size?, delay_ms?, wobble?}; coordinates are on the 1920x1080 stage. Keep
+    it to 1-3 emoji per moment: an emoji is a punchline mark, not confetti.
+    """
+    spans = []
+    for i, e in enumerate(card.get("emojis", [])):
+        anim = ("bWobble 460ms %s %dms both" if e.get("wobble", True)
+                else "bPop 340ms %s %dms both") % (EASE_OUT, int(e.get("delay_ms", i * 120)))
+        spans.append(
+            '<div style="position:absolute;left:%dpx;top:%dpx;font-size:%dpx;'
+            'font-family:\'Apple Color Emoji\',sans-serif;line-height:1;'
+            'filter:drop-shadow(0 6px 18px rgba(0,0,0,.45));'
+            'animation:%s">%s</div>'
+            % (int(e.get("x", 960)), int(e.get("y", 300)),
+               int(e.get("size", 150)), anim, _e(e.get("char", "😱"))))
+    return "".join(spans)
+
+
 RENDERERS = {
     "hook": hook,
     "compare": compare,
@@ -516,6 +538,7 @@ RENDERERS = {
     "reaction": reaction,
     "vote": vote,
     "transition": transition,
+    "emoji": emoji_pop,
     "hook_title": hook,          # aliases so existing graphics plans keep working
     "lower_third": lower_third,
     "section": lower_third,

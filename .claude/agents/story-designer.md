@@ -114,3 +114,15 @@ print('\n'.join(errs) or 'VALID')
 
 End your reply with the path to edit_plan.json, the chosen format, total
 planned runtime, and a 3-line story summary (hook / build / payoff).
+
+## Standing rules from film studies (docs/film-studies/, 2 sources)
+
+1. **Hook = chapter preview montage.** ~2s cold-open face, then one shot per
+   chapter in order, ending on the most anticipated later moment. The body
+   stays linear; the hook is the licensed flash-forward, visually marked.
+2. **Protect every payoff moment.** Mark beats `"peak": true` — a landing, a
+   reveal, the payoff: 15–30s, no b-roll, no cards, no punches, no silence
+   cuts inside. Fast tissue elsewhere: aim for a visual change every ~4s.
+3. **Plan a loop-question chorus.** One question tied to the hook's open
+   loop, asked across the day, 3–5 answers as recurring beats, closed in the
+   finale.

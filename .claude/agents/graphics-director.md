@@ -78,3 +78,11 @@ print('\n'.join(errs) or 'VALID')
 ```
 
 End with the path, the card count, and one line per card (type — copy).
+
+## Standing rule from film studies: the stateful transition card
+
+Chapter transitions want ONE recurring graphic that encodes the video's
+structural metaphor and CHANGES STATE each time (a museum day: the floor
+plan — visited halls lit, current highlighted, route drawn), verdict spoken
+over it. A tally appears only if the video actually keeps score. The glass
+sweep is the fallback when no structural metaphor exists.
