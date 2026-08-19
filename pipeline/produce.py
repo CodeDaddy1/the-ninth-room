@@ -146,13 +146,7 @@ def produce(slug: str, log=print) -> Path:
     ra.ensure_bridge()
     render_mod.project_for_slug(slug, tl_map["fps"], log=log)
     tl_name = build_api.build(slug, cards, caps, log=log)
-    master = render_mod.render_current(slug, tl_name, log=log)
-
-    # Music is mixed onto the master, not inside Resolve — the API has no
-    # audio-track or gain control (see pipeline/music.py).
-    try:
-        from . import music as music_mod
-        return music_mod.score(slug, master, log=log)
-    except IngestError as e:
-        log("[music] skipped: %s" % e)
-        return master
+    # Music is deliberately NOT mixed here — Caleb scores in post (2026-08-18).
+    # `pipeline/music.py` still works if that changes: it lays a per-chapter
+    # bed and side-chain ducks it under the narration. Call it explicitly.
+    return render_mod.render_current(slug, tl_name, log=log)

@@ -43,9 +43,14 @@ console settings, recordings, decisions). Check items off when done.
 
 ## Added 2026-08-18 (music)
 
-- [ ] **Confirm the music licence before publishing.** The library in
-  `brand/design-system/Music copy/` looks like Epidemic Sound (the `ES_` file
-  prefixes). Epidemic requires an active subscription tied to the channel, and
-  YouTube needs the channel connected in the Epidemic dashboard or the upload
-  can still get a claim. Per-chapter credits are written to
-  `work/<slug>/music_credits.json` for the video description.
+- [x] Music: Caleb scores in post, so the pipeline does not mix it. If that
+  changes, `pipeline/music.py` lays a per-chapter bed ducked under the
+  narration. Note the library looks like Epidemic Sound (`ES_` prefixes) —
+  that needs an active subscription with the channel connected, or YouTube can
+  still issue a claim.
+
+- [ ] **Credit the cocoon photo in every video description that uses it.**
+  Required by its licence: `Cecropia moth cocoon photo by Ryan Hodnett,
+  CC BY-SA 4.0 (creativecommons.org/licenses/by-sa/4.0), cropped.` The
+  share-alike term also means that image and any edit of it stays CC BY-SA 4.0.
+  The monarch chrysalis (USFWS) is public domain and needs no credit.
