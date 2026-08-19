@@ -20,6 +20,7 @@ frame confusion) or b-roll brings its own audio and buries the narration.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from . import resolve_api as ra
@@ -31,6 +32,28 @@ VIDEO_ONLY = 1
 
 def _f(seconds: float, fps: float) -> int:
     return int(round(seconds * fps))
+
+
+def _clip_frames(path: str) -> int:
+    """Frame count of an overlay .mov, from the file itself.
+
+    startFrame/endFrame are indices into the CLIP's own frames, and the
+    overlay movs are baked at 24/30fps while the timeline runs 23.976 —
+    computing endFrame with the timeline rate silently trimmed every 30fps
+    caption clip to ~80% of its length (found 2026-08-19: 'cockroaches 🪳'
+    never appeared in the master). The plan's overlay durations equal the mov
+    durations by construction, so the correct request is simply every frame
+    the file has.
+    """
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=nb_frames", "-of", "csv=p=0", path],
+        capture_output=True, text=True, timeout=30)
+    out = (proc.stdout or "").strip()
+    if proc.returncode != 0 or not out.isdigit() or int(out) < 1:
+        raise IngestError("could not read frame count of %s: %s"
+                          % (path, (proc.stderr or out)[-200:]))
+    return int(out)
 
 
 def build(slug: str, cards: "list[dict]", caption_clips: "list[dict]", log=print) -> str:
@@ -69,8 +92,28 @@ def build(slug: str, cards: "list[dict]", caption_clips: "list[dict]", log=print
         paths.append(item["path"])
     uniq = sorted({str(Path(p).resolve()) for p in paths})
     lua_list = ",".join(ra.lua_str(p) for p in uniq)
+    # Overlay movs are REGENERATED at the same path every build, but a reused
+    # project keeps the old pool items — after a few builds the pool held four
+    # BT05.movs of different lengths and the name scan picked one at random
+    # (found 2026-08-19). Purge same-name overlay items before importing so
+    # exactly one, current copy exists. Camera originals never change, so
+    # they are left alone.
+    overlay_names = sorted({Path(item["path"]).name
+                            for item in list(cards) + list(caption_clips)})
+    lua_overlays = ",".join(ra.lua_str(n) for n in overlay_names)
     got = ra.send("preload_media", '''
 local mp = resolve:GetProjectManager():GetCurrentProject():GetMediaPool()
+local purge_names = {}
+for _, n in ipairs({%s}) do purge_names[n] = true end
+local stale = {}
+local function sweep(folder)
+  for _, c in ipairs(folder:GetClipList()) do
+    if purge_names[c:GetName()] then stale[#stale+1] = c end
+  end
+  for _, sub in ipairs(folder:GetSubFolderList()) do sweep(sub) end
+end
+sweep(mp:GetRootFolder())
+if #stale > 0 then mp:DeleteClips(stale) end
 local items = mp:ImportMedia({%s})
 -- Stash THIS build's imports by name. Rebuilds regenerate overlay .movs at
 -- the same paths, and the pool can hold stale same-name items from earlier
@@ -80,7 +123,7 @@ local items = mp:ImportMedia({%s})
 _cc_imported = _cc_imported or {}
 for _, it in ipairs(items or {}) do _cc_imported[it:GetName()] = it end
 return tostring(items and #items or 0)
-''' % lua_list, timeout=900)
+''' % (lua_overlays, lua_list), timeout=900)
     log("[build] media pool: %s/%d clips" % (got, len(uniq)))
 
     # Measure every camera clip now so its grade is ready to apply once the
@@ -237,13 +280,13 @@ return "zoomed=" .. done
     for card in cards:
         bid = owning_beat(card["record_s"])
         entries.append({"name": Path(card["path"]).name, "start": 0,
-                        "end": _f(card["duration"], fps) - 1, "track": 3,
+                        "end": _clip_frames(card["path"]) - 1, "track": 3,
                         "record": rec_frame(bid, card["record_s"] - beat_of_record[bid]),
                         "video_only": True})
     for cap in caption_clips:
         bid = owning_beat(cap["record_s"])
         entries.append({"name": Path(cap["path"]).name, "start": 0,
-                        "end": _f(cap["duration"], fps) - 1, "track": 4,
+                        "end": _clip_frames(cap["path"]) - 1, "track": 4,
                         "record": rec_frame(bid, cap["record_s"] - beat_of_record[bid]),
                         "video_only": True})
 
@@ -263,6 +306,8 @@ local function scan(folder)
   for _, sub in ipairs(folder:GetSubFolderList()) do scan(sub) end
 end
 scan(mp:GetRootFolder())
+-- Same fresh-handle preference append_v1 has: this build's imports win.
+for n, it in pairs(_cc_imported or {}) do byname[n] = it end
 
 -- recordFrame is ABSOLUTE timeline frames, and a Resolve timeline starts at
 -- the hour mark (01:00:00:00), not zero. Placing at 0 puts every clip before
