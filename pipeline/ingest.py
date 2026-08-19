@@ -126,8 +126,14 @@ def silence_gaps(words: "list[dict]", duration: float,
 
 # --- the stage ------------------------------------------------------------
 
-def ingest(slug: str, log=print) -> Path:
-    """Probe + transcribe + classify every file; write analysis/catalog.json."""
+def ingest(slug: str, log=print, use_api: bool = False) -> Path:
+    """Probe + transcribe + classify every file; write analysis/catalog.json.
+
+    use_api routes transcription through OpenAI Whisper (pipeline/whisper_api)
+    for far better proper-noun accuracy, falling back to the local engine per
+    file on any failure. Cached words are reused either way — delete a
+    .words.json to force re-transcription with the other engine.
+    """
     footage = work_path(slug) / "footage"
     if not footage.is_dir():
         raise IngestError("no footage dir: %s" % footage)
@@ -163,7 +169,16 @@ def ingest(slug: str, log=print) -> Path:
             if words_path.exists():
                 words = json.loads(words_path.read_text())
             else:
-                words = transcribe(path)
+                words = None
+                if use_api:
+                    from . import whisper_api
+                    try:
+                        words = whisper_api.transcribe(str(path))
+                        log("         transcribed via API")
+                    except whisper_api.WhisperApiError as e:
+                        log("         API transcription failed (%s) — using local" % e)
+                if words is None:
+                    words = transcribe(path)
                 words_path.write_text(json.dumps(words))
             n = len(words)
             minutes = entry["duration"] / 60.0 if entry["duration"] else 1.0

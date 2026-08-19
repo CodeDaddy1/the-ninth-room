@@ -15,7 +15,7 @@ import sys
 def cmd_ingest(args) -> int:
     from . import ingest
     try:
-        ingest.ingest(args.slug)
+        ingest.ingest(args.slug, use_api=getattr(args, "api", False))
     except ingest.IngestError as e:
         print("error: %s" % e, file=sys.stderr)
         return 1
@@ -101,6 +101,8 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("ingest", help="probe + transcribe work/<slug>/footage/")
     p.add_argument("slug")
+    p.add_argument("--api", action="store_true",
+                   help="transcribe via OpenAI Whisper (better names; costs cents)")
     p.set_defaults(fn=cmd_ingest)
 
     p = sub.add_parser("takes", help="segment speech into takes, group retakes")
