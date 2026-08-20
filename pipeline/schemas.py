@@ -368,6 +368,13 @@ def validate_graphics_plan(plan: "dict[str, Any]",
                 errors.append("%s: missing numeric '%s'" % (where, key))
         if isinstance(c.get("duration"), (int, float)) and not 1.0 <= c["duration"] <= 15.0:
             errors.append("%s: duration %.1fs outside 1-15s" % (where, c["duration"]))
+        # Chapter turns must be readable: >= 2.5s (Caleb, 2026-08-19).
+        is_chapter = (c.get("kit_type") in ("transition", "chapter")
+                      or c.get("type") == "chapter") and not c.get("prebaked")
+        if (is_chapter and isinstance(c.get("duration"), (int, float))
+                and c["duration"] < 2.5):
+            errors.append("%s: chapter card '%s' holds %.1fs — minimum is 2.5s"
+                          % (where, c.get("id"), c["duration"]))
         if c.get("animation", "slide_up") not in CARD_ANIMATIONS:
             errors.append("%s: animation '%s' not in %s" % (where, c.get("animation"), CARD_ANIMATIONS))
         ctype = c.get("type")
