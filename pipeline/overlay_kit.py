@@ -1,101 +1,130 @@
-"""The HMNS Overlay Kit v2 — overlays authored in Claude Design, rendered here.
+"""The Ninth Room Overlay Kit v3 — overlays authored in Claude Design.
 
-Source of truth: the "YouTube text overlay project" canvas on claude.ai/design
-(`HMNS Overlay Kit v2.dc.html`). That file is a *design document*: each screen
-shows one overlay on a 1920×1080 stage plus a spec panel describing its
-timing. This module is the runtime version of that document — same markup,
-same CSS keyframes, same easing and delays, with the copy parameterised so
-the pipeline can fill it per card.
+Source of truth: the design handoff bundle (README + `Locked Overlay
+Structure.dc.html`) delivered 2026-08-19 — the approved "Cutout" chip
+structure (direction 2b) in the approved Midnight palette (3c). This module
+is the runtime version: same chip geometry, same keyframes, same stagger
+timings, with the copy parameterised so the pipeline fills it per card.
 
-Why re-implement rather than render the .dc.html directly: the canvas file is
-wrapped in the Claude Design runtime (`support.js`, `<x-dc>`, `<sc-if>`,
-replay buttons) and lays every screen out side by side with explanatory
-panels. We need one overlay alone on a transparent 1920×1080 canvas. The
-markup inside each `<sc-if>` is what matters, and that is what lives below.
+The system in one paragraph: every line of type is its own CHIP — a
+midnight-deep (or accent) box with a 5px ice outline, 12px radius, a hard
+offset shadow (no blur), tilted ±1–2°, landing 140ms after the one before.
+Chips shrink-wrap their text. Ice blue (#9DC6E8) means "this is true" —
+facts, labels, measurements. Hot amber (#FFAE3B) means "this is a joke" —
+votes, stamps, reactions, scoreboards. One accent per chip, never both.
+Type on an accent is always midnight-deep.
 
-Design language (from the kit, deliberately different from the older cards):
-  accent  #12B76A green, ink #09090B at 82%, text #FCFCFA, muted #9A9A94
-  type    Gabarito (display, 800 weight, tight negative tracking) + Manrope
-  motion  per-line wipe-up staggered ~100ms, blur-in reveals, grow-x rules,
-          pop/tick for numbers — all on cubic-bezier(.16,1,.3,1)
+Tilt note: the design files set a static `transform:rotate(…)` on chips AND
+animate `transform` — in real CSS the animation's fill-mode would erase the
+rest tilt. Here every keyframe carries `rotate(var(--tilt))` so chips land
+and STAY on their tilt, which is what the mocks intend.
 
-Renders through `pipeline.animate`, which seeks the CSS animation frame by
+Renders through `pipeline.animate`, which seeks the CSS animations frame by
 frame in headless Chrome, so the timings here are the timings on screen.
 
 What breaks if this is wrong: overlays drift from the approved design (wrong
-accent, wrong easing), or text overflows its plate — always render-test a card
-with real copy before shipping it.
+accent role, missing outline, blurred shadow), or text overflows its chip —
+always render-test a card with real copy before shipping it.
 """
 from __future__ import annotations
 
 import html
 
-# --- kit tokens -----------------------------------------------------------
+# --- Midnight tokens (locked palette) --------------------------------------
 
-ACCENT = "#12B76A"
-INK = "rgba(9,9,11,.82)"
-HAIRLINE = "rgba(252,252,250,.14)"
-TEXT = "#FCFCFA"
-MUTED = "#9A9A94"
+MIDNIGHT = "#0F1826"        # brand base
+DEEP = "#0B121C"            # chip and plate fill (>= .94 alpha over footage)
+SURFACE = "#2C3E56"         # raised navy; unlit rooms in the mark on dark
+ICE = "#E8EFF6"             # type on midnight; the outline on every chip
+TRUE_BLUE = "#9DC6E8"       # means "this is true"
+FUN = "#FFAE3B"             # means "this is a joke"
+MUTED = "#5F7186"           # secondary type on dark
+SUBTLE = "#93A2B2"          # secondary type inside a chip
 
-FONT_DISPLAY = "Gabarito, 'Helvetica Neue', sans-serif"
+SHADOW = "8px 8px 0 rgba(5,9,15,.6)"     # hard offset, no blur
+SHADOW_SM = "7px 7px 0 rgba(5,9,15,.6)"
+SHADOW_XS = "6px 6px 0 rgba(5,9,15,.5)"
+
+FONT_DISPLAY = "'Bricolage Grotesque', 'Gabarito', sans-serif"
 FONT_BODY = "Manrope, 'Helvetica Neue', sans-serif"
+FONT_SERIF = "Newsreader, Georgia, serif"
 
 EASE_OUT = "cubic-bezier(.16,1,.3,1)"
 EASE_STD = "cubic-bezier(.22,.61,.36,1)"
 
-# Every keyframe the kit defines, copied verbatim so motion matches the canvas.
+# Legacy aliases so the v2 worked-example components (compare, flight_path,
+# contact) keep rendering, now in Midnight colors.
+ACCENT = FUN
+INK = "rgba(11,18,28,.94)"
+HAIRLINE = "rgba(232,239,246,.3)"
+TEXT = ICE
+
 KEYFRAMES = """
+@keyframes lPop{0%{opacity:0;transform:scale(.76) rotate(var(--tilt,0deg))}62%{opacity:1;transform:scale(1.1) rotate(var(--tilt,0deg))}100%{opacity:1;transform:scale(1) rotate(var(--tilt,0deg))}}
+@keyframes lPopT{0%{opacity:0;transform:scale(.76) rotate(-6deg)}62%{opacity:1;transform:scale(1.08) rotate(2deg)}100%{opacity:1;transform:scale(1) rotate(var(--tilt,-2deg))}}
+@keyframes lFade{from{opacity:0}to{opacity:1}}
+@keyframes lUp{from{opacity:0;transform:translateY(16px) rotate(var(--tilt,0deg))}to{opacity:1;transform:translateY(0) rotate(var(--tilt,0deg))}}
+@keyframes lTick{0%{transform:translateY(0) scale(1)}36%{transform:translateY(-18px) scale(1.32)}100%{transform:translateY(0) scale(1)}}
+@keyframes lSlam{0%{opacity:0;transform:rotate(-16deg) scale(2)}52%{opacity:1;transform:rotate(-5deg) scale(.93)}74%{transform:rotate(-9deg) scale(1.05)}100%{opacity:1;transform:rotate(-7deg) scale(1)}}
+@keyframes lRule{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes lWipeUp{from{clip-path:inset(105% 0 0 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes lWob{0%,100%{transform:scale(1) rotate(0deg)}50%{transform:scale(1.05) rotate(3deg)}}
 @keyframes bUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-@keyframes bDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes bFade{from{opacity:0}to{opacity:1}}
-@keyframes bBlur{from{opacity:0;filter:blur(7px)}to{opacity:1;filter:blur(0)}}
 @keyframes bWipeUp{from{clip-path:inset(105% 0 0 0)}to{clip-path:inset(0 0 0 0)}}
-@keyframes bWipeR{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 @keyframes bGrowX{from{transform:scaleX(0)}to{transform:scaleX(1)}}
-@keyframes bRing{from{opacity:0;transform:scale(1.4)}to{opacity:1;transform:scale(1)}}
-@keyframes bPlate{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes bPop{0%{opacity:0;transform:scale(.7)}60%{opacity:1;transform:scale(1.14)}100%{opacity:1;transform:scale(1)}}
-@keyframes bTick{0%{transform:translateY(0) scale(1)}35%{transform:translateY(-16px) scale(1.3)}100%{transform:translateY(0) scale(1)}}
-@keyframes bStamp{0%{opacity:0;transform:rotate(-14deg) scale(1.9)}55%{opacity:1;transform:rotate(-4deg) scale(.94)}75%{transform:rotate(-8deg) scale(1.04)}100%{opacity:1;transform:rotate(-6deg) scale(1)}}
 @keyframes bBurst{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(0,-260px) scale(.3)}}
 @keyframes bFlash{0%{opacity:0;transform:scale(.4)}30%{opacity:1;transform:scale(1.1)}100%{opacity:0;transform:scale(1.5)}}
-@keyframes bWobble{0%{opacity:0;transform:rotate(-7deg) scale(.8)}45%{opacity:1;transform:rotate(4deg) scale(1.08)}70%{transform:rotate(-2deg) scale(.98)}100%{opacity:1;transform:rotate(-2deg) scale(1)}}
-@keyframes bBar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
-@keyframes bFlap{0%,100%{transform:scaleX(1) rotate(0)}50%{transform:scaleX(.72) rotate(-5deg)}}
 @keyframes bSweepIn{from{transform:translateX(-105%)}to{transform:translateX(0)}}
 @keyframes bSweepOut{from{transform:translateX(0)}to{transform:translateX(105%)}}
 """
 
-# Overlay types this module renders. `compare`, `contact`, `vote` and
-# `flight_path` from the kit also need raster assets and are not built yet.
-KIT_TYPES = ("hook", "name_reveal", "lower_third", "chapter", "scoreboard",
-             "payoff", "caption_plate", "stamp")
+KIT_TYPES = ("hook", "lower_third", "chapter", "scoreboard", "payoff",
+             "caption_plate", "stamp", "stat", "vote", "reaction",
+             "transition", "emoji", "watermark")
 
 
 def _e(text: str) -> str:
     return html.escape(str(text))
 
 
-def _lines(text: str, size: int, delay0: int = 90, step: int = 100) -> str:
-    """Display copy as staggered wipe-up lines — the kit's signature move.
+def _accent(card: "dict", default: str) -> str:
+    """Resolve the card's accent role: 'true' -> ice blue, 'fun' -> amber."""
+    role = card.get("accent")
+    if role == "true":
+        return TRUE_BLUE
+    if role == "fun":
+        return FUN
+    return default
 
-    Each line is clipped by its own overflow box so the text rises out of
-    nothing rather than sliding over the footage.
-    """
-    out = []
-    for i, line in enumerate(text.split("\n")):
-        out.append(
-            '<div style="overflow:hidden"><div style="animation:bWipeUp 380ms %s %dms both">%s</div></div>'
-            % (EASE_OUT, delay0 + i * step, line))
-    return ('<div style="font-family:%s;font-size:%dpx;line-height:1.03;font-weight:800;'
-            'letter-spacing:-.045em">%s</div>' % (FONT_DISPLAY, size, "".join(out)))
+
+def _chip(inner: str, fill: str = DEEP, color: str = ICE, tilt: float = -1.0,
+          delay: int = 0, dur: int = 360, pill: bool = False,
+          outline: str = "", shadow: str = SHADOW, pad: str = "10px 26px",
+          radius: int = 12, anim: str = "lPop", extra: str = "") -> str:
+    """One chip. The whole kit is this box."""
+    return ('<div style="background:%s;color:%s;border:%s;border-radius:%s;'
+            'padding:%s;box-shadow:%s;--tilt:%.1fdeg;'
+            'transform:rotate(%.1fdeg);animation:%s %dms %s %dms both;%s">%s</div>'
+            % (fill, color, outline or ("5px solid %s" % ICE),
+               "999px" if pill else "%dpx" % radius, pad, shadow, tilt, tilt,
+               anim, dur, EASE_OUT, delay, extra, inner))
+
+
+def _kicker_pill(text: str, fill: str, delay: int = 0, size: int = 26,
+                 shadow: str = SHADOW, tracking: str = ".18em") -> str:
+    inner = ('<span style="font-family:%s;font-size:%dpx;font-weight:800;'
+             'letter-spacing:%s;text-transform:uppercase">%s</span>'
+             % (FONT_BODY, size, tracking, _e(text)))
+    return _chip(inner, fill=fill, color=DEEP, tilt=-2, delay=delay, dur=340,
+                 pill=True, shadow=shadow, pad="10px 28px", anim="lPopT")
 
 
 def _mark(word: str) -> str:
-    """The kit marks the payoff word with a solid accent box, nothing else."""
-    return ('<span style="background:%s;color:%s;padding:0 12px">%s</span>'
-            % (ACCENT, TEXT, _e(word)))
+    """The active/emphasized word sits on its own little amber chip."""
+    return ('<span style="background:%s;color:%s;border-radius:8px;'
+            'padding:0 12px">%s</span>' % (FUN, DEEP, _e(word)))
 
 
 def emphasize(text: str, emphasis: "list[str]") -> str:
@@ -105,242 +134,368 @@ def emphasize(text: str, emphasis: "list[str]") -> str:
     return out
 
 
-# --- the overlays ---------------------------------------------------------
+def _display(size: int, tracking: str = "-.04em") -> str:
+    return ("font-family:%s;font-size:%dpx;line-height:1;font-weight:800;"
+            "letter-spacing:%s" % (FONT_DISPLAY, size, tracking))
+
+
+# --- the twelve components -------------------------------------------------
 
 def hook(card: "dict") -> str:
-    """01 Hook — eyebrow with a live dot, then two lines wiping up."""
-    body = emphasize(card.get("text", ""), card.get("emphasis"))
-    return """
-<div style="position:absolute;left:120px;top:130px;color:%(text)s;font-family:%(body_font)s">
-  <div style="display:flex;align-items:center;gap:14px;animation:bFade 240ms ease both">
-    <div style="width:10px;height:10px;border-radius:999px;background:%(accent)s"></div>
-    <span style="font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase">%(kicker)s</span>
-  </div>
-  <div style="margin-top:22px">%(lines)s</div>
-</div>""" % {"text": TEXT, "body_font": FONT_BODY, "accent": ACCENT,
-             "kicker": _e(card.get("kicker", "")),
-             "lines": _lines(body, 112)}
+    """1 · Hook — kicker pill, title chips alternating ink/amber, subline.
 
-
-def lower_third(card: "dict") -> str:
-    """03 Lower third — accent spine, label wipes right, then the big line."""
-    return """
-<div style="position:absolute;left:120px;top:130px;display:flex;align-items:stretch;
-            animation:bUp 260ms %(ease_std)s both;font-family:%(body_font)s">
-  <div style="width:6px;background:%(accent)s"></div>
-  <div style="background:%(ink)s;border:1px solid %(hair)s;border-left:0;padding:26px 40px 28px;
-              color:%(text)s;overflow:hidden">
-    <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-                color:%(accent)s;animation:bWipeR 300ms %(ease_std)s 120ms both">%(kicker)s</div>
-    <div style="font-family:%(display)s;font-size:58px;font-weight:800;letter-spacing:-.04em;
-                margin-top:10px;animation:bWipeR 360ms %(ease_std)s 200ms both">%(text_line)s</div>
-    %(sub)s
-  </div>
-</div>""" % {"ease_std": EASE_STD, "body_font": FONT_BODY, "accent": ACCENT,
-             "ink": INK, "hair": HAIRLINE, "text": TEXT, "display": FONT_DISPLAY,
-             "kicker": _e(card.get("kicker", "")),
-             "text_line": _e(card.get("text", "")),
-             "sub": ('<div style="font-size:26px;color:%s;margin-top:8px;'
-                     'animation:bFade 220ms ease 420ms both">%s</div>'
-                     % (MUTED, _e(card["subtext"]))) if card.get("subtext") else ""}
-
-
-def _scrim(card: "dict", side: bool = True) -> str:
-    """A darkening wash behind full-frame overlays.
-
-    The kit previews these on a dark placeholder clip, so its green kicker and
-    muted subtext read fine there. Over real footage — a bright museum sky —
-    they wash out. This gradient keeps the design intact and buys contrast;
-    pass `scrim: false` on a card to turn it off for an already-dark shot.
+    Pill at 0ms, title chips at 140/280ms, subline at 440ms. Hold 1.8s.
     """
-    if card.get("scrim") is False:
-        return ""
-    grad = ("linear-gradient(90deg, rgba(9,9,11,.86) 0%, rgba(9,9,11,.72) 45%, rgba(9,9,11,0) 78%)"
-            if side else
-            "linear-gradient(0deg, rgba(9,9,11,.86) 0%, rgba(9,9,11,.35) 45%, rgba(9,9,11,0) 75%)")
-    return ('<div style="position:absolute;inset:0;background:%s;'
-            'animation:bFade 240ms ease both"></div>' % grad)
+    parts = [_kicker_pill(card.get("kicker", ""), FUN)]
+    lines = [l for l in card.get("text", "").split("\n") if l.strip()]
+    for i, line in enumerate(lines):
+        amber = i % 2 == 1
+        inner = '<span style="%s">%s</span>' % (
+            _display(100), _e(line) if amber else emphasize(line, card.get("emphasis")))
+        parts.append(_chip(inner, fill=FUN if amber else DEEP,
+                           color=DEEP if amber else ICE,
+                           tilt=1.5 if amber else -1.5, delay=140 + i * 140))
+    if card.get("subtext"):
+        inner = ('<span style="font-family:%s;font-size:30px;font-weight:600">%s</span>'
+                 % (FONT_BODY, _e(card["subtext"])))
+        parts.append(_chip(inner, color=SUBTLE, tilt=-1,
+                           delay=140 + len(lines) * 140 + 20, dur=320,
+                           outline="4px solid rgba(232,239,246,.6)",
+                           shadow=SHADOW_XS, pad="8px 22px", radius=10))
+    return ('<div style="position:absolute;left:130px;top:270px;display:flex;'
+            'flex-direction:column;align-items:flex-start;gap:14px">%s</div>'
+            % "".join(parts))
 
 
 def chapter(card: "dict") -> str:
-    """10 Chapter turn — a full-bleed act break: rule, kicker, huge title."""
-    return _scrim(card) + """
-<div style="position:absolute;left:130px;top:0;bottom:0;display:flex;flex-direction:column;
-            justify-content:center;gap:18px;color:%(text)s;font-family:%(body_font)s">
-  <div style="display:flex;align-items:center;gap:16px">
-    <div style="width:70px;height:3px;background:%(accent)s;transform-origin:left;
-                animation:bGrowX 260ms %(ease_std)s both"></div>
-    <span style="font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-                 color:%(accent)s;animation:bFade 220ms ease 80ms both">%(kicker)s</span>
-  </div>
-  <div style="font-family:%(display)s;font-size:%(size)dpx;line-height:1;font-weight:800;
-              letter-spacing:-.055em;overflow:hidden">
-    <div style="animation:bWipeUp 420ms %(ease_out)s 160ms both">%(title)s</div>
-  </div>
-  %(sub)s
-</div>""" % {"text": TEXT, "body_font": FONT_BODY, "accent": ACCENT,
-             "ease_std": EASE_STD, "ease_out": EASE_OUT, "display": FONT_DISPLAY,
-             "kicker": _e(card.get("kicker", "")),
-             "title": _e(card.get("text", "")),
-             # 150px is the kit's size for a one-word title; longer titles
-             # must shrink or they run off the 1920px stage.
-             "size": 150 if len(card.get("text", "")) <= 12 else
-                     (110 if len(card.get("text", "")) <= 22 else 78),
-             "sub": ('<div style="font-size:30px;color:%s;animation:bFade 240ms ease 480ms both">%s</div>'
-                     % (MUTED, _e(card["subtext"]))) if card.get("subtext") else ""}
-
-
-def scoreboard(card: "dict") -> str:
-    """11 Scoreboard — the running tally; the changed number ticks."""
-    cells = []
-    for entry in card.get("entries", []):
-        hot = entry.get("highlight")
-        cells.append(
-            '<div><div style="font-size:26px;font-weight:700;color:%s">%s</div>'
-            '<div style="font-family:%s;font-size:76px;font-weight:800;letter-spacing:-.04em;'
-            'line-height:1;%s">%s</div></div>'
-            % (ACCENT if hot else MUTED, _e(entry.get("label", "")), FONT_DISPLAY,
-               ("color:%s;animation:bTick 520ms %s 700ms both" % (ACCENT, EASE_OUT)) if hot else "",
-               _e(entry.get("value", ""))))
+    """2 · Chapter card — full-frame scrim, rule, kicker, huge wiped title."""
+    text = card.get("text", "")
+    size = 150 if len(text) <= 12 else (112 if len(text) <= 22 else 84)
+    sub = ""
+    if card.get("subtext"):
+        sub = ('<div style="font-family:%s;font-size:30px;color:%s;'
+               'animation:lFade 240ms ease 480ms both">%s</div>'
+               % (FONT_BODY, MUTED, _e(card["subtext"])))
     return """
-<div style="position:absolute;left:110px;top:90px;background:%(ink)s;border:1px solid %(hair)s;
-            border-radius:16px;padding:26px 30px;color:%(text)s;font-family:%(body_font)s;
-            animation:bPop 320ms %(ease_out)s both">
-  <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-              color:%(accent)s">%(kicker)s</div>
-  <div style="display:flex;gap:34px;margin-top:20px;align-items:flex-end">%(cells)s</div>
-</div>""" % {"ink": INK, "hair": HAIRLINE, "text": TEXT, "body_font": FONT_BODY,
-             "ease_out": EASE_OUT, "accent": ACCENT,
-             "kicker": _e(card.get("kicker", "")), "cells": "".join(cells)}
+<div style="position:absolute;inset:0;background:rgba(11,18,28,.84);animation:lFade 240ms ease both"></div>
+<div style="position:absolute;left:130px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:18px;color:%(ice)s">
+  <div style="display:flex;align-items:center;gap:16px">
+    <div style="width:70px;height:3px;background:%(true)s;transform-origin:left;animation:lRule 260ms %(ease_std)s both"></div>
+    <span style="font-family:%(body)s;font-size:22px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:%(true)s;animation:lFade 220ms ease 80ms both">%(kicker)s</span>
+  </div>
+  <div style="%(display)s;overflow:hidden"><div style="animation:lWipeUp 420ms %(ease)s 160ms both">%(title)s</div></div>
+  %(sub)s
+</div>""" % {"ice": ICE, "true": TRUE_BLUE, "ease_std": EASE_STD,
+             "body": FONT_BODY, "kicker": _e(card.get("kicker", "")),
+             "display": _display(size, "-.055em"), "ease": EASE_OUT,
+             "title": _e(text), "sub": sub}
+
+
+def lower_third(card: "dict") -> str:
+    """3 · Lower third — a verified fact: ice kicker pill, headline, detail.
+
+    Bottom edge sits at y=800 so it clears the caption band and a person
+    standing frame-right. Chips shrink-wrap; long names widen up to 1400px.
+    """
+    parts = [_kicker_pill(card.get("kicker", ""), _accent(card, TRUE_BLUE),
+                          size=22, shadow=SHADOW_SM)]
+    inner = ('<span style="%s">%s</span>'
+             % (_display(58, "-.035em"),
+                emphasize(card.get("text", ""), card.get("emphasis"))))
+    parts.append(_chip(inner, tilt=1, delay=140, dur=340,
+                       extra="max-width:1400px"))
+    if card.get("subtext"):
+        italic = "font-style:italic;" if card.get("subtext_italic", True) else ""
+        inner = ('<span style="font-family:%s;font-size:28px;font-weight:600;%s">%s</span>'
+                 % (FONT_BODY, italic, _e(card["subtext"])))
+        parts.append(_chip(inner, color=SUBTLE, tilt=-1, delay=280, dur=320,
+                           outline="4px solid rgba(232,239,246,.6)",
+                           shadow=SHADOW_XS, pad="8px 22px", radius=10))
+    return ('<div style="position:absolute;left:120px;bottom:280px;display:flex;'
+            'flex-direction:column;align-items:flex-start;gap:12px">%s</div>'
+            % "".join(parts))
 
 
 def stat(card: "dict") -> str:
-    """A number card in the kit's language: label, then the figure pops."""
-    return """
-<div style="position:absolute;left:110px;top:130px;background:linear-gradient(135deg,#101014 0%%,#09090B 100%%);box-shadow:0 24px 60px rgba(0,0,0,.5);border:1px solid %(hair)s;
-            border-radius:16px;padding:30px 40px 34px;color:%(text)s;font-family:%(body_font)s;
-            animation:bPlate 260ms %(ease_std)s both">
-  <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-              color:%(accent)s">%(kicker)s</div>
-  <div style="font-family:%(display)s;font-size:150px;line-height:1;font-weight:800;
-              letter-spacing:-.05em;margin-top:10px;
-              animation:bPop 340ms %(ease_out)s 220ms both">%(stat)s</div>
-  <div style="font-size:30px;color:%(muted)s;margin-top:10px;
-              animation:bFade 240ms ease 520ms both">%(label)s</div>
-</div>""" % {"ink": INK, "hair": HAIRLINE, "text": TEXT, "body_font": FONT_BODY,
-             "ease_std": EASE_STD, "ease_out": EASE_OUT, "accent": ACCENT,
-             "display": FONT_DISPLAY, "muted": MUTED,
-             "kicker": _e(card.get("kicker", "")), "stat": _e(card.get("stat", "")),
-             "label": _e(card.get("text", ""))}
+    """4 · Stat card — one big number, label on an ice chip below."""
+    parts = []
+    if card.get("kicker"):
+        parts.append(_kicker_pill(card["kicker"], _accent(card, TRUE_BLUE), size=22,
+                                  shadow=SHADOW_SM))
+    inner = '<span style="%s">%s</span>' % (_display(180, "-.05em"),
+                                            _e(card.get("stat", "")))
+    parts.append(_chip(inner, tilt=1, delay=120, dur=380))
+    if card.get("text"):
+        inner = ('<span style="font-family:%s;font-size:34px;font-weight:700">%s</span>'
+                 % (FONT_BODY, _e(card["text"])))
+        parts.append(_chip(inner, fill=_accent(card, TRUE_BLUE), color=DEEP,
+                           tilt=-1, delay=300, dur=340))
+    return ('<div style="position:absolute;left:0;right:0;top:330px;display:flex;'
+            'flex-direction:column;align-items:center;gap:16px">%s</div>'
+            % "".join(parts))
 
 
 def payoff(card: "dict") -> str:
-    """09 Payoff — the quotable line, held alone."""
-    return _scrim(card, side=False) + """
-<div style="position:absolute;left:130px;right:130px;top:0;bottom:0;display:flex;
-            flex-direction:column;justify-content:center;color:%(text)s;font-family:%(body_font)s">
-  <div style="width:70px;height:3px;background:%(accent)s;transform-origin:left;
-              animation:bGrowX 260ms %(ease_std)s both;margin-bottom:26px"></div>
-  %(lines)s
-  %(attr)s
-</div>""" % {"text": TEXT, "body_font": FONT_BODY, "accent": ACCENT,
-             "ease_std": EASE_STD,
-             "lines": _lines(emphasize(card.get("text", ""), card.get("emphasis")), 96,
-                             delay0=140, step=110),
-             "attr": ('<div style="font-size:28px;color:%s;margin-top:24px;'
-                      'animation:bFade 240ms ease 700ms both">— %s</div>'
-                      % (MUTED, _e(card["attribution"]))) if card.get("attribution") else ""}
+    """5 · Quote / payoff — speaker pill above the quote chip."""
+    parts = []
+    if card.get("attribution"):
+        parts.append(_kicker_pill(card["attribution"], FUN, size=22,
+                                  shadow=SHADOW_SM))
+    inner = ('<span style="%s;line-height:1.06;display:inline-block">%s</span>'
+             % (_display(76), emphasize(card.get("text", ""), card.get("emphasis"))))
+    parts.append(_chip(inner, tilt=1, delay=120, dur=340, anim="lUp",
+                       extra="max-width:1500px;text-align:center"))
+    return ('<div style="position:absolute;left:0;right:0;top:400px;display:flex;'
+            'flex-direction:column;align-items:center;gap:16px">%s</div>'
+            % "".join(parts))
+
+
+def vote(card: "dict") -> str:
+    """6 · Vote — amber kicker, question chip, option cards; digits tick."""
+    parts = [_kicker_pill(card.get("kicker", ""), FUN)]
+    if card.get("text"):
+        inner = '<span style="%s">%s</span>' % (_display(76), _e(card["text"]))
+        parts.append(_chip(inner, tilt=1, delay=140, pad="10px 28px"))
+    opts = []
+    for i, r in enumerate(card.get("rows", [])):
+        win = r.get("highlight")
+        tick = ("animation:lTick 460ms %s 1000ms both" % EASE_OUT) if win else ""
+        opts.append(
+            '<div style="background:%s;border:5px solid %s;border-radius:16px;'
+            'padding:18px 36px;color:%s;text-align:center;box-shadow:%s;'
+            '--tilt:%ddeg;transform:rotate(%ddeg);animation:lPop 340ms %s %dms both">'
+            '<div style="font-family:%s;font-size:32px;font-weight:%d">%s</div>'
+            '<div style="%s;font-size:68px;line-height:1.1;%s%s">%s</div></div>'
+            % (FUN if win else DEEP,
+               ICE if win else "rgba(232,239,246,.7)",
+               DEEP if win else ICE, SHADOW,
+               2 if win else -2, 2 if win else -2, EASE_OUT, 300 + i * 100,
+               FONT_BODY, 800 if win else 700, _e(r.get("label", "")),
+               _display(68, "-.04em"),
+               "" if win else "color:%s;" % MUTED, tick,
+               _e(r.get("value", ""))))
+    parts.append('<div style="display:flex;gap:24px;margin-top:14px">%s</div>'
+                 % "".join(opts))
+    return ('<div style="position:absolute;left:0;right:0;top:150px;display:flex;'
+            'flex-direction:column;align-items:center;gap:16px">%s</div>'
+            % "".join(parts))
+
+
+def scoreboard(card: "dict") -> str:
+    """7 · Scoreboard — one big card; the winner row is its own amber chip."""
+    rows = []
+    for entry in card.get("entries", []):
+        win = entry.get("highlight")
+        row = ('<span>%s</span><span style="%s">%s</span>'
+               % (_e(entry.get("label", "")),
+                  ("animation:lTick 460ms %s 560ms both;display:inline-block" % EASE_OUT)
+                  if win else "", _e(entry.get("value", ""))))
+        if win:
+            rows.append('<div style="background:%s;color:%s;border-radius:18px;'
+                        'padding:6px 20px;display:flex;justify-content:space-between;'
+                        'gap:40px;%s;font-size:52px;'
+                        'animation:lPop 340ms %s 260ms both">%s</div>'
+                        % (FUN, DEEP, _display(52, "-.03em"), EASE_OUT, row))
+        else:
+            rows.append('<div style="display:flex;justify-content:space-between;'
+                        'gap:40px;padding:6px 20px;color:%s;%s;font-size:48px">%s</div>'
+                        % (MUTED, _display(48, "-.03em"), row))
+    return """
+<div style="position:absolute;left:120px;top:130px;min-width:480px;background:%(deep)s;border:8px solid %(ice)s;border-radius:30px;padding:26px 30px;box-shadow:16px 16px 0 rgba(5,9,15,.6);--tilt:-1deg;transform:rotate(-1deg);animation:lPop 380ms %(ease)s both">
+  <div style="font-family:%(body)s;font-size:24px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:%(fun)s;margin-bottom:14px">%(kicker)s</div>
+  <div style="display:flex;flex-direction:column;gap:8px">%(rows)s</div>
+</div>""" % {"deep": DEEP, "ice": ICE, "ease": EASE_OUT, "body": FONT_BODY,
+             "fun": FUN, "kicker": _e(card.get("kicker", "")),
+             "rows": "".join(rows)}
 
 
 def stamp(card: "dict") -> str:
-    """12 Stamp — a verdict slammed onto the frame."""
-    return """
-<div style="position:absolute;right:150px;top:180px;color:%(accent)s;font-family:%(display)s;
-            font-size:120px;font-weight:800;letter-spacing:-.04em;border:8px solid %(accent)s;
-            border-radius:14px;padding:12px 34px;transform:rotate(-6deg);
-            animation:bStamp 520ms %(ease_out)s both">%(text)s</div>
-""" % {"accent": ACCENT, "display": FONT_DISPLAY, "ease_out": EASE_OUT,
-       "text": _e(card.get("text", ""))}
+    """8 · Stamp — slammed amber verdict, rests at −7°."""
+    inner = '<span style="%s">%s</span>' % (_display(88, "-.04em"),
+                                            _e(card.get("text", "")))
+    return ('<div style="position:absolute;left:0;right:0;top:330px;display:flex;'
+            'justify-content:center">'
+            '<div style="background:%s;color:%s;border:9px solid %s;'
+            'border-radius:26px;padding:22px 52px;'
+            'box-shadow:14px 14px 0 rgba(5,9,15,.6);'
+            'animation:lSlam 520ms %s both">%s</div></div>'
+            % (FUN, DEEP, ICE, EASE_OUT, inner))
+
+
+def reaction(card: "dict") -> str:
+    """9 · Reaction pop — words blown up on amber chips for one beat."""
+    lines = [l for l in card.get("text", "").split("\n") if l.strip()]
+    size = 150 if max((len(l) for l in lines), default=0) <= 10 else 108
+    parts = []
+    for i, line in enumerate(lines):
+        inner = '<span style="%s">%s</span>' % (_display(size, "-.05em"), _e(line))
+        parts.append(_chip(inner, fill=FUN, color=DEEP, tilt=-2 if i % 2 == 0 else 2,
+                           delay=i * 140, dur=380, anim="lPopT",
+                           pad="14px 36px", radius=18))
+    if card.get("attribution"):
+        parts.append(_kicker_pill(card["attribution"], TRUE_BLUE, size=22,
+                                  delay=len(lines) * 140 + 80, shadow=SHADOW_SM))
+    return ('<div style="position:absolute;left:0;right:0;top:380px;display:flex;'
+            'flex-direction:column;align-items:center;gap:16px">%s</div>'
+            % "".join(parts))
+
+
+def emoji_pop(card: "dict") -> str:
+    """10 · Big emoji moment — 260px on the mandatory dark radial disc.
+
+    Only for beats with no caption on screen (policy 2026-08-19: an emoji
+    rides inside captions whenever one is up). Pop 360ms, then a 2.4s
+    ease-in-out wobble. 1–3 emoji max: a punchline mark, not confetti.
+    """
+    spans = []
+    n = len(card.get("emojis", []))
+    for i, e in enumerate(card.get("emojis", [])):
+        size = int(e.get("size", 260))
+        disc = size + int(size * 0.30)
+        x = int(e.get("x", 960 - (n * disc + (n - 1) * 40) // 2 + i * (disc + 40)))
+        y = int(e.get("y", 540 - disc // 2))
+        delay = int(e.get("delay_ms", i * 120))
+        spans.append(
+            '<div style="position:absolute;left:%dpx;top:%dpx;width:%dpx;height:%dpx;'
+            'border-radius:50%%;'
+            'background:radial-gradient(circle, rgba(11,18,28,.96) 55%%, rgba(11,18,28,0) 100%%);'
+            'display:flex;align-items:center;justify-content:center;'
+            'font-size:%dpx;font-family:\'Apple Color Emoji\',sans-serif;line-height:1;'
+            'animation:lPop 360ms %s %dms both, lWob 2.4s ease-in-out %dms infinite">%s</div>'
+            % (x, y, disc, disc, size, EASE_OUT, delay, delay + 360,
+               _e(e.get("char", "😱"))))
+    return "".join(spans)
 
 
 def caption_plate(card: "dict") -> str:
-    """08 Captions — the kit's caption treatment, one phrase at a time."""
+    """11 · Caption look, single phrase (the live captions render in Pillow —
+    pipeline/captions.py — and must match this exactly)."""
     words = card.get("words") or [card.get("text", "")]
     active = card.get("active", 0)
     spans = []
     for i, w in enumerate(words):
-        spans.append('<span style="%s">%s</span>'
-                     % ("color:%s" % ACCENT if i == active else "", _e(w)))
+        spans.append(_mark(w) if i == active else
+                     "<span>%s</span>" % _e(w))
+    speaker = ""
+    if card.get("speaker"):
+        speaker = _kicker_pill(card["speaker"], FUN, size=22, shadow=SHADOW_XS,
+                               tracking=".2em")
     return """
-<div style="position:absolute;left:0;right:0;bottom:96px;display:flex;justify-content:center;
-            font-family:%(display)s">
-  <div style="background:%(ink)s;border:1px solid %(hair)s;border-radius:14px;padding:18px 34px;
-              color:%(text)s;font-size:64px;font-weight:800;letter-spacing:-.03em;
-              animation:bPlate 200ms %(ease_std)s both">%(spans)s</div>
-</div>""" % {"display": FONT_DISPLAY, "ink": INK, "hair": HAIRLINE, "text": TEXT,
-             "ease_std": EASE_STD, "spans": " ".join(spans)}
+<div style="position:absolute;left:0;right:0;bottom:120px;display:flex;flex-direction:column;align-items:center;gap:10px">
+  %(speaker)s
+  <div style="background:rgba(11,18,28,.94);border:5px solid %(ice)s;border-radius:14px;padding:16px 30px;box-shadow:%(shadow)s;animation:lUp 180ms %(ease_std)s 120ms both">
+    <div style="%(display)s;color:%(ice)s;display:flex;flex-wrap:wrap;gap:0 14px;justify-content:center;align-items:center">%(spans)s</div>
+  </div>
+</div>""" % {"speaker": speaker, "ice": ICE, "shadow": SHADOW,
+             "ease_std": EASE_STD, "display": _display(56, "-.03em"),
+             "spans": " ".join(spans)}
 
+
+def watermark(card: "dict") -> str:
+    """The mark, top-left over footage: eight ice rooms, the ninth amber,
+    on a small deep plate (the mark never sits on bare footage)."""
+    px = int(card.get("size", 58))
+    gap = max(round(px / 20), 2)
+    room = (px - 2 * gap) / 3.0
+    cells = []
+    for i in range(9):
+        cells.append('<div style="width:%.1fpx;height:%.1fpx;background:%s"></div>'
+                     % (room, room, FUN if i == 8 else ICE))
+    return ('<div style="position:absolute;left:120px;top:70px;'
+            'background:rgba(11,18,28,.94);border-radius:8px;padding:8px;'
+            'animation:lFade 240ms ease both">'
+            '<div style="display:grid;grid-template-columns:repeat(3,1fr);'
+            'gap:%dpx;width:%dpx;height:%dpx">%s</div></div>'
+            % (gap, px, px, "".join(cells)))
+
+
+def transition(card: "dict") -> str:
+    """A midnight panel that sweeps across a chapter cut, carrying the title.
+
+    Hard cuts between chapters read as abrupt; Resolve's API cannot add a
+    dissolve, so the transition is drawn: the panel wipes in over the
+    outgoing shot, the title chip pops, and it wipes off the incoming one.
+    Minimum hold 2.5s (Caleb, 2026-08-19).
+    """
+    total = int(float(card.get("duration", 2.5)) * 1000)
+    sweep = 380
+    hold = max(total - 2 * sweep, 200)
+    kicker = _kicker_pill(card.get("kicker", ""), TRUE_BLUE, size=22,
+                          delay=sweep, shadow=SHADOW_SM)
+    inner = '<span style="%s">%s</span>' % (_display(104, "-.05em"),
+                                            _e(card.get("text", "")))
+    title = _chip(inner, tilt=1, delay=sweep + 80, dur=380)
+    return """
+<div style="position:absolute;inset:0;overflow:hidden">
+  <div style="position:absolute;inset:0;background:linear-gradient(100deg,
+              rgba(11,18,28,.9) 0%%, rgba(15,24,38,.82) 45%%,
+              rgba(157,198,232,.12) 52%%, rgba(15,24,38,.82) 59%%,
+              rgba(11,18,28,.9) 100%%);
+              animation:bSweepIn %(sweep)dms %(ease)s both,
+                        bSweepOut %(sweep)dms %(ease_std)s %(out)dms both">
+    <div style="position:absolute;left:130px;top:0;bottom:0;display:flex;flex-direction:column;
+                justify-content:center;align-items:flex-start;gap:16px">
+      %(kicker)s
+      %(title)s
+    </div>
+  </div>
+</div>""" % {"sweep": sweep, "ease": EASE_OUT, "ease_std": EASE_STD,
+             "out": sweep + hold, "kicker": kicker, "title": title}
+
+
+# --- v2 worked-example components, kept and recolored ----------------------
 
 def compare(card: "dict") -> str:
-    """07 Compare — the teaching moment, full frame, two images side by side.
-
-    Images are file paths (footage stills or licensed stock, see
-    brand/design-system/overlay-assets/); they are inlined as file:// URLs
-    because the renderer screenshots a local page.
-    """
+    """Full-frame teaching compare — two images side by side on midnight."""
     cols = []
     for i, side in enumerate(card.get("sides", [])[:2]):
         cols.append("""
       <div style="flex:1;animation:bUp 340ms %(ease)s %(delay)dms both">
         <img src="file://%(src)s" alt="" style="display:block;width:100%%;height:330px;
-             object-fit:cover;border-radius:12px;border:1px solid %(hair)s">
-        <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+             object-fit:cover;border-radius:12px;border:5px solid %(ice)s;
+             box-shadow:%(shadow)s">
+        <div style="font-family:%(body)s;font-size:20px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;
                     color:%(label_color)s;margin-top:18px">%(label)s</div>
-        <div style="font-family:%(display)s;font-size:52px;font-weight:800;letter-spacing:-.03em;
-                    margin-top:6px">%(title)s</div>
-        <div style="font-size:24px;color:%(muted)s;margin-top:8px">%(note)s</div>
+        <div style="%(display)s;margin-top:6px">%(title)s</div>
+        <div style="font-family:%(body)s;font-size:24px;color:%(muted)s;margin-top:8px">%(note)s</div>
       </div>""" % {"ease": EASE_OUT, "delay": 120 + i * 140,
-                   "src": side.get("image", ""), "hair": HAIRLINE,
-                   "label_color": ACCENT if side.get("highlight") else MUTED,
-                   "label": _e(side.get("label", "")), "display": FONT_DISPLAY,
+                   "src": side.get("image", ""), "ice": ICE, "shadow": SHADOW,
+                   "body": FONT_BODY,
+                   "label_color": TRUE_BLUE if side.get("highlight") else MUTED,
+                   "label": _e(side.get("label", "")),
+                   "display": _display(52, "-.03em"),
                    "title": _e(side.get("title", "")), "muted": MUTED,
                    "note": _e(side.get("note", ""))})
     return """
-<div style="position:absolute;inset:0;background:%(ink_solid)s;
-            animation:bFade 240ms ease both"></div>
+<div style="position:absolute;inset:0;background:%(midnight)s;animation:bFade 240ms ease both"></div>
 <div style="position:absolute;left:150px;right:150px;top:0;bottom:0;display:flex;
-            flex-direction:column;justify-content:center;color:%(text)s;font-family:%(body_font)s">
-  <div style="font-family:%(display)s;font-size:64px;font-weight:800;letter-spacing:-.04em;
-              margin-bottom:34px;overflow:hidden">
+            flex-direction:column;justify-content:center;color:%(ice)s">
+  <div style="%(display)s;margin-bottom:34px;overflow:hidden">
     <div style="animation:bWipeUp 380ms %(ease)s both">%(headline)s</div>
   </div>
   <div style="display:flex;gap:44px;align-items:flex-start">%(cols)s</div>
-</div>""" % {"ink_solid": "#09090B", "text": TEXT, "body_font": FONT_BODY,
-             "display": FONT_DISPLAY, "ease": EASE_OUT,
+</div>""" % {"midnight": MIDNIGHT, "ice": ICE, "ease": EASE_OUT,
+             "display": _display(64, "-.04em"),
              "headline": _e(card.get("text", "")), "cols": "".join(cols)}
 
 
 def flight_path(card: "dict") -> str:
-    """16 Flight path — a dashed trail draws across frame with a butterfly on it.
-
-    The trail and the butterfly are SVG (see overlay-assets/marks.py), so the
-    stroke draws itself and the wings hinge independently — both impossible
-    with the original flat PNGs.
-    """
+    """Dashed trail draws across frame with a butterfly on it (episode kit)."""
     import sys
     from pathlib import Path
     assets = Path(__file__).resolve().parent.parent / "brand" / "design-system" / "overlay-assets"
     sys.path.insert(0, str(assets))
     import marks  # noqa: E402
 
-    # Prefer the real artwork when it is on disk (cut out of the kit's
-    # reference image and recoloured to the accent); fall back to the vector
-    # silhouette, which is serviceable but plainly a silhouette.
     png = assets / "butterfly.png"
     flier = ('<img src="file://%s" alt="" style="width:110px;display:block">' % png
-             if png.exists() else marks.butterfly(110, ACCENT))
+             if png.exists() else marks.butterfly(110, TRUE_BLUE))
 
     travel = card.get("travel_ms", 2200)
+    kicker = _kicker_pill(card.get("kicker", ""), TRUE_BLUE, size=22,
+                          shadow=SHADOW_SM)
+    inner = '<span style="%s">%s</span>' % (_display(76), _e(card.get("text", "")))
+    title = _chip(inner, tilt=1, delay=160, dur=360)
     return """
 <style>
 .trail{stroke-dashoffset:100;animation:draw %(travel)dms %(ease)s 120ms both}
@@ -356,24 +511,17 @@ def flight_path(card: "dict") -> str:
 <div style="position:absolute;left:420px;top:290px;width:1000px">%(arrow)s
   <div class="flier" style="position:absolute;left:0;top:0">%(fly)s</div>
 </div>
-<div style="position:absolute;left:130px;bottom:150px;color:%(text)s;font-family:%(body_font)s">
-  <div style="font-size:20px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-              color:%(accent)s;animation:bFade 220ms ease both">%(kicker)s</div>
-  <div style="font-family:%(display)s;font-size:76px;font-weight:800;letter-spacing:-.04em;
-              margin-top:10px;overflow:hidden">
-    <div style="animation:bWipeUp 380ms %(ease)s 160ms both">%(text_line)s</div>
-  </div>
+<div style="position:absolute;left:130px;bottom:150px;display:flex;flex-direction:column;
+            align-items:flex-start;gap:12px">
+  %(kicker)s
+  %(title)s
 </div>""" % {"travel": travel, "ease": EASE_OUT,
-             "arrow": marks.dashed_arrow(1000, ACCENT),
-             "fly": flier,
-             "text": TEXT, "body_font": FONT_BODY, "accent": ACCENT,
-             "display": FONT_DISPLAY, "kicker": _e(card.get("kicker", "")),
-             "text_line": _e(card.get("text", ""))}
+             "arrow": marks.dashed_arrow(1000, TRUE_BLUE),
+             "fly": flier, "kicker": kicker, "title": title}
 
 
 def contact(card: "dict") -> str:
-    """13 Contact — a ring flash and drifting dots on the frame something
-    lands. The smallest moment in the footage gets the biggest reaction."""
+    """A ring flash and drifting dots where something lands (episode kit)."""
     import random
     x = int(card.get("x", 1120))
     y = int(card.get("y", 560))
@@ -383,7 +531,7 @@ def contact(card: "dict") -> str:
         size = rng.choice([14, 16, 22, 26, 26, 36])
         dx = x + 60 + rng.randint(0, 200)
         dy = y + 130 + rng.randint(0, 40)
-        colour = ACCENT if i % 3 else TEXT
+        colour = TRUE_BLUE if i % 3 else ICE
         dots.append('<div style="position:absolute;left:%dpx;top:%dpx;width:%dpx;height:%dpx;'
                     'border-radius:999px;background:%s;opacity:.%d;'
                     'animation:bBurst %dms %s %dms both"></div>'
@@ -392,159 +540,10 @@ def contact(card: "dict") -> str:
     return """
 <div style="position:absolute;inset:0">
   <div style="position:absolute;left:%(x)dpx;top:%(y)dpx;width:300px;height:300px;
-              border:4px solid %(accent)s;border-radius:999px;
+              border:4px solid %(true)s;border-radius:999px;
               animation:bFlash 620ms ease-out both"></div>
   %(dots)s
-</div>""" % {"x": x, "y": y, "accent": ACCENT, "dots": "".join(dots)}
-
-
-def reaction(card: "dict") -> str:
-    """14 Reaction — a quoted line at full volume, wobbling in."""
-    lines = card.get("text", "").split("\n")
-    parts = []
-    for i, line in enumerate(lines):
-        marked = i == len(lines) - 1 and card.get("mark_last", True)
-        style = ("background:%s;color:%s;padding:0 16px;" % (ACCENT, TEXT)) if marked else ""
-        parts.append('<div style="display:inline-block;font-family:%s;font-size:108px;'
-                     'line-height:1;font-weight:800;letter-spacing:-.05em;color:%s;'
-                     'text-shadow:0 4px 22px rgba(9,9,11,.85);%s'
-                     'margin-top:%dpx;animation:bWobble 460ms %s %dms both">%s</div>'
-                     % (FONT_DISPLAY, TEXT, style, 14 if i else 0, EASE_OUT,
-                        i * 160, _e(line)))
-    return """
-<div style="position:absolute;left:140px;top:230px;right:520px;font-family:%(body_font)s">
-  %(parts)s
-  %(attr)s
-</div>""" % {"body_font": FONT_BODY, "parts": "".join(parts),
-             "attr": ('<div style="font-size:30px;font-weight:700;letter-spacing:.16em;'
-                      'text-transform:uppercase;color:%s;margin-top:26px;'
-                      'animation:bFade 220ms ease 520ms both">%s</div>'
-                      % (ACCENT, _e(card["attribution"]))) if card.get("attribution") else ""}
-
-
-def vote(card: "dict") -> str:
-    """15 Vote — a tally with bars that grow; the punchline is the last row."""
-    total = max((int(r.get("value", 0)) for r in card.get("rows", [])), default=1) or 1
-    rows = []
-    for i, r in enumerate(card.get("rows", [])):
-        lead = r.get("highlight")
-        pct = 100.0 * int(r.get("value", 0)) / total
-        rows.append("""
-      <div style="margin-top:%(mt)dpx">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;
-                    font-family:%(display)s;font-size:40px;font-weight:800;
-                    letter-spacing:-.025em;%(dim)s">
-          <span>%(label)s</span><span%(vcol)s>%(value)s</span></div>
-        <div style="height:14px;background:rgba(252,252,250,.14);border-radius:999px;
-                    margin-top:12px;overflow:hidden">
-          <div style="height:100%%;width:%(pct).1f%%;background:%(bar)s;transform-origin:left;
-                      animation:bBar 520ms %(ease)s %(delay)dms both"></div></div>
-      </div>""" % {"mt": 34 if i == 0 else 30, "display": FONT_DISPLAY,
-                   "dim": "" if lead else "color:#B5B5AF;",
-                   "label": _e(r.get("label", "")),
-                   "vcol": ' style="color:%s"' % ACCENT if lead else "",
-                   "value": _e(r.get("value", "")), "pct": max(pct, 4),
-                   "bar": ACCENT if lead else "rgba(252,252,250,.34)",
-                   "ease": EASE_OUT, "delay": 120 + i * 110})
-    # The tally sits on an ink panel like the scoreboard does — the bare
-    # version ghosted into bright footage and the joke never landed
-    # (QC, 2026-08-19). Caleb's Edit Room pass (2026-08-19): slightly smaller,
-    # horizontally centered, and slightly translucent — but the panel must
-    # stay >= ~0.88 alpha or text drowns in bright footage (the drawer-bg
-    # lesson: near-transparent panels bleed the background through).
-    return """
-<div style="position:absolute;left:0;right:0;margin:0 auto;top:230px;width:720px;
-            background:linear-gradient(135deg,rgba(16,16,20,.9) 0%%,rgba(9,9,11,.9) 100%%);
-            border:1px solid %(hair)s;border-radius:16px;padding:30px 36px 36px;
-            color:%(text)s;font-family:%(body_font)s;
-            box-shadow:0 24px 60px rgba(0,0,0,.5);
-            animation:bPop 320ms %(ease)s both">
-  <div style="font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-              color:%(accent)s">%(kicker)s</div>
-  %(rows)s
-</div>""" % {"hair": HAIRLINE, "text": TEXT, "body_font": FONT_BODY,
-             "ease": EASE_OUT, "accent": ACCENT,
-             "kicker": _e(card.get("kicker", "")), "rows": "".join(rows)}
-
-
-def transition(card: "dict") -> str:
-    """A glass panel that sweeps across the cut, carrying the next title.
-
-    Hard cuts between chapters read as abrupt; Resolve's API cannot add a
-    dissolve, so the transition is drawn instead: a near-opaque ink panel
-    wipes in over the outgoing shot, holds the title, and wipes off the
-    incoming one. Place it centred on the cut so it hides the seam.
-    """
-    total = int(float(card.get("duration", 1.4)) * 1000)
-    sweep = 380
-    hold = max(total - 2 * sweep, 200)
-    return """
-<div style="position:absolute;inset:0;overflow:hidden">
-  <div style="position:absolute;inset:0;background:linear-gradient(100deg,
-              rgba(9,9,11,.68) 0%%, rgba(20,20,24,.55) 45%%,
-              rgba(252,252,250,.05) 52%%, rgba(20,20,24,.55) 59%%,
-              rgba(9,9,11,.68) 100%%);
-              animation:bSweepIn %(sweep)dms %(ease)s both,
-                        bSweepOut %(sweep)dms %(ease_in)s %(out)dms both">
-    <div style="position:absolute;left:130px;top:0;bottom:0;display:flex;flex-direction:column;
-                justify-content:center;gap:16px;color:%(fg)s;font-family:%(body_font)s">
-      <div style="display:flex;align-items:center;gap:16px">
-        <div style="width:70px;height:3px;background:%(accent)s;transform-origin:left;
-                    animation:bGrowX 260ms %(ease)s %(sweep)dms both"></div>
-        <span style="font-size:22px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-                     color:%(accent)s;animation:bFade 200ms ease %(sweep)dms both">%(kicker)s</span>
-      </div>
-      <div style="font-family:%(display)s;font-size:104px;line-height:1;font-weight:800;
-                  letter-spacing:-.05em;overflow:hidden">
-        <div style="animation:bWipeUp 380ms %(ease)s %(t2)dms both">%(text)s</div>
-      </div>
-    </div>
-  </div>
-</div>""" % {"sweep": sweep, "ease": EASE_OUT, "ease_in": EASE_STD,
-             "out": sweep + hold, "fg": TEXT, "body_font": FONT_BODY,
-             "accent": ACCENT, "display": FONT_DISPLAY, "t2": sweep + 80,
-             "kicker": _e(card.get("kicker", "")),
-             # NB: the colour key is "fg", not "text" — a second "text" entry
-             # here (the title) silently overwrote the first, so `color:` got
-             # the title string, was dropped as invalid, and every chapter
-             # transition rendered black-on-black (found 2026-08-18).
-             "text": _e(card.get("text", ""))}
-
-
-def emoji_pop(card: "dict") -> str:
-    """Hype layer: emoji popping in at a moment — the FALLBACK treatment.
-
-    Policy (Caleb, 2026-08-19): an emoji rides inside the captions whenever a
-    caption is on screen at that moment (pipeline/captions.py renders it in
-    the line). This standalone card is only for caption-less moments, and it
-    goes big, front and center, on an ink disc so it never ghosts into the
-    footage. `emojis` is a list of {char, x?, y?, size?, delay_ms?, wobble?};
-    coordinates are on the 1920x1080 stage and default to centered. Keep it
-    to 1-3 emoji per moment: an emoji is a punchline mark, not confetti.
-    """
-    spans = []
-    n = len(card.get("emojis", []))
-    for i, e in enumerate(card.get("emojis", [])):
-        anim = ("bWobble 460ms %s %dms both" if e.get("wobble", True)
-                else "bPop 340ms %s %dms both") % (EASE_OUT, int(e.get("delay_ms", i * 120)))
-        size = int(e.get("size", 260))
-        pad = int(size * 0.30)
-        # default layout: centered row, upper third (clear of faces mid-frame
-        # and captions at the bottom)
-        x = int(e.get("x", 960 - (n * (size + pad * 2) + (n - 1) * 40) // 2
-                + i * (size + pad * 2 + 40)))
-        y = int(e.get("y", 240))
-        spans.append(
-            '<div style="position:absolute;left:%dpx;top:%dpx;'
-            'width:%dpx;height:%dpx;border-radius:50%%;'
-            'background:radial-gradient(circle at 50%% 42%%,rgba(16,16,20,.92),rgba(9,9,11,.92));'
-            'border:1px solid %s;box-shadow:0 18px 50px rgba(0,0,0,.5);'
-            'display:flex;align-items:center;justify-content:center;'
-            'font-size:%dpx;font-family:\'Apple Color Emoji\',sans-serif;'
-            'line-height:1;animation:%s">%s</div>'
-            % (x, y, size + pad * 2, size + pad * 2, HAIRLINE, size, anim,
-               _e(e.get("char", "😱"))))
-    return "".join(spans)
+</div>""" % {"x": x, "y": y, "true": TRUE_BLUE, "dots": "".join(dots)}
 
 
 RENDERERS = {
@@ -567,6 +566,7 @@ RENDERERS = {
     "outro": chapter,
     "stamp": stamp,
     "caption_plate": caption_plate,
+    "watermark": watermark,
 }
 
 

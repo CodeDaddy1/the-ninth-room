@@ -25,29 +25,37 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .ingest import IngestError
 
-CREAM = (252, 252, 250)   # kit --text
-AMBER = (18, 183, 106)    # kit accent (green); name kept for call sites
-NAVY_CHIP = (9, 9, 11, 210)  # kit ink plate
+# --- Ninth Room caption tokens (design handoff, 2026-08-19) ---------------
+# Captions are CHIPS, matching overlay_kit.py exactly: a midnight-deep plate
+# at 0.94 alpha with a 5px ice outline, 14px radius, and a hard offset
+# shadow. The active word sits on its own little amber chip with
+# midnight text. Over bright footage the plate alone is enough — the spec
+# forbids adding a stroke as well.
+ICE = (232, 239, 246)         # --ice-paper, type on the plate
+DEEP = (11, 18, 28)           # --midnight-deep
+PLATE = (11, 18, 28, 240)     # plate fill at 0.94 alpha
+AMBER = (255, 174, 59)        # --fun: the active-word chip
+SHADOW_FILL = (5, 9, 15, 153) # hard offset shadow, no blur
+CREAM = ICE                   # legacy alias for old call sites
 
-# Caption baseline sits above the platform UI safe zone (bottom caption bar,
-# right-side action buttons) — the y values proven in the v1 renders.
+# Legacy word-chip constants (word_chip renderer, kept for old callers).
+NAVY_CHIP = (11, 18, 28, 240)
 CHIP_ANCHOR_Y = {"portrait": 1290, "landscape": 830}
 CHIP_FONT_SIZE = {"portrait": 110, "landscape": 84}
 
-# --- phrase captions (the YouTube-grade style) ---------------------------
-# A single word in a box reads as a 2010s subtitle. What modern short-form
-# uses instead: a short PHRASE held on screen with the word being spoken
-# highlighted, set in heavy type with an outline and a soft shadow so it
-# survives any background without a box.
 PHRASE_MAX_WORDS = 4
 PHRASE_MAX_CHARS = 26
 PHRASE_GAP_SEC = 0.9          # a pause this long always starts a new phrase
-PHRASE_FONT_SIZE = {"portrait": 96, "landscape": 78}
-PHRASE_BASELINE = {"portrait": 1330, "landscape": 858}   # top of the text block
-PHRASE_LINE_GAP = 12
-STROKE_PX = {"portrait": 9, "landscape": 7}
-SHADOW_OFFSET = 6
-POP_SCALE = 1.06              # the active word is drawn slightly larger
+PHRASE_FONT_SIZE = {"portrait": 72, "landscape": 56}
+BOTTOM_INSET = {"portrait": 320, "landscape": 120}  # chip bottom edge
+WORD_GAP = 14                 # column gap between words on the plate
+PLATE_PAD_X = 30
+PLATE_PAD_Y = 16
+PLATE_RADIUS = 14
+OUTLINE_PX = 5
+ACTIVE_PAD_X = 12             # the amber chip around the active word
+ACTIVE_RADIUS = 8
+SHADOW_OFFSET = 8
 
 
 # --- emoji in captions (Caleb, 2026-08-19) --------------------------------
@@ -60,7 +68,7 @@ EMOJI_SCALE = 1.22            # relative to the caption font size
 
 # Bump when anything in this module changes rendered pixels — it invalidates
 # every cached caption bake (see produce._beat_caption_clips).
-CAPTIONS_V = 1
+CAPTIONS_V = 2   # v2: Ninth Room chip captions (design handoff 2026-08-19)
 _EMOJI_CACHE: "dict" = {}
 
 
@@ -98,20 +106,37 @@ def _emoji_img(tok: str, px: int) -> "Image.Image | None":
     return img
 
 
+_FONT_CACHE: "dict" = {}
+
+
 def _font(size: int, heavy: bool = True):
-    """Brand body face. Avenir Next Heavy (index 8) is the punchy weight that
-    holds up over busy footage; Bold and Arial Bold are the fallbacks."""
+    """Bricolage Grotesque ExtraBold — the kit's chip face (repo copy in
+    brand/fonts). Gabarito and system faces are the fallbacks."""
+    key = (size, heavy)
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+    repo_fonts = Path(__file__).resolve().parent.parent / "brand" / "fonts"
+    bricolage = repo_fonts / "Bricolage.ttf"
+    if bricolage.exists():
+        try:
+            f = ImageFont.truetype(str(bricolage), size)
+            f.set_variation_by_name("ExtraBold" if heavy else "SemiBold")
+            _FONT_CACHE[key] = f
+            return f
+        except OSError:
+            pass
     candidates = [
         (str(Path.home() / "Library/Fonts/Gabarito-Variable.ttf"), 0),
         ("/System/Library/Fonts/Avenir Next.ttc", 8 if heavy else 0),
-        ("/System/Library/Fonts/Avenir Next.ttc", 0),
         ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 0),
         ("/System/Library/Fonts/Helvetica.ttc", 0),
     ]
     for path, index in candidates:
         if os.path.exists(path):
             try:
-                return ImageFont.truetype(path, size, index=index)
+                f = ImageFont.truetype(path, size, index=index)
+                _FONT_CACHE[key] = f
+                return f
             except OSError:
                 continue
     return ImageFont.load_default()
@@ -144,23 +169,22 @@ def group_phrases(timed_words: "list[dict]") -> "list[list[dict]]":
 
 def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
                orientation: str) -> None:
-    """Render one phrase with `active` highlighted in amber.
+    """Render one phrase as a Ninth Room caption chip.
 
-    Heavy type, dark stroke and a soft drop shadow — legible over bright
-    foliage or dark cave walls without a box behind it.
+    The whole phrase sits on a midnight-deep plate (0.94 alpha, 5px ice
+    outline, hard offset shadow); the active word sits on its own amber
+    chip with midnight text. Matches overlay_kit.caption_plate exactly.
     """
     size = PHRASE_FONT_SIZE[orientation]
-    stroke = STROKE_PX[orientation]
-    base_font = _font(size)
-    pop_font = _font(int(size * POP_SCALE))
+    font = _font(size)
 
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
 
-    # Lay the words out on one line, measuring with each word's own font so
-    # the popped word doesn't overlap its neighbours. Emoji tokens measure by
-    # their rendered image (slightly taller than the type, more when active).
-    space = d.textlength(" ", font=base_font)
+    # Measure. The active word carries its chip padding; emoji measure by
+    # their rendered image.
+    ascent, descent = font.getmetrics()
+    line_h = ascent + descent
     widths, emoji_imgs = [], {}
     for i, word in enumerate(words):
         if _is_emoji(word):
@@ -169,34 +193,48 @@ def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
             emoji_imgs[i] = em
             widths.append(em.width if em else 0)
         else:
-            f = pop_font if i == active else base_font
-            widths.append(d.textlength(word, font=f))
-    total = sum(widths) + space * (len(words) - 1)
-    x = (w - total) / 2
-    y = PHRASE_BASELINE[orientation]
+            tw = d.textlength(word, font=font)
+            if i == active:
+                tw += ACTIVE_PAD_X * 2
+            widths.append(tw)
+    total = sum(widths) + WORD_GAP * (len(words) - 1)
 
+    plate_w = int(total + PLATE_PAD_X * 2)
+    plate_h = int(line_h + PLATE_PAD_Y * 2)
+    px0 = int((w - plate_w) / 2)
+    py0 = h - BOTTOM_INSET[orientation] - plate_h
+
+    # Hard offset shadow, then plate, then the 5px ice outline.
+    d.rounded_rectangle((px0 + SHADOW_OFFSET, py0 + SHADOW_OFFSET,
+                         px0 + plate_w + SHADOW_OFFSET, py0 + plate_h + SHADOW_OFFSET),
+                        radius=PLATE_RADIUS, fill=SHADOW_FILL)
+    d.rounded_rectangle((px0, py0, px0 + plate_w, py0 + plate_h),
+                        radius=PLATE_RADIUS, fill=PLATE,
+                        outline=tuple(ICE), width=OUTLINE_PX)
+
+    x = px0 + PLATE_PAD_X
+    ty = py0 + PLATE_PAD_Y
+    mid_y = ty + line_h * 0.52
     for i, word in enumerate(words):
         if i in emoji_imgs:
             em = emoji_imgs[i]
             if em is not None:
-                # center on the type's visual middle; soft shadow from the
-                # emoji's own alpha so it survives bright footage
-                ey = int(y + size * 0.55 - em.height / 2)
-                shadow = Image.new("RGBA", em.size, (0, 0, 0, 0))
-                shadow.paste((0, 0, 0, 110), mask=em.getchannel("A"))
-                img.alpha_composite(shadow, (int(x) + SHADOW_OFFSET, ey + SHADOW_OFFSET))
+                ey = int(mid_y - em.height / 2)
                 img.alpha_composite(em, (int(x), ey))
-            x += widths[i] + space
+                d = ImageDraw.Draw(img)   # plate edits above may invalidate
+            x += widths[i] + WORD_GAP
             continue
-        f = pop_font if i == active else base_font
-        color = AMBER if i == active else CREAM
-        # popped word sits slightly higher so both baselines look aligned
-        wy = y - (pop_font.size - base_font.size) * 0.72 if i == active else y
-        d.text((x + SHADOW_OFFSET, wy + SHADOW_OFFSET), word, font=f,
-               fill=(0, 0, 0, 110), stroke_width=stroke, stroke_fill=(0, 0, 0, 110))
-        d.text((x, wy), word, font=f, fill=color,
-               stroke_width=stroke, stroke_fill=(12, 20, 32, 235))
-        x += widths[i] + space
+        if i == active:
+            # the amber chip behind the spoken word, midnight text on it
+            cw = widths[i]
+            cy0 = ty + max(0, ascent - size)  # hug the glyph box
+            d.rounded_rectangle((x, py0 + PLATE_PAD_Y - 4,
+                                 x + cw, py0 + plate_h - PLATE_PAD_Y + 4),
+                                radius=ACTIVE_RADIUS, fill=tuple(AMBER))
+            d.text((x + ACTIVE_PAD_X, ty), word, font=font, fill=tuple(DEEP))
+        else:
+            d.text((x, ty), word, font=font, fill=tuple(ICE))
+        x += widths[i] + WORD_GAP
     img.save(dest)
 
 
