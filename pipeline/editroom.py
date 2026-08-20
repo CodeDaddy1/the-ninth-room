@@ -1374,28 +1374,50 @@ function renderSetup(){
   ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{
     e.preventDefault();dz.classList.remove('hot');}));
   dz.addEventListener('drop',async e=>{
-    const files=[];
-    const walk=entry=>new Promise(res=>{
-      if(entry.isFile)entry.file(f=>{files.push(f);res();});
-      else if(entry.isDirectory){
-        entry.createReader().readEntries(async es=>{
-          for(const s of es)await walk(s);res();});}
-      else res();
-    });
-    const items=[...e.dataTransfer.items];
-    for(const it of items){
+    // DataTransfer items die at the end of the drop tick — snapshot every
+    // entry SYNCHRONOUSLY before the first await, then walk at leisure.
+    const entries=[];
+    for(const it of e.dataTransfer.items){
       const en=it.webkitGetAsEntry&&it.webkitGetAsEntry();
-      if(en)await walk(en);
-      else{const f=it.getAsFile();if(f)files.push(f);}
+      if(en)entries.push(en);
     }
+    const files=entries.length?[]:[...e.dataTransfer.files];
+    const collect=async entry=>{
+      if(entry.isFile){
+        await new Promise(res=>entry.file(f=>{files.push(f);res();},
+                                          ()=>res()));
+      }else if(entry.isDirectory){
+        const reader=entry.createReader();
+        for(;;){ // readEntries hands back at most ~100 per call
+          const batch=await new Promise(res=>
+            reader.readEntries(res,()=>res([])));
+          if(!batch||!batch.length)break;
+          for(const s of batch)await collect(s);
+        }
+      }
+    };
+    for(const en of entries)await collect(en);
     uploadFiles(files);
   });
 }
 
+// A drop that misses the zone must NEVER navigate the app away — the
+// browser's default for a dropped folder is to OPEN it, replacing the Edit
+// Room with a file:// listing (Caleb hit this, 2026-08-20).
+['dragover','drop'].forEach(ev=>document.addEventListener(ev,e=>{
+  e.preventDefault();}));
+
 async function uploadFiles(files){
   const ok=/\.(mp4|mov|m4v|mts|avi|mkv|jpg|jpeg|png|heic|webp)$/i;
   const list=document.getElementById('uplist');
-  for(const f of files.filter(f=>ok.test(f.name))){
+  if(!list)return;
+  const usable=files.filter(f=>ok.test(f.name));
+  if(!usable.length&&files.length){
+    const row=document.createElement('div');row.className='u err';
+    row.textContent='nothing uploadable in that drop (videos and photos only)';
+    list.appendChild(row);return;
+  }
+  for(const f of usable){
     const row=document.createElement('div');row.className='u';
     row.innerHTML='<span>'+esc(f.name)+'</span><span class="pc">0%</span>';
     list.appendChild(row);
