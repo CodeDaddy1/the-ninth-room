@@ -20,38 +20,36 @@ DURATION_TOLERANCE_SEC = 0.75
 
 
 def project_for_slug(slug: str, fps: float, log=print) -> str:
-    """Open a per-slug Resolve project whose frame rate matches the footage.
+    """Create a FRESH Resolve project for this produce run.
 
     Resolve locks a project's timeline frame rate as soon as the project holds
     a timeline, and silently conforms mismatched clips (23.976 footage in a
-    29.97 project stretches every clip by 1.25x). One project per video keeps
-    each edit at its native rate; a project whose rate is already wrong is
-    deleted and recreated, which is safe because timelines here are generated.
+    29.97 project stretches every clip by 1.25x). A fresh project can never be
+    locked to a wrong rate — and, decisive since 2026-08-19, it can never hold
+    stale media-pool imports: a reused project accumulated four same-name
+    copies of every overlay and shipped an old one's pixels. Older CC_<slug>*
+    projects are swept after the new one is current, so the library holds
+    exactly one project per slug.
     """
-    name = "CC_%s" % slug
+    name = "CC_%s_%s" % (slug, time.strftime("%Y%m%d_%H%M%S"))
+    prefix = "CC_%s_" % slug
     fps_str = ("%.3f" % fps).rstrip("0").rstrip(".")
     out = ra.send("project_for_slug", '''
 local pm = resolve:GetProjectManager()
-local function setup(p)
-  p:SetSetting("timelineFrameRate", %s)
-  return tostring(p:GetSetting("timelineFrameRate"))
-end
-local proj = pm:LoadProject(%s)
-if proj then
-  local rate = tostring(proj:GetSetting("timelineFrameRate"))
-  if math.abs(tonumber(rate) - %s) > 0.01 then
-    pm:CloseProject(proj)
-    pm:DeleteProject(%s)
-    proj = nil
+local proj = pm:CreateProject(%s)
+if not proj then return error("could not create project") end
+proj:SetSetting("timelineFrameRate", %s)
+local swept = 0
+for _, old in ipairs(pm:GetProjectListInCurrentFolder() or {}) do
+  if old ~= %s and (old:sub(1, #%s) == %s or old == "CC_" .. %s) then
+    if pm:DeleteProject(old) then swept = swept + 1 end
   end
 end
-if not proj then
-  proj = pm:CreateProject(%s)
-  if not proj then return error("could not create project") end
-end
-return proj:GetName() .. " fps=" .. setup(proj)
-''' % (ra.lua_str(fps_str), ra.lua_str(name), fps_str, ra.lua_str(name),
-       ra.lua_str(name)), timeout=300)
+return proj:GetName() .. " fps=" .. tostring(proj:GetSetting("timelineFrameRate"))
+       .. " swept=" .. swept
+''' % (ra.lua_str(name), ra.lua_str(fps_str), ra.lua_str(name),
+       ra.lua_str(prefix), ra.lua_str(prefix), ra.lua_str(slug)),
+        timeout=300)
     log("[render] project %s" % out)
     return name
 
