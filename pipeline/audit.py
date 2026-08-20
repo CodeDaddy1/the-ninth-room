@@ -42,6 +42,11 @@ EDGE_PROBE_SEC = 0.35
 EDGE_WINDOW_SEC = 0.05
 EDGE_HOT_DB = -36.0
 EDGE_WITHIN_SEC = 0.25
+# Only peaks this hot are reported. Tuned on the finished HMNS edit: museum
+# ambience and background chatter fill -36..-26 dB (54 warnings, all
+# deliberate cut-aways), while an interrupted on-mic speaker measures far
+# hotter — the clipped "Monopoly." peaked at -14.6 dB.
+EDGE_REPORT_DB = -26.0
 
 
 def audit_splices(slug: str, log=print) -> "list[dict]":
@@ -153,8 +158,12 @@ def audit_speech_edges(slug: str, log=print) -> "list[dict]":
                 if peak is not None:
                     flags.append({"beat": beat["id"], "kind": kind,
                                   "t": round(t, 3), "peak_db": round(peak, 1)})
+    quiet = [f for f in flags if f["peak_db"] < EDGE_REPORT_DB]
+    flags = sorted((f for f in flags if f["peak_db"] >= EDGE_REPORT_DB),
+                   key=lambda f: -f["peak_db"])
     for f in flags:
         log("[audit] %-6s %-7s %8.2fs voice at %.1f dB just outside the cut"
             % (f["beat"], f["kind"], f["t"], f["peak_db"]))
-    log("[audit] %d speech-edge warnings" % len(flags))
+    log("[audit] %d speech-edge warnings (%d quieter than %.0f dB suppressed)"
+        % (len(flags), len(quiet), EDGE_REPORT_DB))
     return flags
