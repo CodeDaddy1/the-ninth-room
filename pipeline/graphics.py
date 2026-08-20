@@ -220,7 +220,7 @@ PRESET_FOR = {"slide_up": "reveal_up", "slide_down": "reveal_down",
 # generic types map onto the kit's screens; anything unmapped falls back
 # to the lower third, which suits a label on any beat.
 KIT_FOR = {"hook_title": "hook", "section": "lower_third", "stat": "stat",
-           "quote": "payoff", "outro": "chapter", "chapter": "chapter"}
+           "quote": "payoff", "outro": "outro", "chapter": "chapter"}
 
 
 def bake_spec(card: "dict") -> "tuple":

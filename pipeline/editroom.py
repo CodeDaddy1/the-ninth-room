@@ -150,7 +150,7 @@ def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
 # (id, type, kit_type, beat_id, prebaked, animation) stay server-owned.
 _EDITABLE = ("kicker", "text", "subtext", "subtext_italic", "emphasis",
              "stat", "attribution", "rows", "entries", "emojis",
-             "duration", "at", "size", "speaker",
+             "duration", "at", "size", "speaker", "cta",
              "sides", "travel_ms", "accent", "x", "y")
 
 # Starter copy for a freshly created overlay, per kit screen. Keys must be
@@ -174,6 +174,10 @@ _KIT_TEMPLATES = {
     "reaction": {"text": "NO WAY.", "attribution": "Sofia"},
     "emoji": {"emojis": [{"char": "😱"}]},
     "watermark": {},
+    "outro": {"kicker": "Thanks for watching",
+              "text": "See you in the next room.",
+              "subtext": "New rooms every week",
+              "cta": "Subscribe"},
 }
 
 
@@ -1031,7 +1035,9 @@ const KIT_FIELDS={
   reaction:[['text','area'],['attribution','text']],
   emoji:[['emojis','emojis']],
   watermark:[],
-  caption_plate:[['speaker','text'],['text','area']]
+  caption_plate:[['speaker','text'],['text','area']],
+  outro:[['kicker','text'],['text','area'],['subtext','text'],
+         ['cta','text'],['emphasis','emph']]
 };
 const FIELD_HINTS={emphasis:'comma-separated exact phrases to turn amber',
   emojis:'emoji separated by spaces, e.g. 🦕 😱'};
@@ -1303,7 +1309,7 @@ async function refreshPreview(){
 function ovUpdates(){
   const KEYS=['kicker','text','subtext','subtext_italic','emphasis','stat',
     'attribution','rows','entries','emojis','duration','at','size','speaker',
-    'sides','travel_ms','accent','x','y'];
+    'cta','sides','travel_ms','accent','x','y'];
   const u={};
   for(const k of KEYS){
     if(k in ovWork)u[k]=ovWork[k];

@@ -409,6 +409,65 @@ def watermark(card: "dict") -> str:
             % (gap, px, px, "".join(cells)))
 
 
+def outro(card: "dict") -> str:
+    """13 · Outro end card — the brand sign-off that owns the whole frame.
+
+    Near-solid midnight cover, centered column: the 3x3 mark builds room by
+    room with the ninth lighting amber last, "The Ninth Room" wordmark in
+    Newsreader under it, a TRUE kicker pill, the editable sign-off chip,
+    and an amber CTA pill that slams in at the end. Every element persists
+    (fill both) so the card can hold as long as the edit needs.
+    """
+    px, gap = 132, 6
+    room = (px - 2 * gap) / 3.0
+    cells = []
+    for i in range(9):
+        if i == 8:
+            a = "lPop 340ms %s 620ms both" % EASE_OUT
+        else:
+            a = "lFade 240ms ease %dms both" % (80 + i * 45)
+        cells.append('<div style="width:%.1fpx;height:%.1fpx;background:%s;'
+                     'animation:%s"></div>'
+                     % (room, room, FUN if i == 8 else ICE, a))
+    parts = [
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);'
+        'gap:%dpx;width:%dpx;height:%dpx">%s</div>'
+        % (gap, px, px, "".join(cells)),
+        '<div style="font-family:%s;font-size:58px;font-weight:600;color:%s;'
+        'letter-spacing:.01em;margin-top:30px;'
+        'animation:lFade 300ms ease 340ms both">The Ninth Room</div>'
+        % (FONT_SERIF, ICE),
+    ]
+    if card.get("kicker"):
+        parts.append('<div style="margin-top:30px">%s</div>'
+                     % _kicker_pill(card["kicker"], TRUE_BLUE, delay=560,
+                                    size=22, shadow=SHADOW_SM))
+    if card.get("text"):
+        inner = ('<span style="%s">%s</span>'
+                 % (_display(64, "-.035em"),
+                    emphasize(card["text"], card.get("emphasis"))))
+        parts.append('<div style="margin-top:14px">%s</div>'
+                     % _chip(inner, tilt=1, delay=740, dur=340,
+                             extra="max-width:1500px"))
+    if card.get("subtext"):
+        parts.append('<div style="font-family:%s;font-size:26px;color:%s;'
+                     'margin-top:10px;animation:lFade 260ms ease 940ms both">'
+                     '%s</div>' % (FONT_BODY, MUTED, _e(card["subtext"])))
+    if card.get("cta"):
+        inner = ('<span style="font-family:%s;font-size:30px;font-weight:800;'
+                 'letter-spacing:.14em;text-transform:uppercase">%s</span>'
+                 % (FONT_BODY, _e(card["cta"])))
+        parts.append('<div style="margin-top:26px">%s</div>'
+                     % _chip(inner, fill=FUN, color=DEEP, delay=1080, dur=420,
+                             pad="12px 34px", pill=True, anim="lSlam",
+                             outline="5px solid %s" % ICE))
+    return ('<div style="position:absolute;inset:0;background:rgba(11,18,28,.97);'
+            'animation:lFade 300ms ease both"></div>'
+            '<div style="position:absolute;inset:0;display:flex;'
+            'flex-direction:column;align-items:center;justify-content:center">'
+            '%s</div>' % "".join(parts))
+
+
 def transition(card: "dict") -> str:
     """A midnight panel that sweeps across a chapter cut, carrying the title.
 
@@ -563,7 +622,7 @@ RENDERERS = {
     "stat": stat,
     "payoff": payoff,
     "quote": payoff,
-    "outro": chapter,
+    "outro": outro,
     "stamp": stamp,
     "caption_plate": caption_plate,
     "watermark": watermark,
