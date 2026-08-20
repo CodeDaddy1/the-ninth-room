@@ -647,6 +647,86 @@ def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
     return {"stored": name, "still": False}
 
 
+def _footage_state(slug: str) -> "dict":
+    """Inventory of what's been dropped in: per-clip thumbnail, duration,
+    size — thumbnails and probes cached in footage/.thumbs keyed by
+    (size, mtime) so the panel stays instant with a card full of 4K."""
+    fdir = work_path(slug) / "footage"
+    items = []
+    if fdir.is_dir():
+        thumbs = fdir / ".thumbs"
+        thumbs.mkdir(exist_ok=True)
+        meta_path = thumbs / "meta.json"
+        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        changed = False
+        for p in sorted(fdir.iterdir()):
+            if not p.is_file() or p.name.startswith((".", "_tmp")) \
+                    or p.suffix.lower() not in _VIDEO_UP:
+                continue
+            st = p.stat()
+            key = [st.st_size, int(st.st_mtime)]
+            m = meta.get(p.name)
+            if not m or m[:2] != key:
+                pr = subprocess.run(
+                    ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                     "-show_entries", "stream=width,height:format=duration",
+                     "-of", "json", str(p)], capture_output=True, text=True)
+                try:
+                    d = json.loads(pr.stdout)
+                    dur = float(d["format"]["duration"])
+                    w0 = d["streams"][0]["width"]
+                    h0 = d["streams"][0]["height"]
+                except Exception:
+                    dur, w0, h0 = 0.0, 0, 0
+                m = key + [round(dur, 1), w0, h0]
+                meta[p.name] = m
+                changed = True
+            th = thumbs / (p.name + ".jpg")
+            if not th.exists() or th.stat().st_mtime < st.st_mtime:
+                at = min(1.0, max(m[2] / 2.0, 0.0))
+                subprocess.run(
+                    ["ffmpeg", "-y", "-loglevel", "error", "-ss", "%.2f" % at,
+                     "-i", str(p), "-frames:v", "1", "-vf", "scale=320:-2",
+                     str(th)], capture_output=True)
+            still_src = None
+            if p.stem.endswith("_still"):
+                for s in (fdir / "stills").glob(p.stem[:-6] + ".*"):
+                    still_src = s.name
+                    break
+            items.append({"name": p.name, "size": st.st_size,
+                          "dur": m[2], "w": m[3], "h": m[4],
+                          "still": p.stem.endswith("_still"),
+                          "still_src": still_src,
+                          "thumb": str(th) if th.exists() else None})
+        if changed:
+            _write_json(meta_path, meta)
+    ingested = (work_path(slug) / "analysis" / "catalog.json").exists()
+    return {"slug": slug, "files": items, "ingested": ingested}
+
+
+def _delete_footage(slug: str, name: str) -> "dict":
+    """Remove one dropped clip — into footage/.trash, never gone for good.
+    Removing a converted photo clip takes its source photo along."""
+    fdir = work_path(slug) / "footage"
+    name = os.path.basename(name)
+    p = fdir / name
+    if not p.is_file():
+        raise IngestError("no clip named '%s'" % name)
+    trash = fdir / ".trash"
+    trash.mkdir(exist_ok=True)
+    os.replace(p, trash / p.name)
+    removed = [name]
+    if p.stem.endswith("_still"):
+        for s in (fdir / "stills").glob(p.stem[:-6] + ".*"):
+            os.replace(s, trash / s.name)
+            removed.append("stills/" + s.name)
+    th = fdir / ".thumbs" / (name + ".jpg")
+    if th.exists():
+        th.unlink()
+    return {"removed": removed,
+            "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
+
+
 def _story_state(slug: str) -> "dict":
     work = work_path(slug)
     stories = fb = plan_summary = None
@@ -887,6 +967,8 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, _captions_state(self._slug_q()))
             elif self.path.startswith("/api/story"):
                 self._send(200, _story_state(self._slug_q()))
+            elif self.path.startswith("/api/footage"):
+                self._send(200, _footage_state(self._slug_q()))
             elif self.path.startswith("/media/"):
                 parts = self.path.split("?")[0].split("/")
                 # /media/<slug>/<proxies|exports>/<name>
@@ -898,6 +980,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 if kind == "proxies":
                     p = (work_path(mslug) / "proxies" / name).resolve()
                     if p.exists() and p.suffix == ".mp4":
+                        self._send_video(p)
+                        return
+                elif kind == "footage":
+                    p = (work_path(mslug) / "footage" / name).resolve()
+                    if p.is_file() and p.suffix.lower() in _VIDEO_UP:
                         self._send_video(p)
                         return
                 elif kind == "exports":
@@ -994,6 +1081,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                        body.get("text"),
                                        revert=bool(body.get("revert")),
                                        log=log)
+                self._send(200, dict(result, ok=True))
+            elif self.path == "/api/footage/delete":
+                result = _delete_footage(self._slug_b(body), body.get("name", ""))
+                log("[footage] %s removed %s" % (body.get("slug"),
+                                                 result["removed"]))
                 self._send(200, dict(result, ok=True))
             elif self.path == "/api/story/feedback":
                 fb = _save_story_feedback(self._slug_b(body),
@@ -1224,6 +1316,23 @@ font-size:12.5px;text-align:left}
 .uplist .u{display:grid;grid-template-columns:1fr 90px;gap:10px;
 color:var(--muted)}
 .uplist .u.ok{color:var(--accent)} .uplist .u.err{color:var(--flag)}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+gap:12px;margin-top:22px;text-align:left}
+.fcard{position:relative;background:var(--panel);border:1px solid var(--hair);
+border-radius:10px;overflow:hidden}
+.fcard img,.fcard video{display:block;width:100%;aspect-ratio:16/9;
+object-fit:cover;background:#000;cursor:pointer}
+.fcard .fn{font-size:12px;color:var(--text);padding:7px 9px 2px;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+font-family:Gabarito,sans-serif}
+.fcard .fm{font-size:11px;color:var(--muted);padding:0 9px 8px}
+.fcard .fdel{position:absolute;top:6px;right:6px;width:24px;height:24px;
+border-radius:6px;border:none;background:rgba(11,11,12,.75);
+color:var(--flag);font-size:15px;cursor:pointer;line-height:1}
+.fcard .fdel:hover{background:var(--flag);color:#fff}
+.fcard .fbadge{position:absolute;top:6px;left:6px;font-size:10px;
+letter-spacing:.07em;text-transform:uppercase;background:rgba(11,11,12,.75);
+color:var(--rework);border-radius:4px;padding:2px 7px}
 .scard{background:var(--panel);border:1px solid var(--hair);border-radius:12px;
 padding:18px 20px;cursor:pointer;display:flex;flex-direction:column;gap:8px}
 .scard:hover{border-color:var(--muted)}
@@ -1358,6 +1467,7 @@ function renderSetup(){
     '<div class="row2"><button id="bPickFiles">Choose files…</button>'+
     '<button id="bOpenFootage">Open footage folder in Finder</button></div>'+
     '<div class="uplist" id="uplist"></div>'+
+    '<div class="fgrid" id="fgrid"></div>'+
     '<div style="margin-top:18px;font-size:13px;color:var(--text)">'+
     (p.footage?p.footage+' clip(s) in. ':'')+esc(p.next)+'</div></div>'+
     '<input type="file" id="fileInput" multiple style="display:none" '+
@@ -1373,6 +1483,7 @@ function renderSetup(){
     e.preventDefault();dz.classList.add('hot');}));
   ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{
     e.preventDefault();dz.classList.remove('hot');}));
+  loadFootage();
   dz.addEventListener('drop',async e=>{
     // DataTransfer items die at the end of the drop tick — snapshot every
     // entry SYNCHRONOUSLY before the first await, then walk at leisure.
@@ -1398,6 +1509,54 @@ function renderSetup(){
     };
     for(const en of entries)await collect(en);
     uploadFiles(files);
+  });
+}
+
+function fmtSize(b){
+  return b>=1e9?(b/1e9).toFixed(2)+' GB':b>=1e6?(b/1e6).toFixed(1)+' MB':
+    Math.round(b/1e3)+' KB';
+}
+
+async function loadFootage(){
+  const grid=document.getElementById('fgrid');
+  if(!grid)return;
+  const d=await(await fetch(api('/api/footage'))).json();
+  grid.innerHTML=(d.ingested&&d.files.length
+    ?'<div style="grid-column:1/-1;color:var(--rework);font-size:12.5px">'+
+     'this project is already ingested — after removing clips, tell Claude '+
+     'to re-ingest</div>':'')+
+    d.files.map(f=>{
+    const label=f.still&&f.still_src?f.still_src:f.name;
+    return '<div class="fcard" data-f="'+esc(f.name)+'">'+
+      (f.thumb?'<img src="/file?p='+encodeURIComponent(f.thumb)+
+        '" title="click to play">':'<img title="click to play">')+
+      (f.still?'<span class="fbadge">photo</span>':'')+
+      '<button class="fdel" title="remove">×</button>'+
+      '<div class="fn">'+esc(label)+'</div>'+
+      '<div class="fm">'+(f.dur?f.dur+'s · ':'')+
+      (f.w?f.w+'×'+f.h+' · ':'')+fmtSize(f.size)+'</div></div>';
+  }).join('');
+  grid.querySelectorAll('.fcard').forEach(card=>{
+    const name=card.dataset.f;
+    card.querySelector('img').onclick=e=>{
+      e.stopPropagation();
+      const v=document.createElement('video');
+      v.controls=true;v.autoplay=true;v.playsinline=true;
+      v.src='/media/'+SLUG+'/footage/'+encodeURIComponent(name);
+      card.querySelector('img').replaceWith(v);
+    };
+    card.querySelector('.fdel').onclick=async e=>{
+      e.stopPropagation();
+      if(!confirm('Remove '+name+' from this project?\n(It moves to '+
+        'footage/.trash, recoverable in Finder.)'))return;
+      try{
+        const r=await ovPost('/api/footage/delete',{name:name});
+        await bootProjects();
+        await loadFootage();
+        if(r.reingest)alert('Removed. This project was already ingested — '+
+          'tell Claude to re-ingest '+SLUG+' so the analysis matches.');
+      }catch(err){alert(err.message);}
+    };
   });
 }
 
@@ -1440,8 +1599,9 @@ async function uploadFiles(files){
     });
   }
   await bootProjects();
+  await loadFootage();
   const p=proj();
-  const note=document.querySelector('#dropzone div:last-of-type');
+  const note=document.querySelector('#dropzone > div:last-of-type');
   if(note&&p)note.textContent=p.footage+' clip(s) in. '+p.next;
 }
 
