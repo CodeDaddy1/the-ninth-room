@@ -137,12 +137,26 @@ def analyze(slug: str, log=print) -> Path:
             continue
         words = json.loads((out / f["words_file"]).read_text())
         for run in segment_takes(words):
+            s = round(run[0]["s"], 3)
+            e = round(run[-1]["e"], 3)
+            if e <= s:
+                # whisper sometimes stamps a word zero-length (seen:
+                # "literally." at 29.98-29.98 on a clip's last frame). A
+                # spoken word has a real footprint — floor it, clamped to
+                # the clip; a sliver that can't fit is dropped.
+                e = round(s + 0.24, 3)
+                if f.get("duration"):
+                    e = min(e, round(f["duration"], 3))
+                if e <= s:
+                    log("[takes] SKIP zero-length take at %.2fs in %s"
+                        % (s, f["name"]))
+                    continue
             m = take_metrics(run)
             m.update({
                 "id": "T%02d" % (len(takes) + 1),
                 "file": f["name"],
-                "s": round(run[0]["s"], 3),
-                "e": round(run[-1]["e"], 3),
+                "s": s,
+                "e": e,
             })
             vol = span_volume_db(f["path"], m["s"], m["e"])
             if vol is not None:
