@@ -360,11 +360,11 @@ def bake_caption_clip(timed_words: "list[dict]", duration: float, out_mov: Path,
         chains.append("%s[%d:v]overlay=0:0:format=auto:enable='between(t,%.3f,%.3f)'[v%d]"
                       % (prev, i + 1, s, e, i))
         prev = "[v%d]" % i
+    from .graphics import prores_encode_args
     cmd = (["ffmpeg", "-y", "-loglevel", "error"] + inputs +
            ["-filter_complex", ";".join(chains), "-map", prev,
-            "-t", "%.3f" % duration,
-            "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le",
-            str(out_mov)])
+            "-t", "%.3f" % duration]
+           + prores_encode_args() + [str(out_mov)])
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise IngestError("caption bake failed: %s" % proc.stderr[-300:])

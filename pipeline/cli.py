@@ -128,6 +128,91 @@ def cmd_names(args) -> int:
     return 0
 
 
+def cmd_reencode(args) -> int:
+    """Re-encode a slug's overlay/caption .movs with Apple's ProRes encoder.
+
+    Heals files baked with ffmpeg's prores_ks, whose bitstream Resolve's
+    realtime hardware decoder intermittently rejects (flickering "Media
+    Offline" during playback; renders were always fine). Run with Resolve
+    CLOSED — files are replaced in place under their existing names so the
+    project relinks itself on reopen. Idempotent: healed files are recorded
+    in work/<slug>/.vt_healed.json and skipped next time.
+    """
+    import json
+    import os
+    import subprocess
+    from .ingest import work_path
+    from .graphics import prores_encode_args
+
+    enc = prores_encode_args()
+    if "prores_videotoolbox" not in enc:
+        print("VideoToolbox encoder unavailable — nothing to heal")
+        return 1
+    work = work_path(args.slug)
+    marker_path = work / ".vt_healed.json"
+    healed = json.loads(marker_path.read_text()) if marker_path.exists() else {}
+
+    def frames(path) -> str:
+        pr = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-count_packets", "-show_entries", "stream=nb_read_packets",
+             "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+        return pr.stdout.strip()
+
+    todo = []
+    for d in (work / "graphics", work / "captions",
+              work / "exports" / "overlays"):
+        if d.is_dir():
+            todo += sorted(p for p in d.glob("*.mov")
+                           if not p.name.startswith("_tmp."))
+    done = skipped = failed = 0
+    for p in todo:
+        rel = str(p.relative_to(work))
+        st = p.stat()
+        if healed.get(rel) == [st.st_size, int(st.st_mtime)]:
+            skipped += 1
+            continue
+        n0 = frames(p)
+        tmp = p.parent / ("_tmp.%s" % p.name)
+        pr = subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
+                             "-i", str(p)] + enc + [str(tmp)],
+                            capture_output=True, text=True)
+        if pr.returncode != 0:
+            if tmp.exists():
+                tmp.unlink()
+            print("FAILED %s: %s" % (rel, pr.stderr[-200:]))
+            failed += 1
+            continue
+        n1 = frames(tmp)
+        if not n0 or n0 != n1:  # never swap in a clip of a different length
+            tmp.unlink()
+            print("FRAME MISMATCH %s: %s -> %s (original kept)" % (rel, n0, n1))
+            failed += 1
+            continue
+        os.replace(tmp, p)
+        st = p.stat()
+        healed[rel] = [st.st_size, int(st.st_mtime)]
+        marker_path.write_text(json.dumps(healed))
+        done += 1
+        print("healed %s (%s frames)" % (rel, n1))
+
+    # prebaked cards' export status keys are mtime/size-based — refresh them
+    from . import editroom
+    sc = work / "exports" / "overlays" / ".export_hashes.json"
+    if sc.exists():
+        exp = json.loads(sc.read_text())
+        cards = {c["id"]: c for c, _ in editroom._all_overlays(args.slug)}
+        orient = editroom._orientation(args.slug)
+        for cid in list(exp):
+            if cid in cards:
+                exp[cid]["key"] = editroom._current_key(
+                    args.slug, cards[cid], orient)
+        editroom._write_json(sc, exp)
+    print("re-encoded %d, already healed %d, failed %d, total %d"
+          % (done, skipped, failed, len(todo)))
+    return 1 if failed else 0
+
+
 def cmd_editroom(args) -> int:
     from . import editroom
     editroom.serve(args.slug, port=args.port)
@@ -203,6 +288,12 @@ def main(argv=None) -> int:
     p = sub.add_parser("names", help="re-apply brand/names.json corrections to a slug's transcripts")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_names)
+
+    p = sub.add_parser("reencode", help="re-encode overlay/caption movs with "
+                       "Apple's ProRes encoder (fixes Resolve playback "
+                       "Media Offline; run with Resolve closed)")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_reencode)
 
     p = sub.add_parser("editroom", help="serve the shot-review UI on localhost")
     p.add_argument("slug")

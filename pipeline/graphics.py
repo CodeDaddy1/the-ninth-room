@@ -155,6 +155,31 @@ def render_png(card: "dict", out_png: Path, w: int, h: int, tmp_dir: Path) -> No
                           % (card["id"], (proc.stderr or "")[-300:]))
 
 
+_HAS_VT = [None]  # cached ffmpeg-encoder probe
+
+
+def prores_encode_args() -> "list[str]":
+    """Encoder args for every ProRes 4444 alpha overlay the pipeline writes.
+
+    Apple's VideoToolbox encoder, NOT ffmpeg's prores_ks: Resolve renders
+    prores_ks files correctly, but its REALTIME playback path (the Apple
+    Media Engine hardware decoder) intermittently fails to decode them and
+    flashes "Media Offline" while playing — confirmed in Resolve's own log
+    ("Failed to decode the video frame", 2026-08-20) on frames the render
+    path handled fine. VideoToolbox writes the reference bitstream both
+    paths accept. prores_ks stays as the non-Mac fallback.
+    """
+    if _HAS_VT[0] is None:
+        probe = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                               capture_output=True, text=True)
+        _HAS_VT[0] = "prores_videotoolbox" in (probe.stdout or "")
+    if _HAS_VT[0]:
+        return ["-c:v", "prores_videotoolbox", "-profile:v", "4444",
+                "-pix_fmt", "ayuv64le"]
+    return ["-c:v", "prores_ks", "-profile:v", "4444",
+            "-pix_fmt", "yuva444p10le"]
+
+
 def bake_mov(png: Path, out_mov: Path, duration: float, w: int, h: int,
              anim: str = "slide_up", fps: int = 30) -> None:
     """Bake the animated alpha clip. The still input MUST use -loop 1 or the
@@ -179,9 +204,7 @@ def bake_mov(png: Path, out_mov: Path, duration: float, w: int, h: int,
         "color=c=black@0.0:s=%dx%d:r=%d:d=%.3f,format=rgba" % (w, h, fps, duration),
         "-loop", "1", "-t", "%.3f" % duration, "-r", str(fps), "-i", str(png),
         "-filter_complex", filters,
-        "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le",
-        str(out_mov),
-    ]
+    ] + prores_encode_args() + [str(out_mov)]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise IngestError("bake failed for %s: %s" % (png.name, proc.stderr[-300:]))

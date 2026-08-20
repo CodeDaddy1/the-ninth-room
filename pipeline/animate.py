@@ -290,10 +290,10 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
 
 def encode_frames(frames_dir: Path, out_mov: Path, fps: int) -> Path:
     """PNG sequence -> ProRes 4444 with a real alpha channel."""
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps),
-           "-i", str(frames_dir / "f%04d.png"),
-           "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le",
-           str(out_mov)]
+    from .graphics import prores_encode_args
+    cmd = (["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps),
+            "-i", str(frames_dir / "f%04d.png")]
+           + prores_encode_args() + [str(out_mov)])
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise IngestError("animation encode failed: %s" % proc.stderr[-300:])
