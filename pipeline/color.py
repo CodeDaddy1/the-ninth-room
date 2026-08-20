@@ -70,6 +70,16 @@ def camera_lut() -> "str | None":
     return lut or None
 
 
+def highlight_trim() -> float:
+    """How far below standard the highlight targets sit, in post-LUT signal
+    (0-1). Caleb, 2026-08-20: "highlights need to be brought down just a
+    tad" — a standing brand preference, so it lives in grade.json and every
+    grade (produce and the live-timeline pass) solves with it."""
+    if not GRADE_CONFIG.exists():
+        return 0.0
+    return float(json.loads(GRADE_CONFIG.read_text()).get("highlight_trim", 0.0))
+
+
 def _lut_curve(lut_rel: str) -> "np.ndarray":
     """The LUT's gray-axis response, sampled at 256 points via ffmpeg."""
     if lut_rel in _CURVES:
@@ -195,13 +205,18 @@ def compute_cdl(stats: "dict", lut_rel: "str | None" = None) -> "dict":
     """
     if not stats:
         return {"slope": 1.0, "offset": 0.0, "power": 1.0, "saturation": 1.0}
+    # The trim lowers where highlights LAND (post-LUT signal), so it is
+    # subtracted before the targets are pulled back through the LUT.
+    trim = highlight_trim()
     if lut_rel:
         t_low = _lut_inv(lut_rel, TARGET_LOW)
-        t_high = _lut_inv(lut_rel, TARGET_HIGH)
-        ceiling = _lut_inv(lut_rel, HIGHLIGHT_CEILING)
+        t_high = _lut_inv(lut_rel, TARGET_HIGH - trim)
+        ceiling = _lut_inv(lut_rel, HIGHLIGHT_CEILING - trim)
         slope_range, power_range = LUT_SLOPE_RANGE, LUT_POWER_RANGE
     else:
-        t_low, t_high, ceiling = TARGET_LOW, TARGET_HIGH, HIGHLIGHT_CEILING
+        t_low = TARGET_LOW
+        t_high = TARGET_HIGH - trim
+        ceiling = HIGHLIGHT_CEILING - trim
         slope_range, power_range = SLOPE_RANGE, POWER_RANGE
     low = stats.get("YLOW", 64.0) / 1023.0
     high = stats.get("YHIGH", 940.0) / 1023.0
@@ -255,19 +270,27 @@ def plan_grade(slug: str, files: "list[dict]", log=print) -> "dict":
     the LUT's response curve.
     """
     lut = camera_lut()
+    trim = highlight_trim()
     if lut:
         log("[color] camera LUT: %s (grade solved through it)" % lut)
+    if trim:
+        log("[color] highlight trim: -%.3f" % trim)
     cache_path = analysis_dir(slug) / "color.json"
     cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
     changed = False
     for f in files:
         entry = cache.get(f["name"])
-        if entry and entry.get("lut") == lut:
+        if entry and entry.get("lut") == lut and entry.get("trim", 0.0) == trim:
             continue
-        stats = measure_clip(f["path"], f["duration"], lut_rel=lut)
+        if entry and entry.get("lut") == lut:
+            # same LUT, new trim: the measurement still holds — only the
+            # CDL solve changes
+            stats = entry["stats"]
+        else:
+            stats = measure_clip(f["path"], f["duration"], lut_rel=lut)
         cdl = compute_cdl(stats, lut_rel=lut)
         cache[f["name"]] = {"stats": {k: round(v, 1) for k, v in stats.items()},
-                            "cdl": cdl, "lut": lut}
+                            "cdl": cdl, "lut": lut, "trim": trim}
         changed = True
         log("[color] %s  slope %.2f  offset %+.2f  pow %.2f  sat %.2f"
             % (f["name"][-12:], cdl["slope"], cdl["offset"], cdl["power"],
@@ -319,6 +342,119 @@ return "graded=" .. graded .. " lut=" .. lutted .. " untouched=" .. skipped
         if want != got:
             raise RuntimeError("camera LUT applied to %s of %s graded clips"
                                % (got, want))
+    return out
+
+
+def grade_live_timeline(slug: str, log=print) -> str:
+    """Grade whatever timeline is CURRENTLY OPEN in Resolve, uniformly.
+
+    Unlike apply_grade (which matches the auto-built timeline's clips by
+    name on V1/V2), this walks EVERY video track of the live timeline —
+    including clips Caleb placed by hand — and grades each item from its
+    actual media file. Overlays (anything under this slug's graphics/,
+    captions/, or exports/) are skipped: they are brand-exact and never
+    take the footage look. Every footage file is measured once (cached in
+    analysis/color.json) and solved through the camera LUT with the
+    standing highlight trim, so hand-placed clips land on exactly the same
+    targets as the pipeline's own.
+    """
+    from .ingest import work_path
+    lut = camera_lut()
+    trim = highlight_trim()
+    log("[color] LUT: %s  trim: -%.3f" % (lut or "none", trim))
+    work = str(work_path(slug).resolve())
+    overlay_roots = tuple(work + "/" + d for d in
+                          ("graphics", "captions", "exports"))
+
+    listing = ra.send("list_items", '''
+local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
+if not tl then return "ERROR: no current timeline" end
+local lines = {"TL\\t" .. tl:GetName()}
+for t = 1, tl:GetTrackCount("video") do
+  local items = tl:GetItemListInTrack("video", t) or {}
+  for i, item in ipairs(items) do
+    local mp = item:GetMediaPoolItem()
+    local path = (mp and mp:GetClipProperty("File Path")) or ""
+    lines[#lines+1] = t .. "\\t" .. i .. "\\t" .. path
+  end
+end
+return table.concat(lines, "\\n")
+''', timeout=300)
+    lines = listing.splitlines()
+    tl_name = lines[0].split("\t", 1)[1] if lines else "?"
+    log("[color] timeline: %s" % tl_name)
+
+    # one measurement per distinct footage file
+    cache_path = analysis_dir(slug) / "color.json"
+    cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+    todo, skipped = [], 0
+    for line in lines[1:]:
+        t, i, path = line.split("\t", 2)
+        if not path or path.startswith(overlay_roots):
+            skipped += 1
+            continue
+        todo.append((int(t), int(i), path))
+    changed = False
+    for path in sorted({p for _, _, p in todo}):
+        name = Path(path).name
+        entry = cache.get(name)
+        if entry and entry.get("lut") == lut and entry.get("trim", 0.0) == trim:
+            continue
+        if entry and entry.get("lut") == lut:
+            stats = entry["stats"]
+        else:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", path], capture_output=True, text=True)
+            duration = float(probe.stdout.strip() or 10.0)
+            log("[color] measuring %s (%.0fs)" % (name, duration))
+            stats = measure_clip(path, duration, lut_rel=lut)
+        cdl = compute_cdl(stats, lut_rel=lut)
+        cache[name] = {"stats": {k: round(v, 1) for k, v in stats.items()},
+                       "cdl": cdl, "lut": lut, "trim": trim}
+        changed = True
+        log("[color] %s  slope %.2f  offset %+.2f  pow %.2f  sat %.2f"
+            % (name[-16:], cdl["slope"], cdl["offset"], cdl["power"],
+               cdl["saturation"]))
+    if changed:
+        cache_path.write_text(json.dumps(cache, indent=2))
+
+    entries = ",".join(
+        '{t=%d,i=%d,s=%s,o=%s,p=%s,sat=%s}' % (
+            t, i,
+            ra.lua_str("%s %s %s" % ((cache[Path(p).name]["cdl"]["slope"],) * 3)),
+            ra.lua_str("%s %s %s" % ((cache[Path(p).name]["cdl"]["offset"],) * 3)),
+            ra.lua_str("%s %s %s" % ((cache[Path(p).name]["cdl"]["power"],) * 3)),
+            ra.lua_str(str(cache[Path(p).name]["cdl"]["saturation"])))
+        for t, i, p in todo)
+    out = ra.send("grade_live", '''
+local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
+local lut = %s
+local bytrack = {}
+for t = 1, tl:GetTrackCount("video") do
+  bytrack[t] = tl:GetItemListInTrack("video", t) or {}
+end
+local graded, lutted, failed = 0, 0, 0
+for _, e in ipairs({%s}) do
+  local item = bytrack[e.t] and bytrack[e.t][e.i]
+  if item then
+    if lut ~= "" and item:SetLUT(1, lut) then lutted = lutted + 1 end
+    if item:SetCDL({["NodeIndex"]="1", ["Slope"]=e.s, ["Offset"]=e.o,
+                    ["Power"]=e.p, ["Saturation"]=e.sat}) then
+      graded = graded + 1
+    else
+      failed = failed + 1
+    end
+  else
+    failed = failed + 1
+  end
+end
+return "graded=" .. graded .. " lut=" .. lutted .. " failed=" .. failed ..
+       " on " .. tl:GetName()
+''' % (ra.lua_str(lut or ""), entries), timeout=600)
+    log("[color] %s (overlays untouched: %d)" % (out, skipped))
+    if "failed=0" not in out:
+        raise RuntimeError("some items did not take the grade: %s" % out)
     return out
 
 

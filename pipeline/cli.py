@@ -128,6 +128,18 @@ def cmd_names(args) -> int:
     return 0
 
 
+def cmd_grade(args) -> int:
+    from . import color, resolve_api
+    from .ingest import IngestError
+    try:
+        resolve_api.ensure_bridge()
+        color.grade_live_timeline(args.slug)
+    except (IngestError, RuntimeError, resolve_api.BridgeError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_reencode(args) -> int:
     """Re-encode a slug's overlay/caption .movs with Apple's ProRes encoder.
 
@@ -288,6 +300,12 @@ def main(argv=None) -> int:
     p = sub.add_parser("names", help="re-apply brand/names.json corrections to a slug's transcripts")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_names)
+
+    p = sub.add_parser("grade", help="color-grade the timeline currently open "
+                       "in Resolve: every track, hand-placed clips included, "
+                       "uniform targets + the grade.json highlight trim")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_grade)
 
     p = sub.add_parser("reencode", help="re-encode overlay/caption movs with "
                        "Apple's ProRes encoder (fixes Resolve playback "
