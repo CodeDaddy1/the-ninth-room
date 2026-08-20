@@ -87,6 +87,7 @@ the content delivers the payoff. The non-negotiable rule:
 | Path | What it's for |
 |---|---|
 | `brand/*.md` | Mission, audience, pillars, voice, visual identity |
+| `brand/names.json` | Proper-noun corrections applied to every transcript (Sofia, …) |
 | `workflows/*.md` | Cadence + platform specs (safe zones, lengths) |
 | `pipeline/` | The Python pipeline (see `pipeline/__init__.py` for the module map) |
 | `docs/resolve-findings.md` | Verified Resolve API ground rules |

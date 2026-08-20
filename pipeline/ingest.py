@@ -179,6 +179,12 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
                         log("         API transcription failed (%s) — using local" % e)
                 if words is None:
                     words = transcribe(path)
+                # Fix whisper's phonetic name spellings before anything
+                # downstream reads them (brand/names.json — e.g. Sofia).
+                from . import names as names_mod
+                fixed = names_mod.correct_words(words)
+                if fixed:
+                    log("         %d name spellings corrected" % fixed)
                 words_path.write_text(json.dumps(words))
             n = len(words)
             minutes = entry["duration"] / 60.0 if entry["duration"] else 1.0

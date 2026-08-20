@@ -1,0 +1,6 @@
+{
+  "_comment": "Channel-level transcript corrections. Whisper consistently mishears these proper nouns; every transcription is corrected against this map right after whisper runs (pipeline/names.py). Keys match whole words only — 'Sophia' corrects, 'Sophias' does not.",
+  "transcript_corrections": {
+    "Sophia": "Sofia"
+  }
+}
