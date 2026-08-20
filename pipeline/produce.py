@@ -35,6 +35,90 @@ def retime(t: float, segments: "list[dict]") -> "float | None":
     return None
 
 
+def _caption_key(rel: "list", dur: float, w: int, h: int,
+                 orientation: str) -> str:
+    """The caption bake-cache key. One function so the Edit Room's caption
+    desk and produce can never disagree about what 'unchanged' means."""
+    return hashlib.sha1(json.dumps(
+        {"words": rel, "dur": round(dur, 3), "w": w, "h": h,
+         "orientation": orientation,
+         "v": captions_mod.CAPTIONS_V}, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def caption_rel_words(slug: str, beat: "dict", text: str,
+                      file_by_name: "dict", words_cache: "dict"):
+    """Timed display words for one beat: TEXT from the (possibly edited)
+    caption script, TIMING from whisper, retimed into the beat's kept
+    segments. Returns (rel, dropped) — dropped counts script words whose
+    aligned time falls in trimmed audio and therefore never displays."""
+    out = analysis_dir(slug)
+    f = file_by_name[beat["file"]]
+    if f["words_file"] not in words_cache:
+        words_cache[f["words_file"]] = json.loads(
+            (out / f["words_file"]).read_text())
+    words = words_cache[f["words_file"]]
+    lo = beat["segments"][0]["src_s"]
+    hi = beat["segments"][-1]["src_e"]
+    beat_words = [wd for wd in words if lo - 0.2 <= wd["s"] <= hi + 0.2]
+    timed = captions_mod.align_words(text, beat_words)
+    rel, dropped = [], 0
+    for tw in timed:
+        rec = retime(tw["t"], beat["segments"])
+        if rec is None:
+            dropped += 1
+            continue
+        rel.append({"disp": tw["disp"], "t": round(rec - beat["record_s"], 3)})
+    return rel, dropped
+
+
+def rebake_beat_caption(slug: str, beat_id: str, log=print) -> "dict":
+    """Re-derive and re-bake ONE beat's caption clip from captions.json.
+
+    The Edit Room's caption desk calls this after a text edit: alignment,
+    cache key, and bake are the same code produce runs, so the desk's
+    result is exactly what the next produce would ship. The mov keeps its
+    name (captions/<beat>.mov) — the FCPXML timeline references it by path.
+    """
+    work = work_path(slug)
+    out = analysis_dir(slug)
+    tl_map = json.loads((out / "timeline_map.json").read_text())
+    caps = json.loads((work / "captions.json").read_text())
+    entry = next((c for c in caps.get("beats", [])
+                  if c["beat_id"] == beat_id), None)
+    beat = next((b for b in tl_map["beats"] if b["id"] == beat_id), None)
+    if beat is None:
+        raise IngestError("no beat '%s'" % beat_id)
+    cap_dir = work / "captions"
+    hash_path = cap_dir / ".bake_hashes.json"
+    hashes = json.loads(hash_path.read_text()) if hash_path.exists() else {}
+    if entry is None or not entry.get("text"):
+        # caption blanked: the proxy and produce both skip it by text, so
+        # just forget the cache entry; the old mov stays (Resolve may
+        # reference it) and a restored text re-bakes over it
+        if hashes.pop(beat_id, None) is not None:
+            hash_path.write_text(json.dumps(hashes, indent=1))
+        return {"words": 0, "dropped": 0, "baked": False}
+    catalog = json.loads((out / "catalog.json").read_text())
+    file_by_name = {f["name"]: f for f in catalog["files"]}
+    rel, dropped = caption_rel_words(slug, beat, entry["text"],
+                                     file_by_name, {})
+    if not rel:
+        return {"words": 0, "dropped": dropped, "baked": False}
+    w, h = timeline_mod.CANVAS[tl_map["orientation"]]
+    dur = beat["record_e"] - beat["record_s"]
+    key = _caption_key(rel, dur, w, h, tl_map["orientation"])
+    mov = cap_dir / ("%s.mov" % beat_id)
+    baked = False
+    if hashes.get(beat_id) != key or not mov.exists():
+        captions_mod.bake_caption_clip(rel, dur, mov, w, h,
+                                       tl_map["orientation"], cap_dir / "tmp")
+        hashes[beat_id] = key
+        hash_path.write_text(json.dumps(hashes, indent=1))
+        baked = True
+        log("[captions] %s re-baked: %d words" % (beat_id, len(rel)))
+    return {"words": len(rel), "dropped": dropped, "baked": baked}
+
+
 def _beat_caption_clips(slug: str, tl_map: "dict",
                         only_beats: "list | None" = None, log=print) -> "list[dict]":
     """Bake one word-pop caption clip per beat from captions.json (if present).
@@ -62,32 +146,20 @@ def _beat_caption_clips(slug: str, tl_map: "dict",
     hash_path = cap_dir / ".bake_hashes.json"
     hashes = json.loads(hash_path.read_text()) if hash_path.exists() else {}
     clips = []
+    words_cache: "dict" = {}
     for beat in tl_map["beats"]:
         if only_beats and beat["id"] not in only_beats:
             continue
         spec = by_beat.get(beat["id"])
         if not spec or not spec.get("text"):
             continue
-        f = file_by_name[beat["file"]]
-        words = json.loads((out / f["words_file"]).read_text())
-        lo = beat["segments"][0]["src_s"]
-        hi = beat["segments"][-1]["src_e"]
-        beat_words = [wd for wd in words if lo - 0.2 <= wd["s"] <= hi + 0.2]
-        timed = captions_mod.align_words(spec["text"], beat_words)
-        rel = []
-        for tw in timed:
-            rec = retime(tw["t"], beat["segments"])
-            if rec is None:
-                continue
-            rel.append({"disp": tw["disp"], "t": round(rec - beat["record_s"], 3)})
+        rel, _dropped = caption_rel_words(slug, beat, spec["text"],
+                                          file_by_name, words_cache)
         if not rel:
             continue
         dur = beat["record_e"] - beat["record_s"]
         mov = cap_dir / ("%s.mov" % beat["id"])
-        key = hashlib.sha1(json.dumps(
-            {"words": rel, "dur": round(dur, 3), "w": w, "h": h,
-             "orientation": tl_map["orientation"],
-             "v": captions_mod.CAPTIONS_V}, sort_keys=True).encode()).hexdigest()[:12]
+        key = _caption_key(rel, dur, w, h, tl_map["orientation"])
         if hashes.get(beat["id"]) == key and mov.exists():
             clips.append({"id": "cap_" + beat["id"], "path": str(mov),
                           "record_s": beat["record_s"], "duration": dur})

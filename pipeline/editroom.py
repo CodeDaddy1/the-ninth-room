@@ -471,6 +471,103 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
         return result
 
 
+# --- Captions desk ---------------------------------------------------------
+# Safeguard editor for caption text. The text is the source of truth
+# (captions.json); timing always comes from whisper via align_words, so an
+# edit here re-aligns, re-bakes the beat's caption clip, and re-proxies the
+# beat — the exact code produce runs, nothing can drift.
+
+
+def _captions_state(slug: str) -> "dict":
+    work = work_path(slug)
+    out = analysis_dir(slug)
+    tl = json.loads((out / "timeline_map.json").read_text())
+    plan = json.loads((work / "edit_plan.json").read_text())
+    plan_by_id = {b["id"]: b for b in plan["beats"]}
+    ch_title = {c["id"]: c["title"] for c in plan.get("chapters", [])}
+    caps = {}
+    if (work / "captions.json").exists():
+        caps = {c["beat_id"]: c for c in
+                json.loads((work / "captions.json").read_text()).get("beats", [])}
+    review = {}
+    if (work / "review.json").exists():
+        review = json.loads((work / "review.json").read_text())
+    proxies = {}
+    pdir = work / "proxies"
+    if pdir.is_dir():
+        for p in pdir.glob("BT*.mp4"):
+            proxies[p.name.split(".")[0]] = "%s?v=%d" % (p.name,
+                                                         p.stat().st_mtime)
+    beats = []
+    for beat in tl["beats"]:
+        c = caps.get(beat["id"])
+        if not c:
+            continue
+        pb = plan_by_id.get(beat["id"], {})
+        beats.append({"id": beat["id"],
+                      "chapter": ch_title.get(pb.get("chapter_id"), ""),
+                      "dur": round(beat["record_e"] - beat["record_s"], 1),
+                      "text": c.get("text", ""),
+                      "edited": "text_orig" in c,
+                      "proxy": proxies.get(beat["id"]),
+                      "review": review.get(beat["id"], {}).get("status", "")})
+    return {"slug": slug, "beats": beats}
+
+
+def _save_caption(slug: str, beat_id: str, text: "str | None",
+                  revert: bool = False, log=print) -> "dict":
+    """Persist a caption text edit, then re-bake + re-proxy the beat.
+
+    text_orig stashes the caption-editor's original on first edit so
+    Revert always works; saving text identical to the original clears the
+    stash. Blank text removes the caption from the beat (produce and the
+    proxy both skip captions by text)."""
+    with _BAKE_LOCK:
+        work = work_path(slug)
+        path = work / "captions.json"
+        if not path.exists():
+            raise IngestError("no captions.json for this slug")
+        data = json.loads(path.read_text())
+        entry = next((c for c in data.get("beats", [])
+                      if c["beat_id"] == beat_id), None)
+        if entry is None:
+            raise IngestError("no caption entry for %s" % beat_id)
+        if revert:
+            if "text_orig" not in entry:
+                raise IngestError("this caption was never edited")
+            entry["text"] = entry.pop("text_orig")
+        else:
+            text = (text or "").strip()
+            orig = entry.get("text_orig", entry.get("text", ""))
+            if text == orig:
+                entry.pop("text_orig", None)
+            elif "text_orig" not in entry:
+                entry["text_orig"] = entry.get("text", "")
+            entry["text"] = text
+        _write_json(path, data)
+
+        from . import produce as produce_mod
+        from . import proxy as proxy_mod
+        info = produce_mod.rebake_beat_caption(slug, beat_id, log=log)
+        pdir = work / "proxies"
+        before = {p.name: p.stat().st_mtime
+                  for p in pdir.glob(beat_id + ".*.mp4")}
+        proxy_mod.build(slug, only_beats=[beat_id], log=log)
+        after = {p.name: p.stat().st_mtime
+                 for p in pdir.glob(beat_id + ".*.mp4")}
+        reproxied = before != after
+        review_reset = False
+        if reproxied:
+            rv = work / "review.json"
+            if rv.exists():
+                d = json.loads(rv.read_text())
+                if d.get(beat_id, {}).get("status") == "approved":
+                    _save_review(slug, beat_id, {"status": "reworked"})
+                    review_reset = True
+        return dict(info, text=entry["text"], edited="text_orig" in entry,
+                    reproxied=reproxied, review_reset=review_reset)
+
+
 def serve(slug: str, port: int = PORT, log=print) -> None:
     import sys
     try:  # export/bake lines must reach editroom.log as they happen, not
@@ -540,6 +637,8 @@ def serve(slug: str, port: int = PORT, log=print) -> None:
                 self._send(200, _state(slug))
             elif self.path == "/api/overlays":
                 self._send(200, _overlays_state(slug))
+            elif self.path == "/api/captions":
+                self._send(200, _captions_state(slug))
             elif self.path.startswith("/proxies/"):
                 name = os.path.basename(self.path.split("?")[0])
                 p = (work / "proxies" / name).resolve()
@@ -618,6 +717,13 @@ def serve(slug: str, port: int = PORT, log=print) -> None:
                 self._send(200, {"ok": True})
             elif self.path == "/api/overlay/export":
                 result = _export_overlay(slug, self._body()["id"], log=log)
+                self._send(200, dict(result, ok=True))
+            elif self.path == "/api/caption/save":
+                body = self._body()
+                result = _save_caption(slug, body["beat_id"],
+                                       body.get("text"),
+                                       revert=bool(body.get("revert")),
+                                       log=log)
                 self._send(200, dict(result, ok=True))
             elif self.path == "/api/reveal":
                 body = self._body()
@@ -801,12 +907,15 @@ background:var(--panel2);color:var(--text);cursor:pointer;text-decoration:none}
 border-radius:4px;padding:2px 8px;background:var(--panel2);color:var(--rework)}
 .del{margin-left:auto;color:var(--flag);background:none;border:none;
 cursor:pointer;font:inherit;font-size:12.5px}
-#ovmsg{font-size:13px;min-height:18px}
-#ovmsg.err{color:var(--flag)} #ovmsg.ok{color:var(--accent)}
+#ovmsg,#capmsg{font-size:13px;min-height:18px}
+#ovmsg.err,#capmsg.err{color:var(--flag)}
+#ovmsg.ok,#capmsg.ok{color:var(--accent)}
+#capmsg.busy{color:var(--rework)}
 </style></head><body>
 <header><h1>Edit Room · __SLUG__</h1>
 <nav class="tabs"><button id="tabShots" class="on">Shots</button>
-<button id="tabOv">Overlays</button></nav>
+<button id="tabOv">Overlays</button>
+<button id="tabCap">Captions</button></nav>
 <div class="tally"><span class="ok">approved <b id="tA">0</b></span>
 <span class="fl">flagged <b id="tF">0</b></span>
 <span>left <b id="tL">0</b></span></div>
@@ -817,6 +926,8 @@ cursor:pointer;font:inherit;font-size:12.5px}
 <section class="stage"><div class="focus" id="focus">loading…</div></section></div>
 <div class="wrap" id="wrapOv" style="display:none"><aside id="ovside"></aside>
 <section class="stage"><div class="focus" id="ovfocus">loading…</div></section></div>
+<div class="wrap" id="wrapCap" style="display:none"><aside id="capside"></aside>
+<section class="stage"><div class="focus" id="capfocus">loading…</div></section></div>
 <script>
 const SLUG='__SLUG__', LS='editroom.'+SLUG+'.current';
 let S=null, order=[], rows={}, idx=0, dirty={}, timers={};
@@ -996,7 +1107,7 @@ document.addEventListener('keydown',e=>{
     if(e.key==='Escape')e.target.blur();
     return;
   }
-  if(document.getElementById('wrapOv').style.display!=='none')return;
+  if(document.getElementById('wrapShots').style.display==='none')return;
   if(e.key==='a'||e.key==='A')decide('approved');
   else if(e.key==='f'||e.key==='F')decide('flagged');
   else if(e.key==='ArrowLeft')select((idx-1+order.length)%order.length);
@@ -1043,17 +1154,20 @@ const FIELD_HINTS={emphasis:'comma-separated exact phrases to turn amber',
   emojis:'emoji separated by spaces, e.g. 🦕 😱'};
 
 function tab(which){
-  const ov=which==='ov';
-  document.getElementById('wrapShots').style.display=ov?'none':'';
-  document.getElementById('wrapOv').style.display=ov?'':'none';
-  document.getElementById('tabShots').classList.toggle('on',!ov);
-  document.getElementById('tabOv').classList.toggle('on',ov);
-  history.replaceState(null,'',ov?'#overlays':'#');
-  if(ov&&!OV)bootOv();
+  const wraps={shots:'wrapShots',ov:'wrapOv',cap:'wrapCap'};
+  const tabs={shots:'tabShots',ov:'tabOv',cap:'tabCap'};
+  for(const k in wraps){
+    document.getElementById(wraps[k]).style.display=(k===which)?'':'none';
+    document.getElementById(tabs[k]).classList.toggle('on',k===which);
+  }
+  history.replaceState(null,'',
+    which==='ov'?'#overlays':which==='cap'?'#captions':'#');
+  if(which==='ov'&&!OV)bootOv();
+  if(which==='cap'&&!CAP)bootCap();
 }
-if(location.hash==='#overlays')tab('ov');
 document.getElementById('tabShots').onclick=()=>tab('shots');
 document.getElementById('tabOv').onclick=()=>tab('ov');
+document.getElementById('tabCap').onclick=()=>tab('cap');
 
 function ovItem(id){return OV.overlays.find(o=>o.id===id);}
 function ovKit(o){return o.kit||'';}
@@ -1355,6 +1469,95 @@ async function newOverlay(kit){
   }catch(e){ovMsg(e.message,'err');}
 }
 
+/* ---------------- Captions desk ---------------- */
+let CAP=null, capRows={}, capId=null;
+
+function capMsg(txt,cls){const el=document.getElementById('capmsg');
+  if(el){el.textContent=txt||'';el.className=cls||'';}}
+
+async function bootCap(keep){
+  CAP=await(await fetch('/api/captions')).json();
+  buildCapSide();
+  const want=keep||capId;
+  if(want&&CAP.beats.find(b=>b.id===want))selectCap(want);
+  else if(CAP.beats.length)selectCap(CAP.beats[0].id);
+  else document.getElementById('capfocus').innerHTML=
+    '<div class="done">This edit has no captions.</div>';
+}
+
+function buildCapSide(){
+  const side=document.getElementById('capside');side.innerHTML='';capRows={};
+  let ch=null;
+  for(const b of CAP.beats){
+    if(b.chapter!==ch){
+      ch=b.chapter;
+      const h=document.createElement('div');h.className='chh';
+      h.textContent=ch||'Captions';side.appendChild(h);
+    }
+    const r=document.createElement('div');r.className='orow';
+    r.innerHTML='<span class="dot"></span><span class="oid">'+b.id+'</span>'+
+      '<span class="osub">'+esc(String(b.text).slice(0,34))+'</span>';
+    r.onclick=()=>selectCap(b.id);
+    capRows[b.id]=r;side.appendChild(r);patchCapRow(b);
+  }
+}
+
+function patchCapRow(b){
+  const d=capRows[b.id].querySelector('.dot');
+  d.className='dot '+(b.edited?'stale':'');
+}
+
+function capItem(id){return CAP.beats.find(b=>b.id===id);}
+
+function selectCap(id){
+  capId=id;
+  const b=capItem(id), f=document.getElementById('capfocus');
+  for(const k in capRows)capRows[k].classList.toggle('cur',k===id);
+  if(capRows[id])capRows[id].scrollIntoView({block:'nearest'});
+  const vid=b.proxy
+    ?'<video id="capvid" controls playsinline src="/proxies/'+b.proxy+'"></video>'
+    :'<div class="noproxy">no proxy for this beat yet</div>';
+  f.innerHTML=
+    '<div class="crumb"><b>'+b.id+'</b> · '+esc(b.chapter)+' · '+b.dur+'s'+
+    (b.edited?' <span class="badge">edited</span>':'')+'</div>'+
+    vid+
+    '<textarea class="note" id="captext" rows="4" style="min-height:96px">'+
+    esc(b.text)+'</textarea>'+
+    '<div class="hint" style="text-align:left">Text is the script; timing '+
+    'stays locked to the spoken words. Emoji ride along inside a word '+
+    '("cockroaches 🪳"). Blank the box to remove this beat\'s captions.</div>'+
+    '<div class="acts"><button id="bCapSave">Save &amp; Re-bake</button>'+
+    (b.edited?'<button id="bCapRevert">Revert to original</button>':'')+
+    '</div><div id="capmsg"></div>';
+  document.getElementById('bCapSave').onclick=()=>saveCap(false);
+  const rv=document.getElementById('bCapRevert');
+  if(rv)rv.onclick=()=>saveCap(true);
+  document.getElementById('captext').addEventListener('input',
+    ()=>capMsg('unsaved — Save & Re-bake to apply',''));
+}
+
+async function saveCap(revert){
+  const b=capItem(capId);
+  const text=document.getElementById('captext').value;
+  if(!revert&&!text.trim()&&b.text.trim()&&
+     !confirm('Remove all captions from '+b.id+'?'))return;
+  capMsg('re-aligning, re-baking the caption clip, re-rendering the proxy…','busy');
+  try{
+    const j=await ovPost('/api/caption/save',
+      revert?{beat_id:b.id,revert:true}:{beat_id:b.id,text:text});
+    let m=(revert?'reverted':'saved')+' — '+j.words+' words';
+    if(j.dropped)m+=' ('+j.dropped+' fall in trimmed audio and won’t show)';
+    if(j.reproxied)m+=' · proxy refreshed';
+    if(j.review_reset)m+=' · beat set to re-review on the Shots desk';
+    m+='. If this beat’s caption clip is on an open Resolve timeline, re-import it there.';
+    await bootCap(b.id);
+    boot();
+    capMsg(m,'ok');
+  }catch(e){capMsg(e.message,'err');}
+}
+
 boot();
+if(location.hash==='#overlays')tab('ov');
+else if(location.hash==='#captions')tab('cap');
 </script></body></html>
 """
