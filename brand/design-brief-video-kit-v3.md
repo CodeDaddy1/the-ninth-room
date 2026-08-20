@@ -96,6 +96,22 @@ that keeps it readable over bright footage.
   Display, and Work Sans are already in use).
 - Raster assets under ~190 KB each; prefer CSS shapes and SVG.
 
+## Reference images (attached with this brief)
+
+Eleven images accompany this brief — the video translated into designer
+reference:
+
+- `footage-*.png` — four worst-case backgrounds from real footage (two
+  bright/busy, two near-black). **Every screen must stay legible over all
+  four.** Judge your scrims and plates against these, not against a studio
+  mockup.
+- `in-context-*.png` — the current v2 kit composited on real frames: the
+  hook title, the vote card over a busy poster wall, the final tally in a
+  dark cave. This is the baseline to beat.
+- `filmstrip-*.png` — the current animations spread frame by frame with
+  timestamps, so the existing timing and easing are readable. Refine this
+  motion signature; don't discard it without a reason.
+
 ## Out of scope
 
 Thumbnails, end screens, and the website — the master brand system covers
