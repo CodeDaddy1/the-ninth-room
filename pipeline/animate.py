@@ -23,15 +23,27 @@ the clip loses alpha (see the ProRes flags in `encode_frames`).
 """
 from __future__ import annotations
 
+import html as html_mod
 import os
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from PIL import Image
+
 from . import design_tokens as _dt
 from .graphics import CHROME, card_html
 from .ingest import IngestError
+
+# Bump when animate.py, overlay_kit.py, or the design tokens change rendered
+# pixels — it invalidates every cached card bake (see graphics.build_cards).
+BAKE_V = 1
+
+# Frames rendered per Chrome launch. A launch costs ~2.3s regardless of page
+# size, so batching is nearly free speedup; 6 keeps the tallest page
+# (portrait, 1920x11520) comfortably under Chrome's render limits.
+CHROME_BATCH = 6
 
 _PAL = _dt.palette()
 _TOKENS = _dt.load()
@@ -201,17 +213,38 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
     # The held frame is the last one of the reveal — the settled state.
     hold_src = max([i for i in todo if i * 1000.0 / fps <= move_ms] or [0])
 
-    def shoot(i):
+    def frame_html(i):
         t_ms = int(round(i * 1000.0 / fps))
-        html_path = (frames_dir / ("f%04d.html" % i)).resolve()
-        png_path = (frames_dir / ("f%04d.png" % i)).resolve()
-        html_path.write_text(_kit_html(card, w, h, t_ms) if use_kit
-                             else _animated_html(card, w, h, preset, t_ms, duration_ms))
+        return (_kit_html(card, w, h, t_ms) if use_kit
+                else _animated_html(card, w, h, preset, t_ms, duration_ms))
+
+    def shoot_group(group):
+        """Render up to CHROME_BATCH frames with ONE Chrome launch.
+
+        Each frame's page goes into its own <iframe srcdoc> — iframes fully
+        isolate the kit's CSS so instances cannot collide — stacked
+        vertically, and the single screenshot is cropped back into the
+        individual frame PNGs. (2026-08-19: a full card bake was ~1800
+        Chrome launches at ~2.3s each; batching divides that by six.)
+        """
+        iframes = "\n".join(
+            '<iframe scrolling="no" srcdoc="%s"></iframe>'
+            % html_mod.escape(frame_html(i), quote=True) for i in group)
+        page = ("<!doctype html><html><head><style>"
+                "*{margin:0;padding:0;border:0}"
+                "html,body{background:transparent}"
+                "iframe{display:block;width:%dpx;height:%dpx;overflow:hidden;"
+                "background:transparent}"
+                "</style></head><body>%s</body></html>" % (w, h, iframes))
+        tag = "g%04d" % group[0]
+        html_path = (frames_dir / (tag + ".html")).resolve()
+        shot_path = (frames_dir / (tag + "_shot.png")).resolve()
+        html_path.write_text(page)
         cmd = [CHROME, "--headless=new", "--disable-gpu",
                "--force-device-scale-factor=1",
-               "--window-size=%d,%d" % (w, h),
+               "--window-size=%d,%d" % (w, h * len(group)),
                "--default-background-color=00000000",
-               "--screenshot=" + str(png_path), "file://" + str(html_path)]
+               "--screenshot=" + str(shot_path), "file://" + str(html_path)]
         # Chrome occasionally hangs under system load (a single hung frame
         # sank a 30-minute produce on 2026-08-19); a fresh launch almost
         # always succeeds, so retry before giving up on the whole card.
@@ -224,17 +257,26 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
             except subprocess.TimeoutExpired:
                 err = "chrome timed out after 120s"
                 continue
-            if proc.returncode == 0 and png_path.exists():
+            if proc.returncode == 0 and shot_path.exists():
                 break
         html_path.unlink(missing_ok=True)
-        if not png_path.exists():
-            raise IngestError("animation frame %d failed for %s: %s"
-                              % (i, card["id"], err))
+        if not shot_path.exists():
+            raise IngestError("animation frames %s failed for %s: %s"
+                              % (list(group), card["id"], err))
+        sheet = Image.open(shot_path).convert("RGBA")
+        if sheet.size != (w, h * len(group)):
+            raise IngestError("batch screenshot for %s is %s, expected %s"
+                              % (card["id"], sheet.size, (w, h * len(group))))
+        for j, i in enumerate(group):
+            sheet.crop((0, j * h, w, (j + 1) * h)).save(
+                frames_dir / ("f%04d.png" % i))
+        shot_path.unlink()
 
-    # Frames are independent, so shoot them concurrently. Chrome is heavy;
+    groups = [todo[k:k + CHROME_BATCH] for k in range(0, len(todo), CHROME_BATCH)]
+    # Groups are independent, so shoot them concurrently. Chrome is heavy;
     # more than a handful at once just thrashes.
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
-        list(pool.map(shoot, todo))
+        list(pool.map(shoot_group, groups))
 
     src = frames_dir / ("f%04d.png" % hold_src)
     for i in range(n):
