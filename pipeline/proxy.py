@@ -92,7 +92,8 @@ def beat_spec(beat: "dict", caption_text: str, cards: "list") -> "dict":
                   for c in cards],
         "pace": [tl_mod.MAX_KEEP_GAP_SEC, tl_mod.KEEP_PAD_SEC,
                  tl_mod.HEAD_PAD_SEC, tl_mod.TAIL_PAD_SEC],
-        "v": 4,  # bump to invalidate every cached proxy after a renderer change
+        "v": 5,  # bump to invalidate every cached proxy after a renderer change
+                 # (v5: Ninth Room kit + the exact-trim A/V sync fixes)
     }
 
 
