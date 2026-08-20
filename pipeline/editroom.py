@@ -289,16 +289,22 @@ def _preview_html(card: "dict", w: int, h: int) -> str:
 
 
 def _merge_edits(card: "dict", updates: "dict") -> "dict":
-    """Editable fields only; an emptied value removes the key so renderers
-    skip the element (a blank subtext must not render an empty chip)."""
+    """Editable fields only. An emptied value never ADDS a key, and never
+    DELETES one the card already had — it empties it in place, in the key's
+    own type. Renderers treat "" and absent identically (falsy-skip), but
+    the plan schema does not: a stat-typed vote card carries "stat": "" and
+    "text": "" purely to satisfy it, and dropping those keys made Caleb's
+    first real edit un-saveable (2026-08-20)."""
     out = dict(card)
     for k in _EDITABLE:
         if k not in updates:
             continue
         v = updates[k]
         if v in ("", None) or v == []:
-            if k not in ("duration", "at"):
-                out.pop(k, None)
+            if k in ("duration", "at"):
+                continue  # numbers: an empty input is a no-op, not a zero
+            if k in out:
+                out[k] = [] if isinstance(out[k], list) else ""
         else:
             out[k] = v
     return out
