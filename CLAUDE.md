@@ -36,6 +36,24 @@ scripting. Timelines are generated as FCPXML and imported; transitions survive
 import, transform keyframes do not — so all graphics animation is **baked into
 ProRes 4444 alpha clips** with ffmpeg before they reach the timeline.
 
+## The Edit Room production hub
+
+`/usr/bin/python3 -m pipeline.cli editroom` serves every project at
+http://127.0.0.1:8765 — a project picker, phase strip, and four desks
+(Story / Shots / Overlays / Captions). Caleb starts a project and drops raw
+clips/photos straight onto the page (photos become 6s b-roll clips); the
+phase strip tells him what to tell Claude next. The agents run HERE in the
+Claude session and read what the hub writes:
+
+- **Story loop**: "pitch stories for <slug>" → story-designer writes
+  `stories.json` (3 directions) → Caleb approves/redirects on the Story tab
+  (`story_feedback.json`) → "write the edit plan for <slug>" once approved.
+- **Assemble**: "assemble <slug>" = build-timeline + assets + proxies so the
+  Shots desk can review the cut in story order.
+- **Shot needs**: review.json entries may carry `"needs": ["broll","sfx",
+  "cards"]` — route them in the fixer round: broll → story/b-roll pass,
+  sfx → sound-designer, cards → graphics-director.
+
 ## The agent team (v2)
 
 1. **story-designer** — reads take transcripts + b-roll catalog + brand docs,

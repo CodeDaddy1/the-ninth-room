@@ -313,8 +313,9 @@ def main(argv=None) -> int:
     p.add_argument("slug")
     p.set_defaults(fn=cmd_reencode)
 
-    p = sub.add_parser("editroom", help="serve the shot-review UI on localhost")
-    p.add_argument("slug")
+    p = sub.add_parser("editroom", help="serve the production hub on localhost "
+                       "(all projects; optional slug picks the initial one)")
+    p.add_argument("slug", nargs="?", default=None)
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(fn=cmd_editroom)
 

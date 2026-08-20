@@ -70,6 +70,12 @@ _BAKE_LOCK = threading.Lock()
 def _state(slug: str) -> "dict":
     work = work_path(slug)
     out = analysis_dir(slug)
+    if not ((out / "timeline_map.json").exists()
+            and (work / "edit_plan.json").exists()):
+        # a project that has not been assembled yet — the Shots desk shows
+        # the setup panel instead of a timeline
+        return {"slug": slug, "chapters": [],
+                "counts": {"total": 0, "approved": 0, "flagged": 0}}
     tl = json.loads((out / "timeline_map.json").read_text())
     plan = json.loads((work / "edit_plan.json").read_text())
     caps = {}
@@ -131,6 +137,13 @@ def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
         entry["status"] = payload["status"]
     if "note" in payload:
         entry["note"] = payload["note"]
+    if isinstance(payload.get("needs"), list):
+        # structured shot needs — the fixer round routes them: broll ->
+        # story/b-roll pass, sfx -> sound-designer, cards -> graphics-director
+        entry["needs"] = [n for n in payload["needs"]
+                          if n in ("broll", "sfx", "cards")]
+        if not entry["needs"]:
+            entry.pop("needs", None)
     import time
     entry["ts"] = int(time.time())
     data[beat_id] = entry
@@ -473,6 +486,208 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
         return result
 
 
+# --- Projects, phases, uploads, story loop ---------------------------------
+# The Edit Room houses every project: pick one in the header, or create one
+# and drop raw clips/photos straight onto the page. Phases are DERIVED from
+# what exists on disk (footage -> ingest -> story -> assembly -> review ->
+# master), and each phase's next step is spelled out — including exactly
+# what to tell Claude, since the agents run in the Claude session, not here.
+
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_VIDEO_UP = (".mp4", ".mov", ".m4v", ".mts", ".avi", ".mkv")
+_IMAGE_UP = (".jpg", ".jpeg", ".png", ".heic", ".webp")
+
+
+def _valid_slug(slug: str) -> bool:
+    return bool(slug and _SLUG_RE.match(slug) and work_path(slug).is_dir())
+
+
+def _new_project(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    if not slug:
+        raise IngestError("give the project a name")
+    work = work_path(slug)
+    if work.exists():
+        raise IngestError("project '%s' already exists" % slug)
+    (work / "footage").mkdir(parents=True)
+    return slug
+
+
+def _project_row(slug: str) -> "dict":
+    work = work_path(slug)
+    out = work / "analysis"
+    fdir = work / "footage"
+    footage = ([p.name for p in sorted(fdir.iterdir())
+                if p.suffix.lower() in _VIDEO_UP and not p.name.startswith((".", "_tmp"))]
+               if fdir.is_dir() else [])
+    ingested = (out / "catalog.json").exists() and (out / "takes.json").exists()
+    stories = None
+    if (work / "stories.json").exists():
+        stories = json.loads((work / "stories.json").read_text())
+    fb = {"rounds": []}
+    if (work / "story_feedback.json").exists():
+        fb = json.loads((work / "story_feedback.json").read_text())
+    approved = any(r.get("decision") == "approve" for r in fb.get("rounds", []))
+    plan = (work / "edit_plan.json").exists()
+    tl = (out / "timeline_map.json").exists()
+    prox = (len(list((work / "proxies").glob("BT*.mp4")))
+            if (work / "proxies").is_dir() else 0)
+    masters = (sorted((work / "deliverables").glob("*.mp4"))
+               if (work / "deliverables").is_dir() else [])
+    review = {}
+    if (work / "review.json").exists():
+        review = json.loads((work / "review.json").read_text())
+    n_appr = sum(1 for e in review.values() if e.get("status") == "approved")
+    n_flag = sum(1 for e in review.values() if e.get("status") == "flagged")
+    n_needs = sum(1 for e in review.values() if e.get("needs"))
+
+    if not footage:
+        phase, nxt = "footage", ("Drop clips and photos anywhere on this "
+                                 "page, or open the footage folder and copy "
+                                 "them in.")
+    elif not ingested:
+        phase, nxt = "ingest", ('Footage is in (%d clips). Tell Claude: '
+                                '“ingest %s” — transcription, '
+                                'take analysis, b-roll catalog.'
+                                % (len(footage), slug))
+    elif not plan and not stories:
+        phase, nxt = "story", ('Tell Claude: “pitch stories for %s” '
+                               '— the story designer writes three '
+                               'directions to the Story tab.' % slug)
+    elif not plan and not approved:
+        phase, nxt = "story", ("Story pitches are on the Story tab — "
+                               "approve one, or send direction notes for a "
+                               "fresh round.")
+    elif not plan:
+        phase, nxt = "story", ('Direction approved. Tell Claude: '
+                               '“write the edit plan for %s”.' % slug)
+    elif not (tl and prox):
+        phase, nxt = "assembly", ('Tell Claude: “assemble %s” '
+                                  '— timeline and review proxies in '
+                                  'story order.' % slug)
+    elif prox and (n_appr + n_flag) < prox:
+        phase, nxt = "review", ("Review the shots — approve or flag "
+                                "each, and mark b-roll / SFX / card needs.")
+    elif n_flag or n_needs:
+        phase, nxt = "review", ('%d flag(s) and %d shot(s) with needs. Tell '
+                                'Claude: “run the fixer on %s”.'
+                                % (n_flag, n_needs, slug))
+    elif not masters:
+        phase, nxt = "master", ('Every shot approved. Tell Claude: '
+                                '“produce the master for %s”.' % slug)
+    else:
+        phase, nxt = "master", ("Master rendered: %s. Any later change: "
+                                "tell Claude to re-produce." % masters[-1].name)
+    return {"slug": slug, "phase": phase, "next": nxt,
+            "footage": len(footage), "ingested": ingested,
+            "stories": bool(stories), "plan": plan, "proxies": prox,
+            "master": masters[-1].name if masters else None,
+            "review": {"approved": n_appr, "flagged": n_flag,
+                       "needs": n_needs}}
+
+
+def _projects_state() -> "dict":
+    root = work_path("x").parent
+    slugs = sorted(p.name for p in root.iterdir()
+                   if p.is_dir() and _SLUG_RE.match(p.name)
+                   and not p.name.startswith("_")
+                   and ((p / "footage").is_dir() or (p / "analysis").is_dir()
+                        or (p / "edit_plan.json").exists()))
+    return {"projects": [_project_row(s) for s in slugs]}
+
+
+def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
+    """One uploaded file, streamed to footage/. Photos are kept in
+    footage/stills/ and ALSO converted to a 6s UHD clip so the b-roll
+    pipeline can place them like any other cutaway."""
+    name = os.path.basename(name)
+    ext = Path(name).suffix.lower()
+    if ext not in _VIDEO_UP + _IMAGE_UP:
+        raise IngestError("unsupported file type '%s'" % ext)
+    fdir = work_path(slug) / "footage"
+    fdir.mkdir(parents=True, exist_ok=True)
+    tmp = fdir / ("_tmp.%s" % name)
+    remaining = length
+    with open(tmp, "wb") as fh:
+        while remaining > 0:
+            chunk = rfile.read(min(1 << 20, remaining))
+            if not chunk:
+                break
+            fh.write(chunk)
+            remaining -= len(chunk)
+    if remaining:
+        tmp.unlink()
+        raise IngestError("upload of %s was truncated" % name)
+    if ext in _IMAGE_UP:
+        stills = fdir / "stills"
+        stills.mkdir(exist_ok=True)
+        src = stills / name
+        os.replace(tmp, src)
+        inp = src
+        if ext == ".heic":  # ffmpeg has no HEIC decoder; sips ships with macOS
+            conv = stills / (Path(name).stem + ".png")
+            subprocess.run(["sips", "-s", "format", "png", str(src),
+                            "--out", str(conv)], capture_output=True)
+            if conv.exists():
+                inp = conv
+        clip = fdir / (Path(name).stem + "_still.mp4")
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-t", "6",
+             "-i", str(inp),
+             "-vf", "scale=3840:2160:force_original_aspect_ratio=increase,"
+                    "crop=3840:2160,fps=24,format=yuv420p",
+             "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+             "-movflags", "+faststart", str(clip)],
+            capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise IngestError("still conversion failed for %s: %s"
+                              % (name, proc.stderr[-200:]))
+        return {"stored": name, "as": clip.name, "still": True}
+    os.replace(tmp, fdir / name)
+    return {"stored": name, "still": False}
+
+
+def _story_state(slug: str) -> "dict":
+    work = work_path(slug)
+    stories = fb = plan_summary = None
+    if (work / "stories.json").exists():
+        stories = json.loads((work / "stories.json").read_text())
+    if (work / "story_feedback.json").exists():
+        fb = json.loads((work / "story_feedback.json").read_text())
+    if (work / "edit_plan.json").exists():
+        plan = json.loads((work / "edit_plan.json").read_text())
+        plan_summary = {"beats": len(plan.get("beats", [])),
+                        "chapters": [c.get("title", "")
+                                     for c in plan.get("chapters", [])]}
+    return {"slug": slug, "stories": stories,
+            "feedback": fb or {"rounds": []}, "plan": plan_summary}
+
+
+def _save_story_feedback(slug: str, choice: "str | None", notes: str,
+                         decision: str) -> "dict":
+    """Caleb's verdict on a pitch round — the story designer's next input.
+    'direction' asks for a fresh round steered by the notes; 'approve'
+    green-lights the chosen option (notes still travel with it)."""
+    if decision not in ("direction", "approve"):
+        raise IngestError("decision must be 'direction' or 'approve'")
+    work = work_path(slug)
+    stories = None
+    if (work / "stories.json").exists():
+        stories = json.loads((work / "stories.json").read_text())
+    if decision == "approve":
+        ids = {o.get("id") for o in (stories or {}).get("options", [])}
+        if choice not in ids:
+            raise IngestError("pick one of the pitched options to approve")
+    path = work / "story_feedback.json"
+    fb = json.loads(path.read_text()) if path.exists() else {"rounds": []}
+    fb["rounds"].append({"ts": int(time.time()),
+                         "round": (stories or {}).get("round"),
+                         "choice": choice, "notes": (notes or "").strip(),
+                         "decision": decision})
+    _write_json(path, fb)
+    return fb
+
+
 # --- Captions desk ---------------------------------------------------------
 # Safeguard editor for caption text. The text is the source of truth
 # (captions.json); timing always comes from whisper via align_words, so an
@@ -483,6 +698,9 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
 def _captions_state(slug: str) -> "dict":
     work = work_path(slug)
     out = analysis_dir(slug)
+    if not ((out / "timeline_map.json").exists()
+            and (work / "edit_plan.json").exists()):
+        return {"slug": slug, "beats": []}
     tl = json.loads((out / "timeline_map.json").read_text())
     plan = json.loads((work / "edit_plan.json").read_text())
     plan_by_id = {b["id"]: b for b in plan["beats"]}
@@ -570,18 +788,34 @@ def _save_caption(slug: str, beat_id: str, text: "str | None",
                     reproxied=reproxied, review_reset=review_reset)
 
 
-def serve(slug: str, port: int = PORT, log=print) -> None:
+def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
     import sys
     try:  # export/bake lines must reach editroom.log as they happen, not
         sys.stdout.reconfigure(line_buffering=True)  # when the server exits
     except Exception:
         pass
-    work = work_path(slug)
-    page = PAGE.replace("__SLUG__", slug)
+    page = PAGE.replace("__INITIAL__", slug or "")
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):  # quiet
             pass
+
+        def _qs(self):
+            if "?" not in self.path:
+                return {}
+            return urllib.parse.parse_qs(self.path.split("?", 1)[1])
+
+        def _slug_q(self):
+            s = self._qs().get("slug", [""])[0]
+            if not _valid_slug(s):
+                raise IngestError("unknown project '%s'" % s)
+            return s
+
+        def _slug_b(self, body):
+            s = body.get("slug", "")
+            if not _valid_slug(s):
+                raise IngestError("unknown project '%s'" % s)
+            return s
 
         def _send(self, code, body, ctype="application/json"):
             data = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -633,44 +867,60 @@ def serve(slug: str, port: int = PORT, log=print) -> None:
                 pass  # the player aborts range reads constantly; that's normal
 
         def do_GET(self):
-            if self.path in ("/", "/index.html"):
+            try:
+                self._get()
+            except IngestError as e:
+                self._send(400, {"error": str(e)})
+            except Exception as e:
+                self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
+
+        def _get(self):
+            if self.path in ("/", "/index.html") or self.path.startswith("/#"):
                 self._send(200, page.encode(), "text/html; charset=utf-8")
-            elif self.path == "/api/state":
-                self._send(200, _state(slug))
-            elif self.path == "/api/overlays":
-                self._send(200, _overlays_state(slug))
-            elif self.path == "/api/captions":
-                self._send(200, _captions_state(slug))
-            elif self.path.startswith("/proxies/"):
-                name = os.path.basename(self.path.split("?")[0])
-                p = (work / "proxies" / name).resolve()
-                if p.exists() and p.suffix == ".mp4":
-                    self._send_video(p)
-                else:
-                    self._send(404, {"error": "no proxy"})
-            elif self.path.startswith("/exports/"):
-                name = os.path.basename(self.path.split("?")[0])
-                p = work / "exports" / "overlays" / name
-                if p.exists() and p.suffix == ".mov":
-                    data = p.read_bytes()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "video/quicktime")
-                    self.send_header("Content-Disposition",
-                                     'attachment; filename="%s"' % name)
-                    self.send_header("Content-Length", str(len(data)))
-                    self.send_header("Cache-Control", "no-store")
-                    self.end_headers()
-                    self.wfile.write(data)
-                else:
-                    self._send(404, {"error": "no export"})
+            elif self.path == "/api/projects":
+                self._send(200, _projects_state())
+            elif self.path.startswith("/api/state"):
+                self._send(200, _state(self._slug_q()))
+            elif self.path.startswith("/api/overlays"):
+                self._send(200, _overlays_state(self._slug_q()))
+            elif self.path.startswith("/api/captions"):
+                self._send(200, _captions_state(self._slug_q()))
+            elif self.path.startswith("/api/story"):
+                self._send(200, _story_state(self._slug_q()))
+            elif self.path.startswith("/media/"):
+                parts = self.path.split("?")[0].split("/")
+                # /media/<slug>/<proxies|exports>/<name>
+                if len(parts) != 5 or not _valid_slug(parts[2]):
+                    self._send(404, {"error": "not found"})
+                    return
+                mslug, kind, name = parts[2], parts[3], os.path.basename(parts[4])
+                name = urllib.parse.unquote(name)
+                if kind == "proxies":
+                    p = (work_path(mslug) / "proxies" / name).resolve()
+                    if p.exists() and p.suffix == ".mp4":
+                        self._send_video(p)
+                        return
+                elif kind == "exports":
+                    p = work_path(mslug) / "exports" / "overlays" / name
+                    if p.exists() and p.suffix == ".mov":
+                        data = p.read_bytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "video/quicktime")
+                        self.send_header("Content-Disposition",
+                                         'attachment; filename="%s"' % name)
+                        self.send_header("Content-Length", str(len(data)))
+                        self.send_header("Cache-Control", "no-store")
+                        self.end_headers()
+                        self.wfile.write(data)
+                        return
+                self._send(404, {"error": "not found"})
             elif self.path.startswith("/file?"):
-                # preview images only, and only from inside the repo or the
-                # slug's work dir — this server is localhost, but stay tight
-                qs = urllib.parse.parse_qs(self.path.split("?", 1)[1])
+                # preview images only, and only from inside the repo (work/
+                # lives under it) — this server is localhost, but stay tight
+                qs = self._qs()
                 p = Path(qs.get("p", [""])[0]).resolve()
-                allowed = any(str(p).startswith(str(root) + os.sep)
-                              for root in (REPO_ROOT, work_path(slug).resolve()))
-                if allowed and p.is_file() and p.suffix.lower() in (
+                if str(p).startswith(str(REPO_ROOT) + os.sep) and p.is_file() \
+                        and p.suffix.lower() in (
                         ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
                     ctype = {"svg": "image/svg+xml"}.get(
                         p.suffix[1:].lower(), "image/" + p.suffix[1:].lower())
@@ -693,43 +943,71 @@ def serve(slug: str, port: int = PORT, log=print) -> None:
                 self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
 
         def _post(self):
+            if self.path.startswith("/api/upload"):
+                qs = self._qs()
+                uslug = qs.get("slug", [""])[0]
+                if not _valid_slug(uslug):
+                    raise IngestError("unknown project '%s'" % uslug)
+                name = qs.get("name", [""])[0]
+                n = int(self.headers.get("Content-Length") or 0)
+                result = _save_upload(uslug, name, self.rfile, n)
+                log("[upload] %s <- %s%s"
+                    % (uslug, result["stored"],
+                       " (still -> %s)" % result["as"] if result["still"] else ""))
+                self._send(200, dict(result, ok=True))
+                return
+            if self.path == "/api/project/new":
+                new = _new_project(self._body().get("name", ""))
+                log("[project] created %s" % new)
+                self._send(200, {"ok": True, "slug": new})
+                return
+            body = self._body()
             if self.path == "/api/review":
-                body = self._body()
+                bslug = self._slug_b(body)
                 if not body.get("beat_id"):
                     self._send(400, {"error": "beat_id required"})
                     return
-                _save_review(slug, body["beat_id"], body)
+                _save_review(bslug, body["beat_id"], body)
                 self._send(200, {"ok": True})
             elif self.path == "/api/overlay/html":
-                body = self._body()
                 html = _preview_html(body["card"],
                                      int(body.get("w", 1920)),
                                      int(body.get("h", 1080)))
                 self._send(200, {"html": html})
             elif self.path == "/api/overlay/save":
-                body = self._body()
-                card = _save_overlay(slug, body["id"], body.get("updates", {}))
+                card = _save_overlay(self._slug_b(body), body["id"],
+                                     body.get("updates", {}))
                 self._send(200, {"ok": True, "card": card})
             elif self.path == "/api/overlay/new":
-                body = self._body()
-                card = _new_overlay(slug, body.get("kit_type", "lower_third"))
+                card = _new_overlay(self._slug_b(body),
+                                    body.get("kit_type", "lower_third"))
                 self._send(200, {"ok": True, "card": card})
             elif self.path == "/api/overlay/delete":
-                _delete_overlay(slug, self._body()["id"])
+                _delete_overlay(self._slug_b(body), body["id"])
                 self._send(200, {"ok": True})
             elif self.path == "/api/overlay/export":
-                result = _export_overlay(slug, self._body()["id"], log=log)
+                result = _export_overlay(self._slug_b(body), body["id"],
+                                         log=log)
                 self._send(200, dict(result, ok=True))
             elif self.path == "/api/caption/save":
-                body = self._body()
-                result = _save_caption(slug, body["beat_id"],
+                result = _save_caption(self._slug_b(body), body["beat_id"],
                                        body.get("text"),
                                        revert=bool(body.get("revert")),
                                        log=log)
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/story/feedback":
+                fb = _save_story_feedback(self._slug_b(body),
+                                          body.get("choice"),
+                                          body.get("notes", ""),
+                                          body.get("decision", "direction"))
+                self._send(200, {"ok": True, "feedback": fb})
             elif self.path == "/api/reveal":
-                body = self._body()
-                d = _exports_dir(slug)
+                bslug = self._slug_b(body)
+                if body.get("footage"):
+                    d = work_path(bslug) / "footage"
+                    d.mkdir(parents=True, exist_ok=True)
+                else:
+                    d = _exports_dir(bslug)
                 p = d / os.path.basename(body["file"]) if body.get("file") else d
                 if not p.exists():
                     p = d
@@ -751,7 +1029,7 @@ def serve(slug: str, port: int = PORT, log=print) -> None:
 
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Edit Room — __SLUG__</title>
+<title>Edit Room</title>
 <style>
 :root{--accent:#12B76A;--ink:#09090B;--panel:#141416;--panel2:#1C1C1F;
 --text:#FCFCFA;--muted:#9A9A94;--hair:#26262A;--flag:#E5484D;--rework:#E8A33D}
@@ -909,13 +1187,73 @@ background:var(--panel2);color:var(--text);cursor:pointer;text-decoration:none}
 border-radius:4px;padding:2px 8px;background:var(--panel2);color:var(--rework)}
 .del{margin-left:auto;color:var(--flag);background:none;border:none;
 cursor:pointer;font:inherit;font-size:12.5px}
+.proj{display:flex;gap:6px;align-items:center}
+.proj select{font:inherit;font-size:13px;font-weight:700;padding:6px 10px;
+border-radius:7px;border:1px solid var(--hair);background:var(--panel2);
+color:var(--text);font-family:Gabarito,sans-serif}
+.proj button{font:inherit;font-size:15px;font-weight:700;width:32px;height:32px;
+border-radius:7px;border:1px dashed var(--hair);background:transparent;
+color:var(--muted);cursor:pointer}
+.proj button:hover{color:var(--accent);border-color:var(--accent)}
+.phasebar{display:flex;gap:14px;align-items:center;padding:8px 20px;
+border-bottom:1px solid var(--hair);font-size:12.5px;flex:none;
+background:var(--panel)}
+.phasebar .ph{display:flex;gap:5px;align-items:center;color:var(--muted);
+letter-spacing:.05em;text-transform:uppercase;font-size:11px;
+font-family:Gabarito,sans-serif;white-space:nowrap}
+.phasebar .ph i{width:8px;height:8px;border-radius:50%;
+border:1.5px solid var(--hair);display:block}
+.phasebar .ph.done i{background:var(--accent);border-color:var(--accent)}
+.phasebar .ph.cur{color:var(--text)}
+.phasebar .ph.cur i{border-color:var(--rework);background:var(--rework)}
+.phasebar .nx{margin-left:auto;color:var(--text);font-size:13px;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.setup{border:2px dashed var(--hair);border-radius:14px;padding:44px 30px;
+text-align:center;color:var(--muted);font-size:14.5px}
+.setup.hot{border-color:var(--accent);color:var(--text);
+background:rgba(18,183,106,.06)}
+.setup b{color:var(--text);font-family:Gabarito,sans-serif;font-size:17px;
+display:block;margin-bottom:8px}
+.setup .row2{display:flex;gap:10px;justify-content:center;margin-top:18px}
+.setup button{font:inherit;font-size:13px;font-weight:700;padding:8px 16px;
+border-radius:7px;border:1px solid var(--hair);background:var(--panel2);
+color:var(--text);cursor:pointer}
+.setup button:hover{border-color:var(--accent)}
+.uplist{display:flex;flex-direction:column;gap:5px;margin-top:16px;
+font-size:12.5px;text-align:left}
+.uplist .u{display:grid;grid-template-columns:1fr 90px;gap:10px;
+color:var(--muted)}
+.uplist .u.ok{color:var(--accent)} .uplist .u.err{color:var(--flag)}
+.scard{background:var(--panel);border:1px solid var(--hair);border-radius:12px;
+padding:18px 20px;cursor:pointer;display:flex;flex-direction:column;gap:8px}
+.scard:hover{border-color:var(--muted)}
+.scard.pick{border-color:var(--accent);background:rgba(18,183,106,.05)}
+.scard h3{font-family:Gabarito,sans-serif;font-size:17px}
+.scard .lg{font-size:14px;color:var(--text)}
+.scard .hk{font-size:13px;color:var(--rework)}
+.scard ul{margin:4px 0 0 18px;font-size:13px;color:var(--muted)}
+.scard .tone{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;
+color:var(--muted)}
+.srounds{font-size:12.5px;color:var(--muted);border-left:2px solid var(--hair);
+padding-left:12px;display:flex;flex-direction:column;gap:6px}
+.needs{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.needs span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+color:var(--muted)}
+.needs button{font:inherit;font-size:12px;font-weight:700;padding:5px 12px;
+border-radius:999px;border:1px solid var(--hair);background:transparent;
+color:var(--muted);cursor:pointer}
+.needs button.on{border-color:var(--rework);color:var(--rework);
+background:rgba(232,163,61,.08)}
 #ovmsg,#capmsg{font-size:13px;min-height:18px}
 #ovmsg.err,#capmsg.err{color:var(--flag)}
 #ovmsg.ok,#capmsg.ok{color:var(--accent)}
 #capmsg.busy{color:var(--rework)}
 </style></head><body>
-<header><h1>Edit Room · __SLUG__</h1>
-<nav class="tabs"><button id="tabShots" class="on">Shots</button>
+<header><h1>Edit Room</h1>
+<div class="proj"><select id="projSel"></select>
+<button id="projNew" title="new project">＋</button></div>
+<nav class="tabs"><button id="tabStory">Story</button>
+<button id="tabShots" class="on">Shots</button>
 <button id="tabOv">Overlays</button>
 <button id="tabCap">Captions</button></nav>
 <div class="tally"><span class="ok">approved <b id="tA">0</b></span>
@@ -924,32 +1262,165 @@ cursor:pointer;font:inherit;font-size:12.5px}
 <div class="save"><span id="saveState">All changes saved</span>
 <button id="saveBtn">Save</button></div></header>
 <div class="bar"><i id="prog" style="width:0"></i></div>
+<div class="phasebar" id="phasebar"></div>
 <div class="wrap" id="wrapShots"><aside id="side"></aside>
 <section class="stage"><div class="focus" id="focus">loading…</div></section></div>
 <div class="wrap" id="wrapOv" style="display:none"><aside id="ovside"></aside>
 <section class="stage"><div class="focus" id="ovfocus">loading…</div></section></div>
 <div class="wrap" id="wrapCap" style="display:none"><aside id="capside"></aside>
 <section class="stage"><div class="focus" id="capfocus">loading…</div></section></div>
+<div class="wrap" id="wrapStory" style="display:none;grid-template-columns:1fr">
+<section class="stage"><div class="focus" id="storyfocus">loading…</div></section></div>
 <script>
-const SLUG='__SLUG__', LS='editroom.'+SLUG+'.current';
-let S=null, order=[], rows={}, idx=0, dirty={}, timers={};
+let SLUG='__INITIAL__'||localStorage.getItem('editroom.project')||'';
+let PROJECTS=[], S=null, order=[], rows={}, idx=0, dirty={}, timers={};
+
+function ls(){return 'editroom.'+SLUG+'.current';}
+function api(p){return p+(p.includes('?')?'&':'?')+'slug='+encodeURIComponent(SLUG);}
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+async function bootProjects(){
+  const d=await(await fetch('/api/projects')).json();
+  PROJECTS=d.projects;
+  if(!PROJECTS.find(p=>p.slug===SLUG))
+    SLUG=PROJECTS.length?PROJECTS[0].slug:'';
+  localStorage.setItem('editroom.project',SLUG);
+  const sel=document.getElementById('projSel');
+  sel.innerHTML=PROJECTS.map(p=>'<option value="'+p.slug+'"'+
+    (p.slug===SLUG?' selected':'')+'>'+p.slug+'</option>').join('');
+  renderPhasebar();
+}
+
+function proj(){return PROJECTS.find(p=>p.slug===SLUG);}
+
+function renderPhasebar(){
+  const p=proj(), bar=document.getElementById('phasebar');
+  if(!p){bar.innerHTML='<span class="nx">No projects yet — click ＋ to start one.</span>';return;}
+  const PH=[['footage','Footage'],['ingest','Ingest'],['story','Story'],
+            ['assembly','Assembly'],['review','Review'],['master','Master']];
+  const ci=PH.findIndex(x=>x[0]===p.phase);
+  bar.innerHTML=PH.map((x,i)=>'<span class="ph '+(i<ci?'done':i===ci?'cur':'')+
+    '"><i></i>'+x[1]+'</span>').join('')+
+    '<span class="nx" title="'+esc(p.next)+'">'+esc(p.next)+'</span>';
+}
+
+async function switchProject(s){
+  SLUG=s;localStorage.setItem('editroom.project',s);
+  S=null;OV=null;CAP=null;STY=null;ovId=null;capId=null;idx=0;dirty={};
+  await bootProjects();
+  boot();
+  const cur=document.querySelector('.tabs .on').id;
+  if(cur==='tabOv')bootOv();else if(cur==='tabCap')bootCap();
+  else if(cur==='tabStory')bootStory();
+}
+document.getElementById('projSel').onchange=e=>switchProject(e.target.value);
+document.getElementById('projNew').onclick=async()=>{
+  const name=prompt('New project name (folder under work/):');
+  if(!name)return;
+  try{
+    const r=await fetch('/api/project/new',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name})});
+    const j=await r.json();
+    if(!r.ok)throw new Error(j.error||'failed');
+    await switchProject(j.slug);
+  }catch(e){alert(e.message);}
+};
 function fmt(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');}
 function cur(){return order[idx];}
 function needsReview(b){const st=b.review.status;return !st||st==='reworked';}
 
 async function boot(){
-  S=await (await fetch('/api/state')).json();
+  if(!SLUG){document.getElementById('side').innerHTML='';
+    document.getElementById('focus').innerHTML=
+      '<div class="done">Create a project with the ＋ button to begin.</div>';
+    return;}
+  S=await (await fetch(api('/api/state'))).json();
   order=[];
   for(const ch of S.chapters)for(const b of ch.beats){b.chapter=ch.title;order.push(b);}
   buildSide();
-  const remembered=localStorage.getItem(LS);
+  if(!order.length){renderSetup();counts();return;}
+  const remembered=localStorage.getItem(ls());
   let start=order.findIndex(b=>b.id===remembered);
   if(start<0)start=order.findIndex(needsReview);
   if(start<0)start=0;
   select(start,true);
   counts();
+}
+
+function renderSetup(){
+  const p=proj()||{footage:0,next:''};
+  document.getElementById('focus').innerHTML=
+    '<div class="setup" id="dropzone"><b>'+esc(SLUG)+' — drop footage here</b>'+
+    'Drag clips and photos (or whole folders) anywhere onto this box.<br>'+
+    'Photos become 6-second b-roll clips automatically.'+
+    '<div class="row2"><button id="bPickFiles">Choose files…</button>'+
+    '<button id="bOpenFootage">Open footage folder in Finder</button></div>'+
+    '<div class="uplist" id="uplist"></div>'+
+    '<div style="margin-top:18px;font-size:13px;color:var(--text)">'+
+    (p.footage?p.footage+' clip(s) in. ':'')+esc(p.next)+'</div></div>'+
+    '<input type="file" id="fileInput" multiple style="display:none" '+
+    'accept="video/*,image/*">';
+  const dz=document.getElementById('dropzone');
+  const fi=document.getElementById('fileInput');
+  document.getElementById('bPickFiles').onclick=e=>{e.stopPropagation();fi.click();};
+  document.getElementById('bOpenFootage').onclick=e=>{e.stopPropagation();
+    ovPost('/api/reveal',{footage:true});};
+  fi.addEventListener('click',e=>e.stopPropagation());
+  fi.onchange=()=>uploadFiles([...fi.files]);
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{
+    e.preventDefault();dz.classList.add('hot');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{
+    e.preventDefault();dz.classList.remove('hot');}));
+  dz.addEventListener('drop',async e=>{
+    const files=[];
+    const walk=entry=>new Promise(res=>{
+      if(entry.isFile)entry.file(f=>{files.push(f);res();});
+      else if(entry.isDirectory){
+        entry.createReader().readEntries(async es=>{
+          for(const s of es)await walk(s);res();});}
+      else res();
+    });
+    const items=[...e.dataTransfer.items];
+    for(const it of items){
+      const en=it.webkitGetAsEntry&&it.webkitGetAsEntry();
+      if(en)await walk(en);
+      else{const f=it.getAsFile();if(f)files.push(f);}
+    }
+    uploadFiles(files);
+  });
+}
+
+async function uploadFiles(files){
+  const ok=/\.(mp4|mov|m4v|mts|avi|mkv|jpg|jpeg|png|heic|webp)$/i;
+  const list=document.getElementById('uplist');
+  for(const f of files.filter(f=>ok.test(f.name))){
+    const row=document.createElement('div');row.className='u';
+    row.innerHTML='<span>'+esc(f.name)+'</span><span class="pc">0%</span>';
+    list.appendChild(row);
+    await new Promise(res=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST','/api/upload?slug='+encodeURIComponent(SLUG)+
+        '&name='+encodeURIComponent(f.name));
+      xhr.upload.onprogress=e=>{if(e.lengthComputable)
+        row.querySelector('.pc').textContent=Math.round(100*e.loaded/e.total)+'%';};
+      xhr.onload=()=>{
+        if(xhr.status===200){row.className='u ok';
+          row.querySelector('.pc').textContent='✓';}
+        else{row.className='u err';
+          try{row.querySelector('.pc').textContent=JSON.parse(xhr.response).error;}
+          catch(e2){row.querySelector('.pc').textContent='failed';}}
+        res();};
+      xhr.onerror=()=>{row.className='u err';
+        row.querySelector('.pc').textContent='failed';res();};
+      xhr.send(f);
+    });
+  }
+  await bootProjects();
+  const p=proj();
+  const note=document.querySelector('#dropzone div:last-of-type');
+  if(note&&p)note.textContent=p.footage+' clip(s) in. '+p.next;
 }
 
 function buildSide(){
@@ -977,7 +1448,7 @@ function patchRow(b){
 
 function select(i,first){
   if(!first)flushNote(cur().id);
-  idx=i;localStorage.setItem(LS,cur().id);
+  idx=i;localStorage.setItem(ls(),cur().id);
   renderFocus();
   for(const id in rows)rows[id].classList.toggle('cur',id===cur().id);
   rows[cur().id].scrollIntoView({block:'nearest'});
@@ -988,8 +1459,13 @@ function renderFocus(){
   const st=b.review.status||'';
   const pos=idx+1, T=order.length;
   const vid=b.proxy
-    ?'<video id="vid" controls autoplay playsinline src="/proxies/'+b.proxy+'"></video>'
+    ?'<video id="vid" controls autoplay playsinline src="/media/'+SLUG+'/proxies/'+b.proxy+'"></video>'
     :'<div class="noproxy">no proxy yet — run:<br>pipeline.cli proxy '+SLUG+' --beat '+b.id+'</div>';
+  const nd=b.review.needs||[];
+  const needsRow='<div class="needs"><span>this shot needs:</span>'+
+    [['broll','＋ b-roll'],['sfx','＋ SFX'],['cards','＋ cards']].map(x=>
+      '<button data-need="'+x[0]+'" class="'+(nd.includes(x[0])?'on':'')+'">'+
+      x[1]+'</button>').join('')+'</div>';
   const cards=b.cards.map(c=>'<span class="chip acc">'+esc(c.kit)+': '+esc(String(c.copy).slice(0,26))+'</span>').join('');
   f.innerHTML=
     '<div class="crumb"><b>'+b.id+'</b> · '+esc(b.chapter)+' · shot '+pos+' of '+T+'</div>'+
@@ -1000,6 +1476,7 @@ function renderFocus(){
     (b.broll.length?'<span class="chip">b-roll ×'+b.broll.length+'</span>':'')+
     cards+'</div>'+
     (b.caption?'<div class="cap">'+esc(b.caption)+'</div>':'')+
+    needsRow+
     '<textarea class="note" id="note" placeholder="note for the shot-fixer…">'+
       esc(dirty[b.id]!==undefined?dirty[b.id]:(b.review.note||''))+'</textarea>'+
     '<div class="acts">'+
@@ -1014,6 +1491,16 @@ function renderFocus(){
   const note=document.getElementById('note');
   note.addEventListener('input',()=>queueNote(b.id,note.value));
   note.addEventListener('blur',()=>flushNote(b.id));
+  f.querySelectorAll('[data-need]').forEach(el=>{
+    el.onclick=async()=>{
+      el.classList.toggle('on');
+      const needs=[...f.querySelectorAll('[data-need].on')].map(x=>x.dataset.need);
+      b.review.needs=needs;
+      try{await post({beat_id:b.id,status:b.review.status||null,needs:needs});
+        setSaved();}
+      catch(e){setState('Save failed — retrying…','err');}
+    };
+  });
   document.getElementById('bOk').onclick=()=>decide('approved');
   document.getElementById('bFl').onclick=()=>decide('flagged');
   document.getElementById('bPrev').onclick=()=>select((idx-1+order.length)%order.length);
@@ -1052,6 +1539,7 @@ function setState(txt,cls){
 }
 
 async function post(body){
+  body=Object.assign({slug:SLUG},body);
   const r=await fetch('/api/review',{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!r.ok)throw new Error('save failed');
@@ -1126,7 +1614,7 @@ window.addEventListener('beforeunload',()=>{
   for(const id in dirty){
     const b=order.find(x=>x.id===id);
     navigator.sendBeacon('/api/review',
-      JSON.stringify({beat_id:id,status:(b&&b.review.status)||null,note:dirty[id]}));
+      JSON.stringify({slug:SLUG,beat_id:id,status:(b&&b.review.status)||null,note:dirty[id]}));
   }
 });
 
@@ -1156,20 +1644,25 @@ const FIELD_HINTS={emphasis:'comma-separated exact phrases to turn amber',
   emojis:'emoji separated by spaces, e.g. 🦕 😱'};
 
 function tab(which){
-  const wraps={shots:'wrapShots',ov:'wrapOv',cap:'wrapCap'};
-  const tabs={shots:'tabShots',ov:'tabOv',cap:'tabCap'};
+  const wraps={shots:'wrapShots',ov:'wrapOv',cap:'wrapCap',story:'wrapStory'};
+  const tabs={shots:'tabShots',ov:'tabOv',cap:'tabCap',story:'tabStory'};
   for(const k in wraps){
-    document.getElementById(wraps[k]).style.display=(k===which)?'':'none';
+    const el=document.getElementById(wraps[k]);
+    if(k==='story')el.style.display=(k===which)?'grid':'none';
+    else el.style.display=(k===which)?'':'none';
     document.getElementById(tabs[k]).classList.toggle('on',k===which);
   }
   history.replaceState(null,'',
-    which==='ov'?'#overlays':which==='cap'?'#captions':'#');
+    which==='ov'?'#overlays':which==='cap'?'#captions':
+    which==='story'?'#story':'#');
   if(which==='ov'&&!OV)bootOv();
   if(which==='cap'&&!CAP)bootCap();
+  if(which==='story'&&!STY)bootStory();
 }
 document.getElementById('tabShots').onclick=()=>tab('shots');
 document.getElementById('tabOv').onclick=()=>tab('ov');
 document.getElementById('tabCap').onclick=()=>tab('cap');
+document.getElementById('tabStory').onclick=()=>tab('story');
 
 function ovItem(id){return OV.overlays.find(o=>o.id===id);}
 function ovKit(o){return o.kit||'';}
@@ -1177,7 +1670,7 @@ function ovMsg(txt,cls){const el=document.getElementById('ovmsg');
   if(el){el.textContent=txt||'';el.className=cls||'';}}
 
 async function bootOv(keep){
-  OV=await(await fetch('/api/overlays')).json();
+  OV=await(await fetch(api('/api/overlays'))).json();
   buildOvSide();
   const want=keep||ovId;
   if(want&&ovItem(want))selectOv(want);
@@ -1270,7 +1763,7 @@ function renderOvFocus(){
     (ex.file
       ?('<span class="'+(ex.status==='current'?'cur':'stl')+'">'+
         (ex.status==='current'?'✓ exported':'⚠ export is stale — re-export')+
-        '</span><a href="/exports/'+encodeURIComponent(ex.file)+
+        '</span><a href="/media/'+SLUG+'/exports/'+encodeURIComponent(ex.file)+
         '" download>Download</a>'+
         '<button id="bReveal">Reveal in Finder</button>'+
         '<span>'+esc(ex.file)+'</span>')
@@ -1397,6 +1890,7 @@ function wireOvActions(o){
 }
 
 async function ovPost(url,body){
+  body=Object.assign({slug:SLUG},body);
   const r=await fetch(url,{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
@@ -1478,7 +1972,7 @@ function capMsg(txt,cls){const el=document.getElementById('capmsg');
   if(el){el.textContent=txt||'';el.className=cls||'';}}
 
 async function bootCap(keep){
-  CAP=await(await fetch('/api/captions')).json();
+  CAP=await(await fetch(api('/api/captions'))).json();
   buildCapSide();
   const want=keep||capId;
   if(want&&CAP.beats.find(b=>b.id===want))selectCap(want);
@@ -1517,7 +2011,7 @@ function selectCap(id){
   for(const k in capRows)capRows[k].classList.toggle('cur',k===id);
   if(capRows[id])capRows[id].scrollIntoView({block:'nearest'});
   const vid=b.proxy
-    ?'<video id="capvid" controls playsinline src="/proxies/'+b.proxy+'"></video>'
+    ?'<video id="capvid" controls playsinline src="/media/'+SLUG+'/proxies/'+b.proxy+'"></video>'
     :'<div class="noproxy">no proxy for this beat yet</div>';
   f.innerHTML=
     '<div class="crumb"><b>'+b.id+'</b> · '+esc(b.chapter)+' · '+b.dur+'s'+
@@ -1558,8 +2052,94 @@ async function saveCap(revert){
   }catch(e){capMsg(e.message,'err');}
 }
 
-boot();
-if(location.hash==='#overlays')tab('ov');
-else if(location.hash==='#captions')tab('cap');
+/* ---------------- Story desk ---------------- */
+let STY=null, styPick=null;
+
+async function bootStory(){
+  STY=await(await fetch(api('/api/story'))).json();
+  renderStory();
+}
+
+function renderStory(){
+  const f=document.getElementById('storyfocus');
+  const rounds=(STY.feedback.rounds||[]);
+  const approved=rounds.filter(r=>r.decision==='approve').slice(-1)[0];
+  let html='<div class="crumb"><b>Story</b> · '+esc(SLUG)+'</div>';
+  if(STY.plan){
+    html+='<div class="done">Story locked — the edit plan has '+
+      STY.plan.beats+' beats across '+STY.plan.chapters.length+' chapters:'+
+      '<div style="font-size:14px;margin-top:8px;color:var(--muted)">'+
+      STY.plan.chapters.map(esc).join(' · ')+'</div></div>';
+  }
+  if(!STY.stories){
+    html+='<div class="setup" style="cursor:default"><b>No story pitches yet</b>'+
+      (STY.plan?'This project was planned before the pitch flow existed.'
+       :'Tell Claude: “pitch stories for '+esc(SLUG)+'” — the story designer '+
+        'will write three directions here for you to choose from.')+'</div>';
+  }else{
+    const opts=STY.stories.options||[];
+    html+='<div class="crumb">Round '+(STY.stories.round||1)+' — pick a direction, '+
+      'or send notes for a fresh round.</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px">'+
+      opts.map(o=>'<div class="scard'+(styPick===o.id?' pick':'')+
+        '" data-opt="'+esc(o.id)+'">'+
+        '<h3>'+esc(o.title)+'</h3>'+
+        (o.tone?'<div class="tone">'+esc(o.tone)+'</div>':'')+
+        '<div class="lg">'+esc(o.logline||'')+'</div>'+
+        (o.hook?'<div class="hk">Hook: '+esc(o.hook)+'</div>':'')+
+        ((o.beats_outline&&o.beats_outline.length)
+          ?'<ul>'+o.beats_outline.map(b=>'<li>'+esc(b)+'</li>').join('')+'</ul>':'')+
+        '</div>').join('')+'</div>'+
+      '<textarea class="note" id="storynotes" placeholder="direction for the '+
+      'story designer — what to keep, drop, lean into…"></textarea>'+
+      '<div class="acts">'+
+      '<button id="bStoryDir">Send direction (new round)</button>'+
+      '<button class="ok ex" id="bStoryOk">Approve selected story</button></div>'+
+      '<div id="storymsg" style="font-size:13px;min-height:18px"></div>';
+  }
+  if(rounds.length){
+    html+='<div class="srounds">'+rounds.map(r=>
+      '<div><b style="color:var(--text)">'+
+      (r.decision==='approve'?'✓ approved '+esc(r.choice||''):'↻ direction')+
+      '</b>'+(r.notes?' — '+esc(r.notes):'')+'</div>').join('')+'</div>';
+  }
+  f.innerHTML=html;
+  f.querySelectorAll('[data-opt]').forEach(el=>{
+    el.onclick=()=>{styPick=el.dataset.opt;renderStory();};
+  });
+  const dir=document.getElementById('bStoryDir');
+  if(dir)dir.onclick=()=>sendStory('direction');
+  const ok=document.getElementById('bStoryOk');
+  if(ok)ok.onclick=()=>sendStory('approve');
+}
+
+async function sendStory(decision){
+  const msg=document.getElementById('storymsg');
+  const notes=(document.getElementById('storynotes')||{}).value||'';
+  if(decision==='approve'&&!styPick){
+    msg.textContent='click a story card first, then approve';
+    msg.style.color='var(--flag)';return;}
+  if(decision==='direction'&&!notes.trim()){
+    msg.textContent='write the direction you want the next round to take';
+    msg.style.color='var(--flag)';return;}
+  try{
+    await ovPost('/api/story/feedback',
+      {choice:styPick,notes:notes,decision:decision});
+    await bootProjects();await bootStory();
+    const m=document.getElementById('storymsg');
+    if(m){m.style.color='var(--accent)';
+      m.textContent=decision==='approve'
+        ?'approved — tell Claude: “write the edit plan for '+SLUG+'”'
+        :'sent — tell Claude: “pitch stories for '+SLUG+'” to run the next round';}
+  }catch(e){msg.textContent=e.message;msg.style.color='var(--flag)';}
+}
+
+(async()=>{
+  await bootProjects();
+  boot();
+  if(location.hash==='#overlays')tab('ov');
+  else if(location.hash==='#captions')tab('cap');
+  else if(location.hash==='#story')tab('story');
+})();
 </script></body></html>
 """
