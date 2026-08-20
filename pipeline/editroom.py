@@ -46,6 +46,7 @@ so a re-render shows up on refresh).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -596,10 +597,62 @@ def _projects_state() -> "dict":
     return {"projects": [_project_row(s) for s in slugs]}
 
 
+def _content_sig(path: Path, size: int) -> str:
+    """Cheap content signature: sha1 of the first+last MB. Two multi-GB
+    camera files agreeing on size AND both ends are the same recording."""
+    with open(path, "rb") as fh:
+        head = fh.read(1 << 20)
+        tail = b""
+        if size > (1 << 20):
+            fh.seek(max(size - (1 << 20), 0))
+            tail = fh.read(1 << 20)
+    return hashlib.sha1(head + tail).hexdigest()[:16]
+
+
+def _find_duplicate(tmp: Path, size: int, *dirs: Path) -> "str | None":
+    """Name of an existing file with identical size + content, if any."""
+    sig = None
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for p in d.iterdir():
+            if not p.is_file() or p.name.startswith((".", "_tmp")):
+                continue
+            if p.stat().st_size != size:
+                continue
+            if sig is None:
+                sig = _content_sig(tmp, size)
+            if _content_sig(p, p.stat().st_size) == sig:
+                return p.name
+    return None
+
+
+def _uniquify(d: Path, name: str) -> str:
+    """name, name-2, name-3… — same NAME but different CONTENT means a
+    second camera card reused the counter; both recordings must survive."""
+    if not (d / name).exists():
+        return name
+    stem, ext = Path(name).stem, Path(name).suffix
+    n = 2
+    while (d / ("%s-%d%s" % (stem, n, ext))).exists():
+        n += 1
+    return "%s-%d%s" % (stem, n, ext)
+
+
+def _trash_dest(trash: Path, name: str) -> Path:
+    d = trash / name
+    if d.exists():  # same name trashed twice — keep both
+        d = trash / ("%s.%d%s" % (Path(name).stem, int(time.time()),
+                                  Path(name).suffix))
+    return d
+
+
 def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
     """One uploaded file, streamed to footage/. Photos are kept in
     footage/stills/ and ALSO converted to a 6s UHD clip so the b-roll
-    pipeline can place them like any other cutaway."""
+    pipeline can place them like any other cutaway. A file whose size and
+    content match something already in the project is dropped silently as
+    a duplicate (re-dropping a whole card folder must be safe)."""
     name = os.path.basename(name)
     ext = Path(name).suffix.lower()
     if ext not in _VIDEO_UP + _IMAGE_UP:
@@ -618,9 +671,14 @@ def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
     if remaining:
         tmp.unlink()
         raise IngestError("upload of %s was truncated" % name)
+    dup = _find_duplicate(tmp, length, fdir, fdir / "stills")
+    if dup:
+        tmp.unlink()
+        return {"stored": name, "duplicate": dup, "still": ext in _IMAGE_UP}
     if ext in _IMAGE_UP:
         stills = fdir / "stills"
         stills.mkdir(exist_ok=True)
+        name = _uniquify(stills, name)
         src = stills / name
         os.replace(tmp, src)
         inp = src
@@ -643,6 +701,7 @@ def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
             raise IngestError("still conversion failed for %s: %s"
                               % (name, proc.stderr[-200:]))
         return {"stored": name, "as": clip.name, "still": True}
+    name = _uniquify(fdir, name)
     os.replace(tmp, fdir / name)
     return {"stored": name, "still": False}
 
@@ -688,15 +747,15 @@ def _footage_state(slug: str) -> "dict":
                     ["ffmpeg", "-y", "-loglevel", "error", "-ss", "%.2f" % at,
                      "-i", str(p), "-frames:v", "1", "-vf", "scale=320:-2",
                      str(th)], capture_output=True)
-            still_src = None
+            still_src, src_size = None, None
             if p.stem.endswith("_still"):
                 for s in (fdir / "stills").glob(p.stem[:-6] + ".*"):
-                    still_src = s.name
+                    still_src, src_size = s.name, s.stat().st_size
                     break
             items.append({"name": p.name, "size": st.st_size,
                           "dur": m[2], "w": m[3], "h": m[4],
                           "still": p.stem.endswith("_still"),
-                          "still_src": still_src,
+                          "still_src": still_src, "src_size": src_size,
                           "thumb": str(th) if th.exists() else None})
         if changed:
             _write_json(meta_path, meta)
@@ -714,16 +773,41 @@ def _delete_footage(slug: str, name: str) -> "dict":
         raise IngestError("no clip named '%s'" % name)
     trash = fdir / ".trash"
     trash.mkdir(exist_ok=True)
-    os.replace(p, trash / p.name)
+    os.replace(p, _trash_dest(trash, p.name))
     removed = [name]
     if p.stem.endswith("_still"):
         for s in (fdir / "stills").glob(p.stem[:-6] + ".*"):
-            os.replace(s, trash / s.name)
+            os.replace(s, _trash_dest(trash, s.name))
             removed.append("stills/" + s.name)
     th = fdir / ".thumbs" / (name + ".jpg")
     if th.exists():
         th.unlink()
     return {"removed": removed,
+            "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
+
+
+def _clear_footage(slug: str) -> "dict":
+    """Everything out — into .trash, recoverable like single removals."""
+    fdir = work_path(slug) / "footage"
+    if not fdir.is_dir():
+        return {"removed": 0, "reingest": False}
+    trash = fdir / ".trash"
+    trash.mkdir(exist_ok=True)
+    moved = 0
+    for p in list(fdir.iterdir()):
+        if p.is_file() and not p.name.startswith((".", "_tmp")):
+            os.replace(p, _trash_dest(trash, p.name))
+            moved += 1
+    stills = fdir / "stills"
+    if stills.is_dir():
+        for p in list(stills.iterdir()):
+            if p.is_file() and not p.name.startswith("."):
+                os.replace(p, _trash_dest(trash, p.name))
+                moved += 1
+    thumbs = fdir / ".thumbs"
+    if thumbs.is_dir():
+        shutil.rmtree(thumbs)
+    return {"removed": moved,
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
 
@@ -1038,9 +1122,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 name = qs.get("name", [""])[0]
                 n = int(self.headers.get("Content-Length") or 0)
                 result = _save_upload(uslug, name, self.rfile, n)
-                log("[upload] %s <- %s%s"
+                log("[upload] %s <- %s%s%s"
                     % (uslug, result["stored"],
-                       " (still -> %s)" % result["as"] if result["still"] else ""))
+                       " (still -> %s)" % result["as"] if result.get("as") else "",
+                       " duplicate of %s" % result["duplicate"]
+                       if result.get("duplicate") else ""))
                 self._send(200, dict(result, ok=True))
                 return
             if self.path == "/api/project/new":
@@ -1086,6 +1172,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 result = _delete_footage(self._slug_b(body), body.get("name", ""))
                 log("[footage] %s removed %s" % (body.get("slug"),
                                                  result["removed"]))
+                self._send(200, dict(result, ok=True))
+            elif self.path == "/api/footage/clear":
+                result = _clear_footage(self._slug_b(body))
+                log("[footage] %s cleared (%d files to .trash)"
+                    % (body.get("slug"), result["removed"]))
                 self._send(200, dict(result, ok=True))
             elif self.path == "/api/story/feedback":
                 fb = _save_story_feedback(self._slug_b(body),
@@ -1465,7 +1556,9 @@ function renderSetup(){
     'Drag clips and photos (or whole folders) anywhere onto this box.<br>'+
     'Photos become 6-second b-roll clips automatically.'+
     '<div class="row2"><button id="bPickFiles">Choose files…</button>'+
-    '<button id="bOpenFootage">Open footage folder in Finder</button></div>'+
+    '<button id="bOpenFootage">Open footage folder in Finder</button>'+
+    (p.footage?'<button id="bClearAll" style="color:var(--flag)">Remove all</button>':'')+
+    '</div>'+
     '<div class="uplist" id="uplist"></div>'+
     '<div class="fgrid" id="fgrid"></div>'+
     '<div style="margin-top:18px;font-size:13px;color:var(--text)">'+
@@ -1477,6 +1570,19 @@ function renderSetup(){
   document.getElementById('bPickFiles').onclick=e=>{e.stopPropagation();fi.click();};
   document.getElementById('bOpenFootage').onclick=e=>{e.stopPropagation();
     ovPost('/api/reveal',{footage:true});};
+  const clr=document.getElementById('bClearAll');
+  if(clr)clr.onclick=async e=>{
+    e.stopPropagation();
+    if(!confirm('Remove ALL footage from '+SLUG+'?\n(Everything moves to '+
+      'footage/.trash — recoverable in Finder.)'))return;
+    try{
+      const r=await ovPost('/api/footage/clear',{});
+      await bootProjects();
+      renderSetup();
+      if(r.reingest)alert('Cleared. This project was already ingested — '+
+        'tell Claude to re-ingest '+SLUG+' if you rebuild it.');
+    }catch(err){alert(err.message);}
+  };
   fi.addEventListener('click',e=>e.stopPropagation());
   fi.onchange=()=>uploadFiles([...fi.files]);
   ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{
@@ -1576,10 +1682,25 @@ async function uploadFiles(files){
     row.textContent='nothing uploadable in that drop (videos and photos only)';
     list.appendChild(row);return;
   }
+  // duplicates never even upload: name+size against the current inventory
+  // (the server re-checks by content, so this is only the fast path)
+  const have=new Set();
+  try{
+    const inv=await(await fetch(api('/api/footage'))).json();
+    for(const f of inv.files){
+      have.add(f.name+'|'+f.size);
+      if(f.still_src)have.add(f.still_src+'|'+f.src_size);
+    }
+  }catch(e){}
   for(const f of usable){
     const row=document.createElement('div');row.className='u';
     row.innerHTML='<span>'+esc(f.name)+'</span><span class="pc">0%</span>';
     list.appendChild(row);
+    if(have.has(f.name+'|'+f.size)){
+      row.className='u';row.style.color='var(--rework)';
+      row.querySelector('.pc').textContent='duplicate — skipped';
+      continue;
+    }
     await new Promise(res=>{
       const xhr=new XMLHttpRequest();
       xhr.open('POST','/api/upload?slug='+encodeURIComponent(SLUG)+
@@ -1587,8 +1708,13 @@ async function uploadFiles(files){
       xhr.upload.onprogress=e=>{if(e.lengthComputable)
         row.querySelector('.pc').textContent=Math.round(100*e.loaded/e.total)+'%';};
       xhr.onload=()=>{
-        if(xhr.status===200){row.className='u ok';
-          row.querySelector('.pc').textContent='✓';}
+        if(xhr.status===200){
+          let dup=null;
+          try{dup=JSON.parse(xhr.response).duplicate;}catch(e2){}
+          if(dup){row.style.color='var(--rework)';
+            row.querySelector('.pc').textContent='duplicate of '+dup+' — skipped';}
+          else{row.className='u ok';
+            row.querySelector('.pc').textContent='✓';}}
         else{row.className='u err';
           try{row.querySelector('.pc').textContent=JSON.parse(xhr.response).error;}
           catch(e2){row.querySelector('.pc').textContent='failed';}}
