@@ -103,6 +103,25 @@ def cmd_rebake(args) -> int:
     return 0
 
 
+def cmd_qcframes(args) -> int:
+    from . import qc_frames
+    from .ingest import work_path, IngestError
+    master = args.master
+    if not master:
+        deliver = work_path(args.slug) / "deliverables"
+        movs = sorted(deliver.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
+        if not movs:
+            print("error: no mp4 in %s" % deliver, file=sys.stderr)
+            return 1
+        master = str(movs[-1])
+    try:
+        flags = qc_frames.compare(args.slug, master)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 1 if flags else 0
+
+
 def cmd_names(args) -> int:
     from . import names
     names.apply_to_slug(args.slug)
@@ -175,6 +194,11 @@ def main(argv=None) -> int:
     p.add_argument("--beat", action="append", help="re-bake captions for these beat ids")
     p.add_argument("--card", action="append", help="re-render these card ids")
     p.set_defaults(fn=cmd_rebake)
+
+    p = sub.add_parser("qcframes", help="diff the rendered master against the approved proxies")
+    p.add_argument("slug")
+    p.add_argument("--master", help="mp4 to check (default: newest in deliverables/)")
+    p.set_defaults(fn=cmd_qcframes)
 
     p = sub.add_parser("names", help="re-apply brand/names.json corrections to a slug's transcripts")
     p.add_argument("slug")

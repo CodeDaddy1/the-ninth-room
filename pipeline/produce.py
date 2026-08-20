@@ -196,4 +196,13 @@ def produce(slug: str, log=print) -> Path:
     # Music is deliberately NOT mixed here — Caleb scores in post (2026-08-18).
     # `pipeline/music.py` still works if that changes: it lays a per-chapter
     # bed and side-chain ducks it under the narration. Call it explicitly.
-    return render_mod.render_current(slug, tl_name, log=log)
+    output = render_mod.render_current(slug, tl_name, log=log)
+
+    # The approved proxies ARE the picture; the master must show what they
+    # show. Reports (never blocks) — see pipeline/qc_frames.py.
+    from . import qc_frames
+    frame_flags = qc_frames.compare(slug, output, log=log)
+    if frame_flags:
+        log("[produce] WARNING: %d beat(s) differ from their approved "
+            "proxies — inspect before publishing" % len(frame_flags))
+    return output
