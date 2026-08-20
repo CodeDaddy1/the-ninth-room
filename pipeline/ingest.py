@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,6 +42,19 @@ class IngestError(RuntimeError):
 
 def work_path(slug: str) -> Path:
     return WORK_DIR / slug
+
+
+def write_progress(slug: str, **fields) -> None:
+    """Heartbeat for the Edit Room's phase bar. Best-effort by design — a
+    progress write must never be able to sink real pipeline work."""
+    try:
+        p = work_path(slug) / "ingest_progress.json"
+        fields["ts"] = time.time()
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(fields))
+        os.replace(tmp, p)
+    except Exception:
+        pass
 
 
 def analysis_dir(slug: str) -> Path:
@@ -145,7 +160,28 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
     out = analysis_dir(slug)
     entries = []
     skipped = []
-    for path in files:
+    # ETA is byte-weighted: file size tracks duration closely for same-camera
+    # footage, is known instantly, and self-corrects as cached transcriptions
+    # fly by. Sizes are captured up front so a file removed mid-run (Caleb
+    # pruning the inventory while ingest runs) cannot crash the accounting.
+    sizes = {}
+    for p in files:
+        try:
+            sizes[p] = p.stat().st_size
+        except OSError:
+            sizes[p] = 0
+    total_bytes = sum(sizes.values()) or 1
+    done_bytes = 0
+    t0 = time.time()
+    for i, path in enumerate(files):
+        elapsed = time.time() - t0
+        eta = (elapsed / done_bytes * (total_bytes - done_bytes)
+               if done_bytes else None)
+        write_progress(slug, stage="transcribe", done=i, total=len(files),
+                       current=path.name, pct=done_bytes / total_bytes,
+                       eta_s=round(eta) if eta else None)
+        done_bytes += sizes[path]  # counted up front so `continue` paths and
+        # skip branches below can never desync the accounting
         # One corrupt clip (e.g. a DJI recording stub cut off mid-write) must
         # never sink the whole batch — skip it loudly and move on.
         try:

@@ -81,10 +81,19 @@ def catalog_broll(slug: str, log=print) -> Path:
     sheets_dir.mkdir(exist_ok=True)
     tmp_dir = out / "tmp_frames"
 
+    from .ingest import write_progress
+    todo = [f for f in catalog["files"]
+            if f.get("class") == "broll" and f.get("kind") == "video"]
+    import time as _time
+    t0 = _time.time()
     clips = []
-    for f in catalog["files"]:
-        if f.get("class") != "broll" or f.get("kind") != "video":
-            continue
+    for f in todo:
+        n = len(clips)
+        elapsed = _time.time() - t0
+        eta = elapsed / n * (len(todo) - n) if n else None
+        write_progress(slug, stage="broll", done=n, total=len(todo),
+                       current=f["name"], pct=(n / len(todo)) if todo else 1,
+                       eta_s=round(eta) if eta else None)
         cid = "B%03d" % (len(clips) + 1)
         sheet_name = f["name"] + ".sheet.jpg"
         sheet_path = sheets_dir / sheet_name
@@ -115,5 +124,7 @@ def catalog_broll(slug: str, log=print) -> Path:
         raise IngestError("broll.json failed validation:\n  " + "\n  ".join(errors))
     path = out / "broll.json"
     path.write_text(json.dumps(data, indent=2))
+    write_progress(slug, stage="done", done=len(todo), total=len(todo),
+                   pct=1.0, eta_s=0)
     log("[broll] wrote %s (%d clips)" % (path, len(clips)))
     return path

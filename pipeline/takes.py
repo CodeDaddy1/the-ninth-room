@@ -130,6 +130,8 @@ def analyze(slug: str, log=print) -> Path:
     if not catalog_path.exists():
         raise IngestError("no catalog.json — run ingest first")
     catalog = json.loads(catalog_path.read_text())
+    from .ingest import write_progress
+    write_progress(slug, stage="takes", done=0, total=1, pct=None, eta_s=None)
 
     takes: "list[dict]" = []
     for f in catalog["files"]:

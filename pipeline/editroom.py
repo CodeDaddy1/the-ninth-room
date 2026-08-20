@@ -579,10 +579,24 @@ def _project_row(slug: str) -> "dict":
     else:
         phase, nxt = "master", ("Master rendered: %s. Any later change: "
                                 "tell Claude to re-produce." % masters[-1].name)
+    progress = None
+    prog_p = work / "ingest_progress.json"
+    if prog_p.exists():
+        try:
+            pr = json.loads(prog_p.read_text())
+            # fresh + unfinished = the chain is running right now
+            if pr.get("stage") != "done" and time.time() - pr.get("ts", 0) < 300:
+                progress = pr
+        except ValueError:
+            pass
+    if progress:
+        phase = "ingest"
+        nxt = "Ingesting…"
     return {"slug": slug, "phase": phase, "next": nxt,
             "footage": len(footage), "ingested": ingested,
             "stories": bool(stories), "plan": plan, "proxies": prox,
             "master": masters[-1].name if masters else None,
+            "progress": progress,
             "review": {"approved": n_appr, "flagged": n_flag,
                        "needs": n_needs}}
 
@@ -1391,6 +1405,14 @@ border:1.5px solid var(--hair);display:block}
 .phasebar .ph.cur i{border-color:var(--rework);background:var(--rework)}
 .phasebar .nx{margin-left:auto;color:var(--text);font-size:13px;
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phasebar .pwrap{margin-left:auto;display:flex;gap:12px;align-items:center;
+min-width:0;flex:1;justify-content:flex-end}
+.phasebar .ptxt{color:var(--text);font-size:13px;white-space:nowrap;
+overflow:hidden;text-overflow:ellipsis}
+.phasebar .pbar{width:220px;height:6px;background:var(--panel2);
+border-radius:3px;flex:none;overflow:hidden}
+.phasebar .pbar i{display:block;height:100%;background:var(--rework);
+transition:width .5s}
 .setup{border:2px dashed var(--hair);border-radius:14px;padding:44px 30px;
 text-align:center;color:var(--muted);font-size:14.5px}
 .setup.hot{border-color:var(--accent);color:var(--text);
@@ -1494,16 +1516,47 @@ async function bootProjects(){
 
 function proj(){return PROJECTS.find(p=>p.slug===SLUG);}
 
+function fmtEta(s){
+  if(s==null)return 'estimating…';
+  if(s<60)return '~'+Math.max(s,1)+'s left';
+  return '~'+Math.round(s/60)+'m left';
+}
+
 function renderPhasebar(){
   const p=proj(), bar=document.getElementById('phasebar');
   if(!p){bar.innerHTML='<span class="nx">No projects yet — click ＋ to start one.</span>';return;}
   const PH=[['footage','Footage'],['ingest','Ingest'],['story','Story'],
             ['assembly','Assembly'],['review','Review'],['master','Master']];
   const ci=PH.findIndex(x=>x[0]===p.phase);
+  let right;
+  const pr=p.progress;
+  if(pr){
+    const STAGE={transcribe:'Transcribing',takes:'Analyzing takes',
+                 broll:'Cataloging b-roll'};
+    const pct=Math.round((pr.pct||0)*100);
+    right='<span class="pwrap"><span class="ptxt">'+
+      (STAGE[pr.stage]||pr.stage)+' '+(pr.done!=null?pr.done+'/'+pr.total:'')+
+      (pr.current?' · '+esc(pr.current):'')+' · '+fmtEta(pr.eta_s)+
+      '</span><span class="pbar"><i style="width:'+pct+'%"></i></span></span>';
+  }else{
+    right='<span class="nx" title="'+esc(p.next)+'">'+esc(p.next)+'</span>';
+  }
   bar.innerHTML=PH.map((x,i)=>'<span class="ph '+(i<ci?'done':i===ci?'cur':'')+
-    '"><i></i>'+x[1]+'</span>').join('')+
-    '<span class="nx" title="'+esc(p.next)+'">'+esc(p.next)+'</span>';
+    '"><i></i>'+x[1]+'</span>').join('')+right;
 }
+
+// live phase/progress: cheap poll; the select only rebuilds when the
+// project list itself changes so an open dropdown never snaps shut
+setInterval(async()=>{
+  try{
+    const d=await(await fetch('/api/projects')).json();
+    const same=JSON.stringify(d.projects.map(p=>p.slug))===
+               JSON.stringify(PROJECTS.map(p=>p.slug));
+    PROJECTS=d.projects;
+    if(!same)await bootProjects();
+    else renderPhasebar();
+  }catch(e){}
+},5000);
 
 async function switchProject(s){
   SLUG=s;localStorage.setItem('editroom.project',s);
