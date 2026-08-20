@@ -80,3 +80,16 @@ single frame at t=0 and the whole overlay renders transparent.
 
 Projects `CURATED_SPIKE`, and inside it timelines `spike_append`,
 `spike_fcpxml`, `spike_render`, `spike_render2` — safe to delete anytime.
+
+## 5. Color: LUTs through the API (verified 2026-08-19)
+
+- `MediaPoolItem:SetClipProperty("Input LUT", …)` is READ-ONLY through the
+  API — every value form returns false. A media-pool input LUT cannot be
+  assigned by script.
+- `TimelineItem:SetLUT(1, "DJI/DJI_X7_DLOG2Rec709.cube")` works (relative to
+  the master LUT folder `/Library/Application Support/Blackmagic Design/
+  DaVinci Resolve/LUT/`). Within one node, the LUT is applied AFTER that
+  node's CDL, and there is no API to add a second node — so "grade after
+  LUT" cannot be built literally. `pipeline/color.py` achieves it
+  mathematically instead: it inverts the LUT's measured gray response and
+  back-solves the CDL so the post-LUT image lands on the standard targets.

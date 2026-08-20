@@ -1,0 +1,4 @@
+{
+  "_comment": "Channel-level grade settings (pipeline/color.py). camera_lut is a path relative to Resolve's master LUT folder, applied to every camera clip (V1/V2) BEFORE the corrective grade — overlays never get it. Caleb, 2026-08-19: grade after LUT. Set to null to grade without a LUT.",
+  "camera_lut": "DJI/DJI_X7_DLOG2Rec709.cube"
+}
