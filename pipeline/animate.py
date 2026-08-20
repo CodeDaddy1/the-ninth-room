@@ -199,6 +199,21 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
 
     use_kit = bool(card.get("kit_type")) or card.get("kit", False)
 
+    # The kit is authored in 1920x1080 CSS pixels (1080x1920 portrait). A
+    # larger canvas renders the SAME layout at a higher device pixel ratio —
+    # Chrome's --force-device-scale-factor — so a 4K bake is the identical
+    # design at four times the pixels, outlines and type razor-sharp. The
+    # legacy card_html path scales its own type with the canvas and keeps
+    # dpr 1. dpr must divide evenly or crops would drift.
+    if use_kit:
+        design_w, design_h = (1920, 1080) if w >= h else (1080, 1920)
+        dpr = w / float(design_w)
+        if abs(design_h * dpr - h) > 1:
+            raise IngestError("canvas %dx%d is not a whole multiple of the "
+                              "%dx%d kit design" % (w, h, design_w, design_h))
+    else:
+        design_w, design_h, dpr = w, h, 1.0
+
     # A card is: reveal, hold, exit. Every frame of the hold is byte-identical,
     # and a Chrome launch costs ~2.3s, so rendering the hold would burn minutes
     # per card producing copies of one image. Render the moving parts only and
@@ -215,7 +230,7 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
 
     def frame_html(i):
         t_ms = int(round(i * 1000.0 / fps))
-        return (_kit_html(card, w, h, t_ms) if use_kit
+        return (_kit_html(card, design_w, design_h, t_ms) if use_kit
                 else _animated_html(card, w, h, preset, t_ms, duration_ms))
 
     def shoot_group(group):
@@ -235,14 +250,18 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
                 "html,body{background:transparent}"
                 "iframe{display:block;width:%dpx;height:%dpx;overflow:hidden;"
                 "background:transparent}"
-                "</style></head><body>%s</body></html>" % (w, h, iframes))
+                "</style></head><body>%s</body></html>"
+                % (design_w, design_h, iframes))
         tag = "g%04d" % group[0]
         html_path = (frames_dir / (tag + ".html")).resolve()
         shot_path = (frames_dir / (tag + "_shot.png")).resolve()
         html_path.write_text(page)
+        # window-size is CSS pixels; the screenshot comes out at
+        # design x dpr = the real canvas, so the crop below stays in
+        # device pixels untouched.
         cmd = [CHROME, "--headless=new", "--disable-gpu",
-               "--force-device-scale-factor=1",
-               "--window-size=%d,%d" % (w, h * len(group)),
+               "--force-device-scale-factor=%g" % dpr,
+               "--window-size=%d,%d" % (design_w, design_h * len(group)),
                "--default-background-color=00000000",
                "--screenshot=" + str(shot_path), "file://" + str(html_path)]
         # Chrome occasionally hangs under system load (a single hung frame
@@ -272,7 +291,11 @@ def render_animation(card: "dict", out_mov: Path, duration: float, w: int, h: in
                 frames_dir / ("f%04d.png" % i))
         shot_path.unlink()
 
-    groups = [todo[k:k + CHROME_BATCH] for k in range(0, len(todo), CHROME_BATCH)]
+    # Chrome refuses screenshots taller than 16384 device px, so the batch
+    # shrinks as the canvas grows (UHD landscape: 7 -> capped at 6; UHD
+    # portrait: 4).
+    batch = max(1, min(CHROME_BATCH, 16384 // h))
+    groups = [todo[k:k + batch] for k in range(0, len(todo), batch)]
     # Groups are independent, so shoot them concurrently. Chrome is heavy;
     # more than a handful at once just thrashes.
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool:

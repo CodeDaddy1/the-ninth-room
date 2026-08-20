@@ -280,7 +280,9 @@ def _overlays_state(slug: str) -> "dict":
                       "export": {"status": status, "file": f},
                       "card": card})
     return {"slug": slug, "orientation": orient,
-            "canvas": list(graphics.CANVAS[orient]),
+            # the live preview renders at the kit's design size — bakes and
+            # exports use graphics.CANVAS (UHD) with the same layout at 2x
+            "canvas": list(graphics.KIT_DESIGN[orient]),
             "export_dir": str(d), "kits": sorted(_KIT_TEMPLATES),
             "overlays": items}
 

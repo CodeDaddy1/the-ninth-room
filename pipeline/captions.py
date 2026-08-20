@@ -174,8 +174,23 @@ def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
     The whole phrase sits on a midnight-deep plate (0.94 alpha, 5px ice
     outline, hard offset shadow); the active word sits on its own amber
     chip with midnight text. Matches overlay_kit.caption_plate exactly.
+
+    All pixel constants are authored for a 1080-class canvas; `s` scales
+    them by canvas size so a 4K bake is the same design at twice the pixel
+    density (s=1.0 on 1080, s=2.0 on UHD — outputs at s=1 are unchanged).
     """
-    size = PHRASE_FONT_SIZE[orientation]
+    s = min(w, h) / 1080.0
+    size = int(round(PHRASE_FONT_SIZE[orientation] * s))
+    word_gap = int(round(WORD_GAP * s))
+    pad_x = int(round(PLATE_PAD_X * s))
+    pad_y = int(round(PLATE_PAD_Y * s))
+    radius = int(round(PLATE_RADIUS * s))
+    outline_px = max(1, int(round(OUTLINE_PX * s)))
+    active_pad = int(round(ACTIVE_PAD_X * s))
+    active_radius = int(round(ACTIVE_RADIUS * s))
+    shadow_off = int(round(SHADOW_OFFSET * s))
+    bottom_inset = int(round(BOTTOM_INSET[orientation] * s))
+    hug = int(round(4 * s))
     font = _font(size)
 
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -195,25 +210,25 @@ def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
         else:
             tw = d.textlength(word, font=font)
             if i == active:
-                tw += ACTIVE_PAD_X * 2
+                tw += active_pad * 2
             widths.append(tw)
-    total = sum(widths) + WORD_GAP * (len(words) - 1)
+    total = sum(widths) + word_gap * (len(words) - 1)
 
-    plate_w = int(total + PLATE_PAD_X * 2)
-    plate_h = int(line_h + PLATE_PAD_Y * 2)
+    plate_w = int(total + pad_x * 2)
+    plate_h = int(line_h + pad_y * 2)
     px0 = int((w - plate_w) / 2)
-    py0 = h - BOTTOM_INSET[orientation] - plate_h
+    py0 = h - bottom_inset - plate_h
 
-    # Hard offset shadow, then plate, then the 5px ice outline.
-    d.rounded_rectangle((px0 + SHADOW_OFFSET, py0 + SHADOW_OFFSET,
-                         px0 + plate_w + SHADOW_OFFSET, py0 + plate_h + SHADOW_OFFSET),
-                        radius=PLATE_RADIUS, fill=SHADOW_FILL)
+    # Hard offset shadow, then plate, then the ice outline.
+    d.rounded_rectangle((px0 + shadow_off, py0 + shadow_off,
+                         px0 + plate_w + shadow_off, py0 + plate_h + shadow_off),
+                        radius=radius, fill=SHADOW_FILL)
     d.rounded_rectangle((px0, py0, px0 + plate_w, py0 + plate_h),
-                        radius=PLATE_RADIUS, fill=PLATE,
-                        outline=tuple(ICE), width=OUTLINE_PX)
+                        radius=radius, fill=PLATE,
+                        outline=tuple(ICE), width=outline_px)
 
-    x = px0 + PLATE_PAD_X
-    ty = py0 + PLATE_PAD_Y
+    x = px0 + pad_x
+    ty = py0 + pad_y
     mid_y = ty + line_h * 0.52
     for i, word in enumerate(words):
         if i in emoji_imgs:
@@ -222,19 +237,18 @@ def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
                 ey = int(mid_y - em.height / 2)
                 img.alpha_composite(em, (int(x), ey))
                 d = ImageDraw.Draw(img)   # plate edits above may invalidate
-            x += widths[i] + WORD_GAP
+            x += widths[i] + word_gap
             continue
         if i == active:
             # the amber chip behind the spoken word, midnight text on it
             cw = widths[i]
-            cy0 = ty + max(0, ascent - size)  # hug the glyph box
-            d.rounded_rectangle((x, py0 + PLATE_PAD_Y - 4,
-                                 x + cw, py0 + plate_h - PLATE_PAD_Y + 4),
-                                radius=ACTIVE_RADIUS, fill=tuple(AMBER))
-            d.text((x + ACTIVE_PAD_X, ty), word, font=font, fill=tuple(DEEP))
+            d.rounded_rectangle((x, py0 + pad_y - hug,
+                                 x + cw, py0 + plate_h - pad_y + hug),
+                                radius=active_radius, fill=tuple(AMBER))
+            d.text((x + active_pad, ty), word, font=font, fill=tuple(DEEP))
         else:
             d.text((x, ty), word, font=font, fill=tuple(ICE))
-        x += widths[i] + WORD_GAP
+        x += widths[i] + word_gap
     img.save(dest)
 
 

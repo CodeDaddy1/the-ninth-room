@@ -39,7 +39,9 @@ TAIL_PAD_SEC = 0.22      # room kept after a take's last word
 DISSOLVE_SEC = 1.0
 MIN_SEGMENT_SEC = 0.4    # segments shorter than this merge into their neighbor
 
-CANVAS = {"portrait": (1080, 1920), "landscape": (1920, 1080)}
+# 4K is the channel format (Caleb, 2026-08-20) — the Osmo Pocket 3 shoots
+# native 3840x2160 and normalization preserves it, so UHD is real detail.
+CANVAS = {"portrait": (2160, 3840), "landscape": (3840, 2160)}
 
 
 # --- rational time on the frame grid --------------------------------------

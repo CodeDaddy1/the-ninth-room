@@ -47,8 +47,12 @@ LS_EYEBROW = _PAL["ls_eyebrow"]
 CARD_TYPES = ("hook_title", "section", "stat", "quote", "outro")
 ANIMATIONS = ("slide_up", "slide_down", "fade")
 
-# Portrait canvas; landscape formats swap these.
-CANVAS = {"portrait": (1080, 1920), "landscape": (1920, 1080)}
+# Bake canvas — UHD since 2026-08-20 (4K is the channel format). The kit
+# design itself stays authored at KIT_DESIGN coordinates and renders at
+# 2x device pixel ratio (see animate.render_animation), so a 4K card is
+# the identical layout at four times the pixels.
+CANVAS = {"portrait": (2160, 3840), "landscape": (3840, 2160)}
+KIT_DESIGN = {"portrait": (1080, 1920), "landscape": (1920, 1080)}
 
 
 # --- HTML -----------------------------------------------------------------
@@ -242,6 +246,7 @@ def bake_key(card: "dict", orientation: str) -> str:
     spec, preset = bake_spec(card)
     return hashlib.sha1(json.dumps(
         {"card": spec, "orientation": orientation, "preset": preset,
+         "canvas": list(CANVAS[orientation]),  # a resolution change re-bakes
          "v": animate_mod.BAKE_V}, sort_keys=True).encode()).hexdigest()[:12]
 
 
