@@ -189,6 +189,39 @@ def bake_mov(png: Path, out_mov: Path, duration: float, w: int, h: int,
 
 # --- the stage ------------------------------------------------------------
 
+# graphics_plan speaks in simple names; map them to the CSS presets.
+PRESET_FOR = {"slide_up": "reveal_up", "slide_down": "reveal_down",
+              "fade": "fade", "wipe_left": "wipe_left"}
+
+# Cards render through the Overlay Kit (approved 2026-08-18). The plan's
+# generic types map onto the kit's screens; anything unmapped falls back
+# to the lower third, which suits a label on any beat.
+KIT_FOR = {"hook_title": "hook", "section": "lower_third", "stat": "stat",
+           "quote": "payoff", "outro": "chapter", "chapter": "chapter"}
+
+
+def bake_spec(card: "dict") -> "tuple":
+    """The (spec, preset) actually handed to the animator for this card."""
+    preset = PRESET_FOR.get(card.get("animation", "slide_up"), "reveal_up")
+    spec = dict(card)
+    spec.setdefault("kit_type", KIT_FOR.get(card.get("type"), "lower_third"))
+    return spec, preset
+
+
+def bake_key(card: "dict", orientation: str) -> str:
+    """The cache key a bake of this card would write.
+
+    The Edit Room compares this against its export sidecar to label an
+    exported .mov current or stale — it MUST stay byte-identical to what
+    build_cards records, so both call this one function.
+    """
+    from . import animate as animate_mod
+    spec, preset = bake_spec(card)
+    return hashlib.sha1(json.dumps(
+        {"card": spec, "orientation": orientation, "preset": preset,
+         "v": animate_mod.BAKE_V}, sort_keys=True).encode()).hexdigest()[:12]
+
+
 def build_cards(slug: str, orientation: str = "portrait",
                 only_ids: "list | None" = None, log=print) -> "list[Path]":
     """Render every card in work/<slug>/graphics_plan.json to graphics/<id>.mov.
@@ -211,16 +244,6 @@ def build_cards(slug: str, orientation: str = "portrait",
     # Animate in the browser with the design system's own motion tokens.
     # Imported lazily because pipeline.animate imports card_html from here.
     from . import animate as animate_mod
-
-    # graphics_plan speaks in simple names; map them to the CSS presets.
-    PRESET_FOR = {"slide_up": "reveal_up", "slide_down": "reveal_down",
-                  "fade": "fade", "wipe_left": "wipe_left"}
-
-    # Cards render through the Overlay Kit (approved 2026-08-18). The plan's
-    # generic types map onto the kit's screens; anything unmapped falls back
-    # to the lower third, which suits a label on any beat.
-    KIT_FOR = {"hook_title": "hook", "section": "lower_third", "stat": "stat",
-               "quote": "payoff", "outro": "chapter", "chapter": "chapter"}
 
     w, h = CANVAS[orientation]
     out_dir = work / "graphics"
@@ -245,12 +268,8 @@ def build_cards(slug: str, orientation: str = "portrait",
             movs.append(mov)
             log("[graphics] %s (prebaked, kept as-is)" % card["id"])
             continue
-        preset = PRESET_FOR.get(card.get("animation", "slide_up"), "reveal_up")
-        spec = dict(card)
-        spec.setdefault("kit_type", KIT_FOR.get(card["type"], "lower_third"))
-        key = hashlib.sha1(json.dumps(
-            {"card": spec, "orientation": orientation, "preset": preset,
-             "v": animate_mod.BAKE_V}, sort_keys=True).encode()).hexdigest()[:12]
+        spec, preset = bake_spec(card)
+        key = bake_key(card, orientation)
         if hashes.get(card["id"]) == key and mov.exists():
             movs.append(mov)
             log("[graphics] %s (cached)" % card["id"])
