@@ -19,6 +19,7 @@ look off-brand (colors/fonts drift from brand/visual-identity.md).
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import subprocess
@@ -225,6 +226,13 @@ def build_cards(slug: str, orientation: str = "portrait",
     out_dir = work / "graphics"
     out_dir.mkdir(exist_ok=True)
     tmp_dir = out_dir / "tmp"
+
+    # Bake cache (same idea as pipeline/proxy.py): a card whose spec has not
+    # changed since its mov was rendered is skipped. Four produce runs in one
+    # day re-rendered every card identically (~10 min each, 2026-08-19).
+    hash_path = out_dir / ".bake_hashes.json"
+    hashes = json.loads(hash_path.read_text()) if hash_path.exists() else {}
+
     movs = []
     for card in plan["cards"]:
         if only_ids and card["id"] not in only_ids:
@@ -240,9 +248,18 @@ def build_cards(slug: str, orientation: str = "portrait",
         preset = PRESET_FOR.get(card.get("animation", "slide_up"), "reveal_up")
         spec = dict(card)
         spec.setdefault("kit_type", KIT_FOR.get(card["type"], "lower_third"))
+        key = hashlib.sha1(json.dumps(
+            {"card": spec, "orientation": orientation, "preset": preset,
+             "v": animate_mod.BAKE_V}, sort_keys=True).encode()).hexdigest()[:12]
+        if hashes.get(card["id"]) == key and mov.exists():
+            movs.append(mov)
+            log("[graphics] %s (cached)" % card["id"])
+            continue
         animate_mod.render_animation(spec, mov, float(card["duration"]), w, h,
                                      tmp_dir, preset=preset, log=log)
         movs.append(mov)
+        hashes[card["id"]] = key
+        hash_path.write_text(json.dumps(hashes, indent=1))
         log("[graphics] %s (%s, %.1fs) -> %s" % (card["id"], card["type"],
                                                  card["duration"], mov.name))
     return movs

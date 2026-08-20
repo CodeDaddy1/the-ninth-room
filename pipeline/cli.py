@@ -70,6 +70,7 @@ def cmd_produce(args) -> int:
 def cmd_audit(args) -> int:
     from . import audit
     problems = audit.audit_splices(args.slug)
+    audit.audit_speech_edges(args.slug)
     return 1 if any(p["severe"] for p in problems) else 0
 
 
@@ -99,6 +100,12 @@ def cmd_rebake(args) -> int:
     except IngestError as e:
         print("error: %s" % e, file=sys.stderr)
         return 1
+    return 0
+
+
+def cmd_names(args) -> int:
+    from . import names
+    names.apply_to_slug(args.slug)
     return 0
 
 
@@ -168,6 +175,10 @@ def main(argv=None) -> int:
     p.add_argument("--beat", action="append", help="re-bake captions for these beat ids")
     p.add_argument("--card", action="append", help="re-render these card ids")
     p.set_defaults(fn=cmd_rebake)
+
+    p = sub.add_parser("names", help="re-apply brand/names.json corrections to a slug's transcripts")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_names)
 
     p = sub.add_parser("editroom", help="serve the shot-review UI on localhost")
     p.add_argument("slug")

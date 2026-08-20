@@ -11,6 +11,7 @@ segment map from plan_beats() is the single source of that truth —
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -55,6 +56,11 @@ def _beat_caption_clips(slug: str, tl_map: "dict",
 
     cap_dir = work / "captions"
     cap_dir.mkdir(exist_ok=True)
+    # Bake cache (same idea as pipeline/proxy.py): a beat whose timed words
+    # have not changed keeps its baked mov. Four produce runs in one day
+    # re-baked every caption identically (~15 min each, 2026-08-19).
+    hash_path = cap_dir / ".bake_hashes.json"
+    hashes = json.loads(hash_path.read_text()) if hash_path.exists() else {}
     clips = []
     for beat in tl_map["beats"]:
         if only_beats and beat["id"] not in only_beats:
@@ -78,10 +84,21 @@ def _beat_caption_clips(slug: str, tl_map: "dict",
             continue
         dur = beat["record_e"] - beat["record_s"]
         mov = cap_dir / ("%s.mov" % beat["id"])
+        key = hashlib.sha1(json.dumps(
+            {"words": rel, "dur": round(dur, 3), "w": w, "h": h,
+             "orientation": tl_map["orientation"],
+             "v": captions_mod.CAPTIONS_V}, sort_keys=True).encode()).hexdigest()[:12]
+        if hashes.get(beat["id"]) == key and mov.exists():
+            clips.append({"id": "cap_" + beat["id"], "path": str(mov),
+                          "record_s": beat["record_s"], "duration": dur})
+            log("[produce] captions %s (cached)" % beat["id"])
+            continue
         captions_mod.bake_caption_clip(rel, dur, mov, w, h, tl_map["orientation"],
                                        cap_dir / "tmp")
         clips.append({"id": "cap_" + beat["id"], "path": str(mov),
                       "record_s": beat["record_s"], "duration": dur})
+        hashes[beat["id"]] = key
+        hash_path.write_text(json.dumps(hashes, indent=1))
         log("[produce] captions %s: %d words, %.1fs" % (beat["id"], len(rel), dur))
     return clips
 
@@ -164,6 +181,14 @@ def produce(slug: str, log=print) -> Path:
     tl_map, cards, caps = build_assets(slug, log)
     fcpxml = timeline_mod.write_fcpxml(slug, tl_map, cards, caps)
     log("[produce] wrote %s (reference)" % fcpxml)
+
+    # Report (never block on) cuts that interrupt a measured voice — the
+    # check that would have caught the clipped "Monopoly." (2026-08-19).
+    from . import audit as audit_mod
+    edge_flags = audit_mod.audit_speech_edges(slug, log=log)
+    if edge_flags:
+        log("[produce] WARNING: %d cut(s) land while a voice is audible — "
+            "review before publishing" % len(edge_flags))
 
     ra.ensure_bridge()
     render_mod.project_for_slug(slug, tl_map["fps"], log=log)

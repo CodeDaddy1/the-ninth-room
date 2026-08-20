@@ -57,6 +57,10 @@ POP_SCALE = 1.06              # the active word is drawn slightly larger
 # fallback only for moments with no caption on screen.
 EMOJI_TTC = "/System/Library/Fonts/Apple Color Emoji.ttc"
 EMOJI_SCALE = 1.22            # relative to the caption font size
+
+# Bump when anything in this module changes rendered pixels — it invalidates
+# every cached caption bake (see produce._beat_caption_clips).
+CAPTIONS_V = 1
 _EMOJI_CACHE: "dict" = {}
 
 
