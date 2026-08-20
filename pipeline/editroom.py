@@ -25,7 +25,10 @@ animation while you type, no bake needed to look. "Approve & Export" bakes
 the ProRes 4444 alpha .mov (cached when unchanged) into
 work/<slug>/exports/overlays/ under a human-readable name
 (BT04_transition_the-cockrell-butterfly-center.mov) for manual import onto a
-Resolve timeline, with Download and Reveal-in-Finder buttons. Editing a
+Resolve timeline, with Download and Reveal-in-Finder buttons. Exports are
+IMMUTABLE: a changed card gets a fresh _v2/_v3 filename and older versions
+are never touched — replacing or deleting media an NLE has imported is what
+makes clips flicker "Media Offline". Editing a
 timeline card writes graphics_plan.json through the schema validator (the
 2.5s chapter rule gates the form exactly like it gates the pipeline), and
 exporting one re-proxies its beat so the Shots desk keeps showing what will
@@ -367,11 +370,9 @@ def _delete_overlay(slug: str, card_id: str) -> None:
     custom["overlays"] = keep
     _write_json(_custom_path(slug), custom)
     exp = _export_state(slug)
-    e = exp.pop(card_id, None)
-    if e and e.get("file"):
-        f = _exports_dir(slug) / e["file"]
-        if f.exists():
-            f.unlink()
+    exp.pop(card_id, None)
+    # exported files stay on disk — Resolve may reference them (immutability
+    # rule above); Caleb trashes unwanted versions from Finder himself
     _write_json(_exports_dir(slug) / ".export_hashes.json", exp)
 
 
@@ -393,11 +394,26 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
         d = _exports_dir(slug)
         exp = _export_state(slug)
 
-        name = _export_name(card)
-        for oid, e in exp.items():  # two cards can share beat+kit+copy
-            if oid != card_id and e.get("file") == name:
-                name = "%s_%s" % (card_id, name)
-                break
+        # Exported files are IMMUTABLE: Resolve may have any of them imported,
+        # and replacing or deleting media under an NLE is exactly what makes
+        # clips flicker "Media Offline" (Caleb, 2026-08-20). An unchanged card
+        # reuses its latest file; a changed one gets a fresh _v2/_v3 name and
+        # every older version stays on disk untouched.
+        cur_key = _current_key(slug, card, orient)
+        prev = exp.get(card_id, {})
+        if prev.get("key") == cur_key and prev.get("file") \
+                and (d / prev["file"]).exists():
+            log("[export] %s (already current: %s)" % (card_id, prev["file"]))
+            exp[card_id] = dict(prev, ts=int(time.time()))
+            _write_json(d / ".export_hashes.json", exp)
+            return {"file": prev["file"], "path": str(d / prev["file"]),
+                    "reproxied": False, "review_reset": False}
+
+        base = _export_name(card)
+        name, n = base, 2
+        while (d / name).exists():
+            name = "%s_v%d.mov" % (base[:-4], n)
+            n += 1
         target = d / name
 
         if source == "plan":
@@ -413,20 +429,16 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
             shutil.copy2(mov, tmp)
             os.replace(tmp, target)
         else:
-            key = _current_key(slug, card, orient)
-            if exp.get(card_id, {}).get("key") == key and target.exists():
-                log("[export] %s (cached)" % name)
-            else:
-                spec, preset = graphics.bake_spec(card)
-                tmp = d / ("_tmp.%s" % name)
-                animate_mod.render_animation(spec, tmp, float(card["duration"]),
-                                             w, h, d / "tmp", preset=preset,
-                                             log=log)
-                os.replace(tmp, target)
+            spec, preset = graphics.bake_spec(card)
+            tmp = d / ("_tmp.%s" % name)
+            # scratch frames go in graphics/tmp, NOT the exports folder — a
+            # wholesale folder import must never sweep up a mutating PNG
+            # sequence alongside the movs
+            animate_mod.render_animation(spec, tmp, float(card["duration"]),
+                                         w, h, work / "graphics" / "tmp",
+                                         preset=preset, log=log)
+            os.replace(tmp, target)
 
-        old = exp.get(card_id, {}).get("file")
-        if old and old != name and (d / old).exists():
-            (d / old).unlink()  # renamed by a copy edit — keep one per card
         exp[card_id] = {"file": name, "key": _current_key(slug, card, orient),
                         "ts": int(time.time())}
         _write_json(d / ".export_hashes.json", exp)
@@ -456,6 +468,11 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
 
 
 def serve(slug: str, port: int = PORT, log=print) -> None:
+    import sys
+    try:  # export/bake lines must reach editroom.log as they happen, not
+        sys.stdout.reconfigure(line_buffering=True)  # when the server exits
+    except Exception:
+        pass
     work = work_path(slug)
     page = PAGE.replace("__SLUG__", slug)
 
