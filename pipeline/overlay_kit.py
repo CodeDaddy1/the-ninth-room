@@ -145,6 +145,12 @@ KEYFRAMES = """
 @keyframes yColUp{0%,10%{transform:scaleY(0)}44%,58%{transform:scaleY(1)}94%,100%{transform:scaleY(0)}}
 @keyframes yColShow{0%,46%{opacity:0}56%,100%{opacity:1}}
 @keyframes yPushOut{0%,10%{transform:translateX(0)}58%,100%{transform:translateX(-100%)}}
+/* yPulse, yMark and yPushOut are defined here to stay 1:1 with the Cyanotype
+   canvas but have no caller in this module. yPushOut is the interesting one:
+   the push cut pushes an OUTGOING layer out, and an overlay clip has no
+   outgoing layer — that half of the cut is done by the footage in Resolve.
+   Keep them; an `animation:` naming a keyframe that does NOT exist renders
+   the element static, which is invisible in a still frame. */
 @keyframes yPushIn{0%,10%{transform:translateX(100%)}58%,100%{transform:translateX(0)}}
 @keyframes yBracket{0%,10%{transform:scaleX(0);opacity:0}22%{opacity:1}44%{transform:scaleX(1);opacity:1}62%,100%{opacity:0}}
 @keyframes yDraw{to{stroke-dashoffset:0}}
@@ -301,10 +307,11 @@ def _fit(text: str, base: int, per_char: "int | None" = None,
     `lines` is how many lines the block is allowed to wrap onto — the width
     budget multiplies by it, since wrapping is a legitimate way to fit.
 
-    `per_char` is accepted and IGNORED; call sites passed hand-tuned values
-    that were all wrong in the same direction. Kept in the signature so the
-    thirty-odd existing calls keep working while the measured model does the
-    real work.
+    `per_char` is accepted and IGNORED. Call sites used to pass hand-tuned
+    values that were all wrong in the same direction; the measured model above
+    replaced them and every in-repo caller has been migrated off it. The
+    parameter survives only so an outside caller does not break — do not pass
+    it, and do not tune it expecting an effect.
 
     What breaks if this is wrong: a long lower third runs past the frame edge
     and the last word is cut in half — invisible in a plan, obvious on screen.
@@ -872,7 +879,7 @@ def poll(card: "dict", F: "dict") -> str:
              "side": F["side"], "top": 230 if not F["portrait"] else 520,
              "width": 880 if not F["portrait"] else F["inner"], "chalk": CHALK,
              "eyebrow": _eyebrow(card.get("kicker") or "You picked", YELLOW, 0, 26),
-             "display": _display(_fit(card.get("text", ""), 68, per_char=23,
+             "display": _display(_fit(card.get("text", ""), 68, lines=2,
                                       budget=880)),
              "ease": EASE_REVEAL, "q": _e(card.get("text", "")),
              "bars": "".join(bars), "note": note}

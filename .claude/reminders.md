@@ -36,6 +36,25 @@ console settings, recordings, decisions). Check items off when done.
   name in serif italic, so it now reads "Eremotherium, the giant ground
   sloth". The elephant comparison is a good fact with nowhere on that card to
   live — either let it go, or give it its own `stat`/`lower_third` beat.
+- [ ] **Custom overlays are never schema-validated.** `overlays_custom.json`
+  does not pass through `schemas.validate_graphics_plan` — `_export_overlay`
+  goes straight to `graphics.bake_spec`. So an overlay created or edited in
+  the Edit Room can carry a bad `kit_type`, a missing `rows`, or a wrong-typed
+  field and only fail (or render wrong) at bake time. The one crash this
+  actually caused is fixed at the root, but the validation gap itself is open.
+  Worth wiring the validator into the Edit Room's save path.
+
+- [ ] **Two latent kit defects, deferred from code review (2026-08-21).**
+  Neither is reachable today; fix if the trigger ever appears.
+  - `captions.py` — when `_emoji_img` returns `None` (a codepoint Apple Color
+    Emoji cannot rasterise) the token takes zero width but the draw loop still
+    advances by `width + word_gap`, leaving a visible double space mid-caption.
+    Needs a font-coverage failure to manifest; none reproducible today.
+  - `overlay_kit.py` — `_fit` and `_arch` don't clamp their size input.
+    `_fit("hello", 0)` emits `font-size:0px`; `_arch(8)` yields a zero-width
+    figure. Every current call site passes a positive literal, so this only
+    matters if either becomes caller-driven or Edit-Room-exposed.
+
 - [ ] Optional: in Resolve, delete the spike leftovers (project
   `CURATED_SPIKE`, timelines `spike_*`) — harmless if kept.
 
