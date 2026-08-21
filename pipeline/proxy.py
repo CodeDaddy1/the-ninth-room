@@ -84,6 +84,8 @@ def _relative_beat(beat: "dict") -> "dict":
 def beat_spec(beat: "dict", caption_text: str, cards: "list") -> "dict":
     """Everything that shapes this beat's pixels — the cache key."""
     from . import timeline as tl_mod
+    from . import captions as captions_mod
+    from . import animate as animate_mod
     return {
         "beat": _relative_beat(beat), "caption": caption_text,
         "cards": [{k: c.get(k) for k in ("id", "type", "kit_type", "at", "duration",
@@ -92,8 +94,14 @@ def beat_spec(beat: "dict", caption_text: str, cards: "list") -> "dict":
                   for c in cards],
         "pace": [tl_mod.MAX_KEEP_GAP_SEC, tl_mod.KEEP_PAD_SEC,
                  tl_mod.HEAD_PAD_SEC, tl_mod.TAIL_PAD_SEC],
-        "v": 5,  # bump to invalidate every cached proxy after a renderer change
-                 # (v5: Ninth Room kit + the exact-trim A/V sync fixes)
+        # The RENDERER versions belong in the key: the Cyanotype restyle
+        # changed every caption's and card's pixels while changing no text
+        # and no spec, and 74 review proxies sat stale showing the old look
+        # (Caleb caught it against Resolve, 2026-08-21). A hand-bumped local
+        # "v" cannot catch a style change made in another module.
+        "captions_v": captions_mod.CAPTIONS_V,
+        "bake_v": animate_mod.BAKE_V,
+        "v": 5,  # for proxy-pipeline changes themselves (trim/sync/layout)
     }
 
 
