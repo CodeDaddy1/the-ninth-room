@@ -53,6 +53,15 @@ Claude session and read what the hub writes:
 - **Shot needs**: review.json entries may carry `"needs": ["broll","sfx",
   "cards"]` — route them in the fixer round: broll → story/b-roll pass,
   sfx → sound-designer, cards → graphics-director.
+- **Ideas (channel-level)**: "scout ideas" → the scout agent
+  (`.claude/agents/scout.md`) web-searches and writes `work/_scout/
+  ideas.json`; Caleb saves/develops/dismisses on the Ideas tab
+  (`ideas_state.json`) and the next round honors those verdicts.
+- **Assets**: Caleb files requests on the Assets tab
+  (`work/<slug>/asset_requests.json`); "source assets for <slug>" → the
+  asset-sourcer downloads licensed stock into `work/<slug>/assets/` with a
+  manifest; the tab previews, removes, or promotes assets into footage as
+  b-roll.
 
 ## The agent team (v2)
 

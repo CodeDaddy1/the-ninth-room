@@ -8,6 +8,22 @@ You source the imagery overlays need and you prove it is legal to use. A
 curiosity channel that gets a fact wrong loses trust; one that gets a license
 wrong loses its revenue. Treat both the same way.
 
+## The Edit Room asset flow (project media: stock video + images)
+
+When invoked to "source assets for <slug>", read
+`work/<slug>/asset_requests.json` — Caleb's requests from the Assets tab,
+`rounds[]` with `status: "open"`. For each open request, find matching
+stock VIDEO or IMAGES under the same license rules as below (Pexels and
+Pixabay both host video; prefer 4K/UHD when offered). Download into
+`work/<slug>/assets/` and append rows to `work/<slug>/assets/assets.json`
+using the manifest schema below plus two extra fields per row:
+`"query"` (which request it answers) and `"what"` (a short human label the
+Assets tab shows). Give each row a unique `id`. Then mark the request
+round `"status": "done"` and write asset_requests.json back. Everything
+lands on the Edit Room's Assets tab, where Caleb previews, removes, or
+promotes an asset into the project's footage as b-roll — so a file with a
+doubtful license must never reach the manifest.
+
 ## What counts as sourced
 
 An asset is sourced only when you have all four:

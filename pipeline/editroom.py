@@ -703,17 +703,7 @@ def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
             if conv.exists():
                 inp = conv
         clip = fdir / (Path(name).stem + "_still.mp4")
-        proc = subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-t", "6",
-             "-i", str(inp),
-             "-vf", "scale=3840:2160:force_original_aspect_ratio=increase,"
-                    "crop=3840:2160,fps=24,format=yuv420p",
-             "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-             "-movflags", "+faststart", str(clip)],
-            capture_output=True, text=True)
-        if proc.returncode != 0:
-            raise IngestError("still conversion failed for %s: %s"
-                              % (name, proc.stderr[-200:]))
+        _still_to_clip(inp, clip)
         return {"stored": name, "as": clip.name, "still": True}
     name = _uniquify(fdir, name)
     os.replace(tmp, fdir / name)
@@ -864,6 +854,148 @@ def _save_story_feedback(slug: str, choice: "str | None", notes: str,
                          "decision": decision})
     _write_json(path, fb)
     return fb
+
+
+# --- Ideas (scout) + Assets (sourcer) desks --------------------------------
+# Both follow the story-loop pattern: the desk collects Caleb's requests and
+# verdicts into JSON, the agents run in the Claude session and write their
+# results back, the desk renders them. Ideas are CHANNEL-level (work/_scout,
+# underscore keeps it out of the project list); assets are per-project.
+
+
+def _scout_dir() -> Path:
+    d = work_path("_scout")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _ideas_state() -> "dict":
+    d = _scout_dir()
+    ideas = None
+    if (d / "ideas.json").exists():
+        ideas = json.loads((d / "ideas.json").read_text())
+    state = {}
+    if (d / "ideas_state.json").exists():
+        state = json.loads((d / "ideas_state.json").read_text())
+    return {"ideas": ideas, "state": state}
+
+
+def _save_idea_state(idea_id: str, status: str, notes: str) -> None:
+    if status not in ("saved", "dismissed", "develop"):
+        raise IngestError("status must be saved, dismissed, or develop")
+    d = _scout_dir()
+    p = d / "ideas_state.json"
+    state = json.loads(p.read_text()) if p.exists() else {}
+    state[idea_id] = {"status": status, "notes": (notes or "").strip(),
+                      "ts": int(time.time())}
+    _write_json(p, state)
+
+
+def _still_to_clip(inp: Path, clip: Path) -> None:
+    """A still image becomes a 6s UHD clip the b-roll pipeline can place."""
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-t", "6",
+         "-i", str(inp),
+         "-vf", "scale=3840:2160:force_original_aspect_ratio=increase,"
+                "crop=3840:2160,fps=24,format=yuv420p",
+         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+         "-movflags", "+faststart", str(clip)],
+        capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise IngestError("still conversion failed for %s: %s"
+                          % (inp.name, proc.stderr[-200:]))
+
+
+def _assets_state(slug: str) -> "dict":
+    work = work_path(slug)
+    adir = work / "assets"
+    man = {"assets": []}
+    if (adir / "assets.json").exists():
+        man = json.loads((adir / "assets.json").read_text())
+    reqs = {"rounds": []}
+    if (work / "asset_requests.json").exists():
+        reqs = json.loads((work / "asset_requests.json").read_text())
+    thumbs = adir / ".thumbs"
+    items = []
+    for a in man.get("assets", []):
+        p = adir / a.get("file", "")
+        if not p.is_file():
+            continue
+        kind = ("video" if p.suffix.lower() in _VIDEO_UP else "image")
+        thumb = None
+        if kind == "video":
+            thumbs.mkdir(exist_ok=True)
+            th = thumbs / (p.name + ".jpg")
+            if not th.exists() or th.stat().st_mtime < p.stat().st_mtime:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-loglevel", "error", "-ss", "0.5",
+                     "-i", str(p), "-frames:v", "1", "-vf", "scale=320:-2",
+                     str(th)], capture_output=True)
+            thumb = str(th) if th.exists() else None
+        else:
+            thumb = str(p)
+        items.append(dict(a, kind=kind, thumb=thumb,
+                          size=p.stat().st_size))
+    return {"slug": slug, "assets": items, "requests": reqs}
+
+
+def _request_assets(slug: str, text: str) -> "dict":
+    text = (text or "").strip()
+    if not text:
+        raise IngestError("describe what you need")
+    work = work_path(slug)
+    p = work / "asset_requests.json"
+    reqs = json.loads(p.read_text()) if p.exists() else {"rounds": []}
+    reqs["rounds"].append({"ts": int(time.time()), "text": text,
+                           "status": "open"})
+    _write_json(p, reqs)
+    return reqs
+
+
+def _delete_asset(slug: str, aid: str) -> None:
+    adir = work_path(slug) / "assets"
+    man_p = adir / "assets.json"
+    if not man_p.exists():
+        raise IngestError("no assets manifest")
+    man = json.loads(man_p.read_text())
+    row = next((a for a in man.get("assets", []) if a.get("id") == aid), None)
+    if row is None:
+        raise IngestError("no asset '%s'" % aid)
+    p = adir / row.get("file", "")
+    if p.is_file():
+        trash = adir / ".trash"
+        trash.mkdir(exist_ok=True)
+        os.replace(p, _trash_dest(trash, p.name))
+    man["assets"] = [a for a in man["assets"] if a.get("id") != aid]
+    _write_json(man_p, man)
+
+
+def _use_asset(slug: str, aid: str) -> "dict":
+    """Copy an asset into footage/ so it rides the b-roll pipeline; images
+    go through the same 6s-clip conversion as dropped photos."""
+    work = work_path(slug)
+    adir = work / "assets"
+    man = json.loads((adir / "assets.json").read_text())
+    row = next((a for a in man.get("assets", []) if a.get("id") == aid), None)
+    if row is None:
+        raise IngestError("no asset '%s'" % aid)
+    src = adir / row["file"]
+    if not src.is_file():
+        raise IngestError("asset file missing: %s" % row["file"])
+    fdir = work / "footage"
+    fdir.mkdir(parents=True, exist_ok=True)
+    if src.suffix.lower() in _VIDEO_UP:
+        name = _uniquify(fdir, src.name)
+        shutil.copy2(src, fdir / name)
+    else:
+        stills = fdir / "stills"
+        stills.mkdir(exist_ok=True)
+        sname = _uniquify(stills, src.name)
+        shutil.copy2(src, stills / sname)
+        name = Path(sname).stem + "_still.mp4"
+        _still_to_clip(stills / sname, fdir / name)
+    return {"as": name,
+            "reingest": (work / "analysis" / "catalog.json").exists()}
 
 
 # --- Captions desk ---------------------------------------------------------
@@ -1067,6 +1199,10 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, _story_state(self._slug_q()))
             elif self.path.startswith("/api/footage"):
                 self._send(200, _footage_state(self._slug_q()))
+            elif self.path.startswith("/api/ideas"):
+                self._send(200, _ideas_state())
+            elif self.path.startswith("/api/assets"):
+                self._send(200, _assets_state(self._slug_q()))
             elif self.path.startswith("/media/"):
                 parts = self.path.split("?")[0].split("/")
                 # /media/<slug>/<proxies|exports>/<name>
@@ -1082,6 +1218,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                         return
                 elif kind == "footage":
                     p = (work_path(mslug) / "footage" / name).resolve()
+                    if p.is_file() and p.suffix.lower() in _VIDEO_UP:
+                        self._send_video(p)
+                        return
+                elif kind == "assets":
+                    p = (work_path(mslug) / "assets" / name).resolve()
                     if p.is_file() and p.suffix.lower() in _VIDEO_UP:
                         self._send_video(p)
                         return
@@ -1191,6 +1332,19 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 result = _clear_footage(self._slug_b(body))
                 log("[footage] %s cleared (%d files to .trash)"
                     % (body.get("slug"), result["removed"]))
+                self._send(200, dict(result, ok=True))
+            elif self.path == "/api/idea/state":
+                _save_idea_state(body.get("id", ""), body.get("status", ""),
+                                 body.get("notes", ""))
+                self._send(200, {"ok": True})
+            elif self.path == "/api/asset/request":
+                reqs = _request_assets(self._slug_b(body), body.get("text", ""))
+                self._send(200, {"ok": True, "requests": reqs})
+            elif self.path == "/api/asset/delete":
+                _delete_asset(self._slug_b(body), body.get("id", ""))
+                self._send(200, {"ok": True})
+            elif self.path == "/api/asset/use":
+                result = _use_asset(self._slug_b(body), body.get("id", ""))
                 self._send(200, dict(result, ok=True))
             elif self.path == "/api/story/feedback":
                 fb = _save_story_feedback(self._slug_b(body),
@@ -1316,6 +1470,39 @@ border-radius:9px;padding:3px}
 border-radius:7px;border:0;background:transparent;color:var(--muted);
 cursor:pointer;font-family:Gabarito,sans-serif}
 .tabs button.on{background:var(--panel2);color:var(--text)}
+.tabs .tsep{width:1px;background:var(--hair);margin:4px 2px}
+.icard{background:var(--panel);border:1px solid var(--hair);border-radius:12px;
+padding:16px 18px;display:flex;flex-direction:column;gap:7px}
+.icard h3{font-family:Gabarito,sans-serif;font-size:16px}
+.icard .why{font-size:13px;color:var(--rework)}
+.icard .ang{font-size:13.5px;color:var(--text)}
+.icard .src{font-size:12px}
+.icard .src a{color:var(--muted)}
+.icard .ibtns{display:flex;gap:8px;margin-top:4px}
+.icard .ibtns button{font:inherit;font-size:12px;font-weight:700;
+padding:5px 12px;border-radius:6px;border:1px solid var(--hair);
+background:transparent;color:var(--muted);cursor:pointer}
+.icard .ibtns button:hover{border-color:var(--accent);color:var(--text)}
+.icard.st-saved{border-color:rgba(18,183,106,.5)}
+.icard.st-develop{border-color:var(--rework)}
+.icard.st-dismissed{opacity:.45}
+.istatus{font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+color:var(--muted)}
+.acard{background:var(--panel);border:1px solid var(--hair);border-radius:10px;
+overflow:hidden;display:flex;flex-direction:column}
+.acard img,.acard video{width:100%;aspect-ratio:16/9;object-fit:cover;
+background:#000;display:block;cursor:pointer}
+.acard .ainfo{padding:8px 10px;font-size:12px;color:var(--muted);
+display:flex;flex-direction:column;gap:3px}
+.acard .ainfo b{color:var(--text);font-family:Gabarito,sans-serif;
+font-size:12.5px}
+.acard .lic{color:var(--accent);font-size:11px;letter-spacing:.05em;
+text-transform:uppercase}
+.acard .abtns{display:flex;gap:6px;padding:0 10px 10px}
+.acard .abtns button{font:inherit;font-size:11.5px;font-weight:700;
+padding:4px 10px;border-radius:6px;border:1px solid var(--hair);
+background:transparent;color:var(--muted);cursor:pointer}
+.acard .abtns button:hover{border-color:var(--accent);color:var(--text)}
 .ovnew{margin:12px 14px 4px;display:block;width:calc(100% - 28px);font:inherit;
 font-size:13px;font-weight:700;padding:9px 0;border-radius:8px;
 border:1px dashed var(--hair);background:transparent;color:var(--muted);
@@ -1477,7 +1664,10 @@ background:rgba(232,163,61,.08)}
 <nav class="tabs"><button id="tabStory">Story</button>
 <button id="tabShots" class="on">Shots</button>
 <button id="tabOv">Overlays</button>
-<button id="tabCap">Captions</button></nav>
+<button id="tabCap">Captions</button>
+<button id="tabAssets">Assets</button>
+<span class="tsep"></span>
+<button id="tabIdeas">Ideas</button></nav>
 <div class="tally"><span class="ok">approved <b id="tA">0</b></span>
 <span class="fl">flagged <b id="tF">0</b></span>
 <span>left <b id="tL">0</b></span></div>
@@ -1493,6 +1683,10 @@ background:rgba(232,163,61,.08)}
 <section class="stage"><div class="focus" id="capfocus">loading…</div></section></div>
 <div class="wrap" id="wrapStory" style="display:none;grid-template-columns:1fr">
 <section class="stage"><div class="focus" id="storyfocus">loading…</div></section></div>
+<div class="wrap" id="wrapAssets" style="display:none;grid-template-columns:1fr">
+<section class="stage"><div class="focus" id="assetsfocus">loading…</div></section></div>
+<div class="wrap" id="wrapIdeas" style="display:none;grid-template-columns:1fr">
+<section class="stage"><div class="focus" id="ideasfocus">loading…</div></section></div>
 <script>
 let SLUG='__INITIAL__'||localStorage.getItem('editroom.project')||'';
 let PROJECTS=[], S=null, order=[], rows={}, idx=0, dirty={}, timers={};
@@ -1560,7 +1754,7 @@ setInterval(async()=>{
 
 async function switchProject(s){
   SLUG=s;localStorage.setItem('editroom.project',s);
-  S=null;OV=null;CAP=null;STY=null;ovId=null;capId=null;idx=0;dirty={};
+  S=null;OV=null;CAP=null;STY=null;AST=null;ovId=null;capId=null;idx=0;dirty={};
   await bootProjects();
   boot();
   const cur=document.querySelector('.tabs .on').id;
@@ -2005,25 +2199,31 @@ const FIELD_HINTS={emphasis:'comma-separated exact phrases to turn amber',
   emojis:'emoji separated by spaces, e.g. 🦕 😱'};
 
 function tab(which){
-  const wraps={shots:'wrapShots',ov:'wrapOv',cap:'wrapCap',story:'wrapStory'};
-  const tabs={shots:'tabShots',ov:'tabOv',cap:'tabCap',story:'tabStory'};
+  const wraps={shots:'wrapShots',ov:'wrapOv',cap:'wrapCap',story:'wrapStory',
+               assets:'wrapAssets',ideas:'wrapIdeas'};
+  const tabs={shots:'tabShots',ov:'tabOv',cap:'tabCap',story:'tabStory',
+              assets:'tabAssets',ideas:'tabIdeas'};
+  const single={story:1,assets:1,ideas:1};
   for(const k in wraps){
     const el=document.getElementById(wraps[k]);
-    if(k==='story')el.style.display=(k===which)?'grid':'none';
-    else el.style.display=(k===which)?'':'none';
+    el.style.display=(k===which)?(single[k]?'grid':''):'none';
     document.getElementById(tabs[k]).classList.toggle('on',k===which);
   }
-  history.replaceState(null,'',
-    which==='ov'?'#overlays':which==='cap'?'#captions':
-    which==='story'?'#story':'#');
+  const HASH={ov:'#overlays',cap:'#captions',story:'#story',
+              assets:'#assets',ideas:'#ideas'};
+  history.replaceState(null,'',HASH[which]||'#');
   if(which==='ov'&&!OV)bootOv();
   if(which==='cap'&&!CAP)bootCap();
   if(which==='story'&&!STY)bootStory();
+  if(which==='assets'&&!AST)bootAssets();
+  if(which==='ideas'&&!IDE)bootIdeas();
 }
 document.getElementById('tabShots').onclick=()=>tab('shots');
 document.getElementById('tabOv').onclick=()=>tab('ov');
 document.getElementById('tabCap').onclick=()=>tab('cap');
 document.getElementById('tabStory').onclick=()=>tab('story');
+document.getElementById('tabAssets').onclick=()=>tab('assets');
+document.getElementById('tabIdeas').onclick=()=>tab('ideas');
 
 function ovItem(id){return OV.overlays.find(o=>o.id===id);}
 function ovKit(o){return o.kit||'';}
@@ -2495,12 +2695,153 @@ async function sendStory(decision){
   }catch(e){msg.textContent=e.message;msg.style.color='var(--flag)';}
 }
 
+/* ---------------- Assets desk ---------------- */
+let AST=null, IDE=null;
+
+async function bootAssets(){
+  AST=await(await fetch(api('/api/assets'))).json();
+  renderAssets();
+}
+
+function renderAssets(){
+  const f=document.getElementById('assetsfocus');
+  const open=(AST.requests.rounds||[]).filter(r=>r.status==='open');
+  let html='<div class="crumb"><b>Assets</b> · '+esc(SLUG)+
+    ' · licensed stock only, credit recorded per file</div>'+
+    '<textarea class="note" id="assetreq" placeholder="what do you need? '+
+    'e.g. aerial shot of a cruise ship at sea · capuchin monkey close-up · '+
+    'old map of Honduras"></textarea>'+
+    '<div class="acts"><button id="bAssetReq">Add request</button></div>'+
+    '<div id="assetmsg" style="font-size:13px;min-height:18px"></div>';
+  if(open.length){
+    html+='<div class="srounds">'+open.map(r=>
+      '<div>◌ '+esc(r.text)+'</div>').join('')+
+      '<div style="color:var(--text)">Tell Claude: “source assets for '+
+      esc(SLUG)+'” to run these.</div></div>';
+  }
+  if(AST.assets.length){
+    html+='<div class="fgrid" style="margin-top:8px">'+AST.assets.map(a=>
+      '<div class="acard" data-a="'+esc(a.id)+'">'+
+      (a.kind==='video'
+        ?(a.thumb?'<img data-play="1" src="/file?p='+encodeURIComponent(a.thumb)+'" title="click to play">':'<img data-play="1">')
+        :'<img src="/file?p='+encodeURIComponent(a.thumb)+'">')+
+      '<div class="ainfo"><b>'+esc(a.what||a.file)+'</b>'+
+      '<span class="lic">'+esc(a.license||'?')+
+      (a.author?' · '+esc(a.author):'')+'</span>'+
+      (a.attribution?'<span>'+esc(a.attribution)+'</span>':'')+
+      '</div><div class="abtns">'+
+      '<button data-use="1">Use as b-roll</button>'+
+      (a.source_page?'<a href="'+esc(a.source_page)+'" target="_blank" '+
+        'style="font-size:11.5px;color:var(--muted);align-self:center">source</a>':'')+
+      '<button data-del="1" style="margin-left:auto;color:var(--flag)">×</button>'+
+      '</div></div>').join('')+'</div>';
+  }else{
+    html+='<div class="setup" style="cursor:default;margin-top:8px">'+
+      '<b>No assets yet</b>Write a request above, then tell Claude: '+
+      '“source assets for '+esc(SLUG)+'” — the sourcer downloads properly '+
+      'licensed stock and it lands here with credits attached.</div>';
+  }
+  f.innerHTML=html;
+  const msg=t=>{const m=document.getElementById('assetmsg');
+    if(m)m.textContent=t;};
+  document.getElementById('bAssetReq').onclick=async()=>{
+    try{
+      await ovPost('/api/asset/request',
+        {text:document.getElementById('assetreq').value});
+      await bootAssets();
+      const m=document.getElementById('assetmsg');
+      if(m)m.textContent='request saved — tell Claude: “source assets for '+SLUG+'”';
+    }catch(e){msg(e.message);}
+  };
+  f.querySelectorAll('.acard').forEach(card=>{
+    const id=card.dataset.a;
+    const a=AST.assets.find(x=>x.id===id);
+    const img=card.querySelector('img[data-play]');
+    if(img)img.onclick=()=>{
+      const v=document.createElement('video');
+      v.controls=true;v.autoplay=true;v.playsinline=true;
+      v.src='/media/'+SLUG+'/assets/'+encodeURIComponent(a.file);
+      img.replaceWith(v);
+    };
+    card.querySelector('[data-use]').onclick=async()=>{
+      try{
+        const r=await ovPost('/api/asset/use',{id:id});
+        alert('Copied into footage as '+r.as+
+          (r.reingest?'\nAlready ingested — tell Claude to re-ingest '+SLUG+
+           ' so it joins the b-roll catalog.':''));
+        await bootProjects();
+      }catch(e){alert(e.message);}
+    };
+    card.querySelector('[data-del]').onclick=async()=>{
+      if(!confirm('Remove this asset? (moves to assets/.trash)'))return;
+      try{await ovPost('/api/asset/delete',{id:id});await bootAssets();}
+      catch(e){alert(e.message);}
+    };
+  });
+}
+
+/* ---------------- Ideas desk (channel-level scout) ---------------- */
+async function bootIdeas(){
+  IDE=await(await fetch('/api/ideas')).json();
+  renderIdeas();
+}
+
+function renderIdeas(){
+  const f=document.getElementById('ideasfocus');
+  let html='<div class="crumb"><b>Ideas</b> · The Ninth Room · '+
+    'scouted from the web, channel-wide (not per project)</div>';
+  if(!IDE.ideas){
+    html+='<div class="setup" style="cursor:default"><b>No scouted ideas yet</b>'+
+      'Tell Claude: “scout ideas” — the scout searches the web for video '+
+      'ideas that fit the channel and drops them here with sources.</div>';
+  }else{
+    const st=IDE.state;
+    html+='<div class="crumb">Round '+(IDE.ideas.round||1)+
+      ' · scouted '+new Date((IDE.ideas.generated||0)*1000).toLocaleDateString()+
+      ' · Save keeps it, Develop marks it as a future shoot, Dismiss hides it. '+
+      'Tell Claude: “scout ideas” for a fresh round.</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">'+
+      IDE.ideas.ideas.map(i=>{
+        const s=(st[i.id]||{}).status||'';
+        return '<div class="icard st-'+s+'">'+
+        '<h3>'+esc(i.title)+'</h3>'+
+        (s?'<span class="istatus">'+s+((st[i.id]||{}).notes?' — '+esc(st[i.id].notes):'')+'</span>':'')+
+        '<div class="ang">'+esc(i.angle||'')+'</div>'+
+        (i.why_now?'<div class="why">Why now: '+esc(i.why_now)+'</div>':'')+
+        (i.format?'<div class="istatus">'+esc(i.format)+
+          (i.effort?' · '+esc(i.effort):'')+'</div>':'')+
+        ((i.sources||[]).length?'<div class="src">'+
+          i.sources.map(x=>'<a href="'+esc(x.url)+'" target="_blank">'+
+          esc(x.title||x.url)+'</a>').join(' · ')+'</div>':'')+
+        '<div class="ibtns">'+
+        '<button data-st="saved">Save</button>'+
+        '<button data-st="develop">Develop</button>'+
+        '<button data-st="dismissed">Dismiss</button></div>'+
+        '</div>';}).join('')+'</div>';
+  }
+  f.innerHTML=html;
+  f.querySelectorAll('.icard').forEach(card=>{
+    const id=IDE.ideas.ideas[[...f.querySelectorAll('.icard')].indexOf(card)].id;
+    card.querySelectorAll('[data-st]').forEach(b=>{
+      b.onclick=async()=>{
+        let notes='';
+        if(b.dataset.st==='develop')
+          notes=prompt('Notes for developing this idea (optional):')||'';
+        await ovPost('/api/idea/state',{id:id,status:b.dataset.st,notes:notes});
+        await bootIdeas();
+      };
+    });
+  });
+}
+
 (async()=>{
   await bootProjects();
   boot();
   if(location.hash==='#overlays')tab('ov');
   else if(location.hash==='#captions')tab('cap');
   else if(location.hash==='#story')tab('story');
+  else if(location.hash==='#assets')tab('assets');
+  else if(location.hash==='#ideas')tab('ideas');
 })();
 </script></body></html>
 """
