@@ -2,42 +2,44 @@
 
 ## The channel in one line
 
-A family walks a museum end to end, one room a week — and the premise is in
-the name: **nine rooms, and one of them isn't on the map.**
+A family explores the world's most interesting places — museums, parks,
+ships, anywhere worth wondering about — and every episode finds **the one
+thing that wasn't on the map.**
 
 ## Mission
 
-To make a museum feel like the best room you've ever walked into, and to send
-people back to their own with something to look for. We are fun first and
+To make exploring feel like the best day out you've ever had, and to send
+people to real places with something to look for. We are fun first and
 educational second, on purpose: nobody finishes a lecture they didn't start.
+The facts arrive on the fun's momentum.
 
 ## The thesis
 
-Museums are full of genuinely astonishing things and almost nobody looks at
-them properly. The signage is dry, the visit is rushed, the kids are hungry.
-What's missing isn't information — it's **someone to be delighted with you.**
-The Ninth Room is that: a real family, on camera, actually surprised.
+Interesting places are everywhere and almost nobody looks at them properly.
+The signage is dry, the visit is rushed, everyone's hungry. What's missing
+isn't information — it's **someone to be delighted with you.** The Ninth Room
+is that: a real family, on camera, actually surprised.
 
-The ninth room is the promise. Eight are on the floor plan. The ninth is
-whatever we find that wasn't — the mislabelled case, the thing behind the
-thing, the fact the docent tells you only if you ask. Every episode owes the
-viewer one.
+The ninth room is the promise. Every place has an official map — and every
+place hides something that isn't on it. The mislabelled case, the thing
+behind the thing, the fact a guide tells you only if you ask. Every episode
+owes the viewer one.
 
 ## Positioning
 
 | | |
 |---|---|
-| **Category** | Family edutainment · museums and the natural world |
-| **For** | Parents and kids watching together, and the adults who never stopped liking dinosaurs |
+| **Category** | Family edutainment · exploration |
+| **For** | Curious viewers of any age who like learning something true while having fun |
 | **We are** | The family who actually reads the placard, and makes it funny |
-| **Unlike** | Dry museum tours, or reaction channels where nobody learns anything |
+| **Unlike** | Dry tours, or reaction channels where nobody learns anything |
 | **Because** | The laugh and the fact are the same moment, not alternating segments |
 
 ## What makes us different
 
-- **The room is the format.** One room, one episode, a visible progress meter
-  in nine squares. The viewer always knows where they are and how much is
-  left. Structure is a retention feature, not paperwork.
+- **The visit is the episode.** One place, one full day, told in chapters —
+  with a visible door meter so the viewer always knows where they are and how
+  much is left. Structure is a retention feature, not paperwork.
 - **The viewer is given a job.** Guess, vote, rank, call it before we do.
   Thirteen engagement cards exist for exactly this — see
   `engagement-playbook.md`. A viewer who answered out loud is a viewer who
@@ -45,8 +47,9 @@ viewer one.
 - **Fun and educational are one move.** The joke comes from how strange the
   real thing is. If the humour would survive the fact being removed, it isn't
   our humour.
-- **The family is real.** Caleb, Alma and Sofia, actually reacting. Sofia is
-  Alma's little sister. Nobody performs surprise.
+- **The family is real, and it's everyone's show.** Caleb, Alma and Sofia
+  (Alma's little sister), as an ensemble — everyone gets bits, votes, and
+  camera time. Nobody performs surprise, and nobody is "the host."
 
 ## Brand promise
 
@@ -56,33 +59,44 @@ viewer one.
 ## The core mechanic: the curiosity gap
 
 Every episode opens a loop the viewer needs closed. The hook creates the gap;
-the room delivers the payoff. The non-negotiable rule:
+the visit delivers the payoff. The non-negotiable rule:
 
 > **The payoff must always land.** We open curiosity gaps honestly and close
 > them completely. No bait-and-switch, no withheld answer for engagement.
 > Clickbait that doesn't deliver is the fastest way to kill a curiosity brand.
 
-## Success, early on
+And the channel's own promise on top: a **ninth-room moment** in every
+episode — the hidden gem. It cannot be manufactured. If a visit genuinely
+didn't produce one, say so and let the takeaway carry the episode. A fake
+ninth room is the fastest way to lose the audience.
 
-- Comments that answer the engagement card instead of only praising the video.
-- "We're going Saturday" — the episode sent someone to an actual museum.
-- A returning audience that knows what "the ninth room" means without being
-  told.
+## The goal
+
+**Grow a real audience.** Retention, packaging, and consistency decisions
+all serve growth — never at the family's expense, but this is a channel
+being built seriously, not a home-video archive. Comments that answer the
+engagement card, Shorts that convert browsers into viewers, and episodes
+people send to a friend are the scoreboard.
 
 ## Locked decisions
 
 - **Channel name:** The Ninth Room
 - **Tagline:** Nine rooms. One you can't find.
 - **Mark:** the Archway (13c) — an arch seen straight on, warm light in the
-  passage, the wall's thickness thrown as shadow, one figure at the threshold.
-- **Host POV:** **on camera.** Caleb, Alma and Sofia appear; Caleb carries the
-  narration. (This supersedes v1's "voice on, face off".)
-- **Cadence:** one room a week.
-- **Format:** 4K landscape master, with vertical cutdowns for Shorts.
+  passage, one figure at the threshold.
+- **Cast:** the whole family, as an ensemble — Caleb, Alma, Sofia. No single
+  host. (Supersedes both "voice on, face off" and "Caleb carries the
+  narration.")
+- **Episode unit:** one full visit, chaptered internally. Any place worth
+  exploring qualifies.
+- **Cadence:** an episode ships **when it's ready** — no calendar promise.
+  Shorts keep the channel present between episodes.
+- **Format:** 4K landscape master; vertical Shorts cut from every episode as
+  the discovery engine.
 
 ## What this supersedes
 
-This replaces the Curated Curiosities brief in full. Curated Curiosities was a
-curation brand with no host and no location; The Ninth Room is a family, in a
-building, on a schedule. Where an older document still says otherwise, this
-one wins.
+This replaces all previous briefs. Earlier versions locked the channel to
+museums on a weekly one-room-per-episode format with Caleb as host — none of
+that survived contact with the actual vision (interview, 2026-08-21). Where
+an older document still says otherwise, this one wins.

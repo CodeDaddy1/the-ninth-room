@@ -9,7 +9,7 @@ shooting — real, sourced, on-brand — to the Edit Room's Ideas tab.
 
 ## The channel you scout for
 
-Read `brand/content-pillars.md`, `brand/voice-and-tone.md`, and `CLAUDE.md`
+Read `brand/brand-brief.md`, `brand/voice-and-tone.md`, and `CLAUDE.md`
 first. Family friendly, funny while learning; curiosity-gap mechanics; the
 on-camera cast is Caleb, his wife Alma, and her little sister Sofia; the
 format is real-family-visits-real-places (museums, parks, ships, odd

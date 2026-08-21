@@ -1,8 +1,9 @@
 # The Ninth Room
 
-A YouTube channel — a family walks a museum end to end, one room a week, and
-the premise is in the name: **nine rooms, and one of them isn't on the map** —
-and the fully local program that edits its videos automatically.
+A YouTube channel — a family explores the world's most interesting places
+(museums, parks, ships, anywhere worth wondering about), and **every episode
+finds the one thing that wasn't on the map** — and the fully local program
+that edits its videos automatically.
 
 Caleb shoots raw footage (talking-head takes + b-roll), drops it in
 `work/<slug>/footage/`, and runs `/produce <slug>` in Claude Code. The
@@ -29,8 +30,8 @@ source of truth — this repo holds a copy in `brand/design-system/`.
   retired 2026-08-18; its proven rendering techniques live on in
   `docs/reference-renderers/`.
 - The channel was **Curated Curiosities** until 2026-08-20. The rebrand to The
-  Ninth Room changed the name, the identity, and the format (one room a week,
-  family on camera). The old brand is kept for reference in
+  Ninth Room changed the name, the identity, and the format (full-visit
+  episodes, the whole family on camera as an ensemble). The old brand is kept for reference in
   `brand/_retired-curated-curiosities/`.
 - The repo lives at `~/Projects/the-ninth-room`. A **symlink at the old
   `~/Projects/curated-curiosities` path is intentional** — Resolve stores

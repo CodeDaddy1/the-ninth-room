@@ -102,6 +102,23 @@ shadow only. Vector masters and every export live in
 There are **no filled cards on video.** An option is an outline; the answer is
 that outline flooding with yellow, and its type turns navy as the fill lands.
 
+## The chapter door meter
+
+The channel's structural graphic, on every `chapter` and `streak` card: **one
+small arch-topped door per chapter, lit as the episode progresses.** The
+count is the episode's REAL chapter total (HMNS: five stops, five doors) —
+never a fixed nine. The nine doors live on as the brand emblem (the cover's
+colonnade, the end card), but the meter is honest about this video's
+structure.
+
+| | |
+|---|---|
+| Door | arch-topped box, radius exactly half its width — the small variant of the mark's own geometry |
+| Lit (done/current) | filled yellow |
+| Unlit | 2px chalk hairline outline, no fill |
+| Reveal | doors pop in sequence, 80ms apart |
+| No figure | the figure drops below 48px tall, per the mark's size ladder |
+
 ## Layout
 
 Insets are fixed and never nudged.

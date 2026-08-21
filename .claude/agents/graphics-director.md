@@ -44,7 +44,7 @@ default. Set it deliberately.
 | `lower_third` | A verified fact. The workhorse | `kicker`, `text`, `subtext` (specimen name, serif italic) |
 | `stat` | A number that deserves the whole frame | `kicker`, `stat`, `text` |
 | `callout` | Point at something in frame — square frame, crop marks, leader line | `kicker`, `text`, `x`, `y` |
-| `chapter` | A room or act turn, with the nine-square meter | `kicker`, `text`, `active` (1–9) |
+| `chapter` | A chapter turn, with the door meter | `kicker`, `text`, `active` (doors lit), `chapters` (the episode's real total) |
 | `payoff` | The takeaway. Serif italic. **Once per episode** | `text`, `attribution` |
 | `caption_plate` | A single spoken line, centred | `speaker`, `text` |
 | `watermark` | The mark, top right | — |
@@ -154,6 +154,7 @@ line per card (kit_type — copy).
 
 Chapter transitions want ONE recurring graphic that encodes the episode's
 structural metaphor and CHANGES STATE each time. For this channel that graphic
-already exists and is built in: the **nine-square room meter** on the `chapter`
-card. Increment `active` each turn. A tally (`scoreboard`) appears only if the
-episode actually keeps score.
+already exists and is built in: the **chapter door meter** on the `chapter`
+card — one small arch door per chapter, lit as completed. Set `chapters` to
+the episode's real chapter count and increment `active` each turn. A tally
+(`scoreboard`) appears only if the episode actually keeps score.

@@ -165,7 +165,10 @@ def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
 _EDITABLE = ("kicker", "text", "subtext", "subtext_italic", "emphasis",
              "stat", "attribution", "rows", "entries", "emojis",
              "duration", "at", "size", "speaker", "cta",
-             "sides", "travel_ms", "accent", "x", "y")
+             "sides", "travel_ms", "accent", "x", "y",
+             # chapter door meter + the Cyanotype engagement screens
+             "active", "chapters", "answer", "value", "low", "high",
+             "reveal_ms", "style")
 
 # Starter copy for a freshly created overlay, per kit screen. Keys must be
 # names overlay_kit.RENDERERS knows (the big emoji screen is "emoji").
@@ -183,7 +186,8 @@ _EDITABLE = ("kicker", "text", "subtext", "subtext_italic", "emphasis",
 _KIT_TEMPLATES = {
     "lower_third": {"kicker": "True fact", "text": "Your fact goes here"},
     "hook": {"kicker": "The setup", "text": "A headline that opens the loop"},
-    "chapter": {"kicker": "Chapter", "text": "Chapter title"},
+    "chapter": {"kicker": "", "text": "Chapter title",
+                "active": 1, "chapters": 5},
     "transition": {"kicker": "Next up", "text": "Chapter title"},
     "stat": {"kicker": "By the numbers", "stat": "42",
              "text": "what the number means"},
@@ -232,7 +236,8 @@ _KIT_TEMPLATES = {
               "value": 70, "low": "Normal", "high": "Very"},
     "verdict": {"kicker": "The verdict", "text": "This room",
                 "value": 4, "subtext": "Four doors out of five"},
-    "streak": {"kicker": "Where we are", "text": "Room five", "active": 5},
+    "streak": {"kicker": "Where we are", "text": "Halfway",
+               "active": 3, "chapters": 5},
 
     # --- outro beats one and two (three is "outro", the end plate) ---
     "takeaway": {"kicker": "The takeaway",

@@ -8,10 +8,13 @@ One line per study: title, source, the single biggest takeaway.
 ## What these studies became
 
 The progress-map finding from both Hangtime studies is now **built in**, not a
-per-video decision: the `chapter` card carries a nine-square room meter
-(`active` = rooms done), which is the channel's own structural graphic and
-changes state at every chapter turn. See `brand/engagement-playbook.md` and
-the `chapter` / `streak` screens in `pipeline/overlay_kit.py`.
+per-video decision: the `chapter` card carries a door meter — one small arch
+per chapter (`chapters` = the episode's real total, `active` = doors lit) —
+which is the channel's own structural graphic and changes state at every
+chapter turn. This honours the second study's warning directly: the graphic
+encodes THIS video's structure, not a fixed nine. See
+`brand/engagement-playbook.md` and the `chapter` / `streak` screens in
+`pipeline/overlay_kit.py`.
 
 The second study's warning still stands — the progress graphic has to encode
 *this* video's structure. For The Ninth Room it always does, because the

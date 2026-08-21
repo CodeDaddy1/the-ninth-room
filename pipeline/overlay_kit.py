@@ -662,24 +662,48 @@ def callout(card: "dict", F: "dict") -> str:
 
 
 def chapter(card: "dict", F: "dict") -> str:
-    """6 · Chapter card — the progress meter doubles as the chapter marker.
+    """6 · Chapter card — the door meter doubles as the chapter marker.
 
-    Nine squares, `active` of them lit, so the viewer always knows how much is
-    left. Titles are two or three words; longer copy shrinks rather than wraps
-    into the meter. Holds >= 2.5s (the validator enforces the duration).
+    One small arch-topped DOOR per chapter (the design system's RoomProgress
+    `shape="arch"` variant), lit as the episode progresses. `chapters` is the
+    episode's REAL chapter total — HMNS has five stops, so five doors — and
+    `active` is how many are lit. The nine doors live on as the brand emblem
+    (cover colonnade, end card); the meter is honest about this video's
+    structure, which is the second Hangtime study's warning applied.
+
+    Doors are arch-topped boxes with radius exactly half their width — the
+    small variant of the mark's own geometry — and carry no figure, per the
+    size ladder (the figure drops below 48px tall). Defaults keep old cards
+    rendering: no `chapters` means nine, as before.
+
+    Holds >= 2.5s (the validator enforces the duration).
     """
     text = card.get("text", "")
     size = _fit(text, 150 if not F["portrait"] else 110, lines=2,
                 budget=F["inner"])
-    active = int(card.get("active", 3) or 3)
+    # `or 3` would turn an explicit active=0 (a cold open — nothing done yet)
+    # into 3 lit doors. Only substitute the default when the key is ABSENT.
+    try:
+        active = int(card.get("active", 3))
+    except (TypeError, ValueError):
+        active = 3
+    try:
+        total = int(card.get("chapters") or 9)
+    except (TypeError, ValueError):
+        total = 9
+    total = max(1, min(12, total))
+    active = max(0, min(total, active))
+    # 20px wide, 25px tall keeps the 8:10 mark ratio; radius 10 = half width.
     rooms = []
-    for i in range(9):
+    for i in range(total):
         if i < active:
-            rooms.append('<div style="width:20px;height:20px;background:%s;'
+            rooms.append('<div style="width:20px;height:25px;background:%s;'
+                         'border-radius:10px 10px 0 0;'
                          'animation:yDot 200ms ease %dms both"></div>'
                          % (YELLOW, 160 + i * 80))
         else:
-            rooms.append('<div style="width:20px;height:20px;border:2px solid %s;'
+            rooms.append('<div style="width:20px;height:25px;border:2px solid %s;'
+                         'border-radius:10px 10px 0 0;'
                          'box-sizing:border-box"></div>' % HAIRLINE)
     sub = ""
     if card.get("subtext"):
@@ -701,7 +725,8 @@ def chapter(card: "dict", F: "dict") -> str:
 </div>""" % {"wash": _wash(WASH_CHAPTER), "left": F["chapter_left"],
              "side": F["side"], "rooms": "".join(rooms), "display": FONT_DISPLAY,
              "cyan": CYAN,
-             "kicker": _caps(card.get("kicker") or "Room %d of nine" % active),
+             "kicker": _caps(card.get("kicker")
+                             or "Chapter %d of %d" % (max(active, 1), total)),
              "title": _display(size, "-.055em", lh="1"), "ease": EASE_REVEAL,
              "text": _e(text), "yellow": YELLOW, "easerule": EASE_RULE, "sub": sub}
 

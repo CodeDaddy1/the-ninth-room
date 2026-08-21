@@ -58,14 +58,14 @@ of them is a filled box. `kit_type` is the value to put in `graphics_plan.json`.
 |---|---|---|
 | `rank` | Ordered list, only the top row yellow | Three to five things have a real order — most venomous, oldest, heaviest |
 | `scale` | Dimension bracket with a marker | One thing sits on a spectrum. *"How weird is it?"* |
-| `verdict` | Lit doors out of five — **never stars** | Closing a room with a rating. The doors are the brand's rating unit |
-| `streak` | The nine-square meter at full size | Marking progress as its own beat, usually mid-episode |
+| `verdict` | Lit doors out of five — **never stars** | Closing a visit (or a chapter) with a rating. The doors are the brand's rating unit |
+| `streak` | The chapter door meter at full size — one door per chapter, lit as you go | Marking progress as its own beat, usually mid-episode |
 
 ---
 
 ## Rhythm across an episode
 
-A ten-minute room, roughly:
+A ten-minute episode, roughly:
 
 | Where | Card | Why there |
 |---|---|---|
@@ -74,17 +74,19 @@ A ten-minute room, roughly:
 | 4:00 | `quiz` or `true_false` | The educational centre of the episode |
 | 5:30 | `streak` | Structural breath — shows how much is left |
 | 7:00 | `rank` or `scale` | Second teaching beat, lighter than the first |
-| 9:00 | `verdict` | Closes the room |
-| 9:30 | `poll` | Sets up next week, and honours last week |
+| 9:00 | `verdict` | Closes the visit |
+| 9:30 | `poll` | Sets up the next episode, and honours the last one |
 
 Adjust freely. The only fixed points are: something in the first 20 seconds,
 and nothing in the last 30 (the outro's three beats own that space).
 
-## Shorts
+## Shorts (the discovery engine)
 
-A vertical cut gets **exactly one** card, and it must be answerable in the
-first five seconds. `countdown` and `this_that` are the two that survive a
-45-second cut. Everything else needs setup a Short doesn't have.
+Shorts are how new viewers find the channel — standalone moments recut
+vertical, released steadily between episodes. A vertical cut gets **exactly
+one** card, and it must be answerable in the first five seconds. `countdown`
+and `this_that` are the two that survive a 45-second cut. Everything else
+needs setup a Short doesn't have.
 
 All thirteen cards reposition for 1080×1920 automatically — the renderer uses
 the vertical insets (180 top, 320 bottom, 64 sides) so nothing lands under the

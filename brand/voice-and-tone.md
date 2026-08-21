@@ -14,7 +14,9 @@ it. Plain, warm, faintly wry. Confidence without hype.
   with the fact removed is somebody else's joke.
 - **Fun first, educational second.** Both, always — but the laugh is the door
   and the fact is the room. Lead with the door.
-- **Family friendly, always.** Kids watch with parents. No profanity, no
+- **Family friendly in rating, general in audience.** Kids can watch
+  everything, but the writing respects an adult's intelligence — the target
+  is curious viewers of any age. No profanity, no
   innuendo, no gore for shock. Poison, death and predators are fair game
   handled the way a good museum handles them: curious, light, accurate.
 - **Confident and honest.** State what's known plainly, flag what isn't.
@@ -77,9 +79,12 @@ document nobody reads is not a standard.
 
 ## The family on camera
 
-Caleb, **Alma** (his wife) and **Sofia** (Alma's little sister — *not* Caleb's
-daughter). Their real reactions are the show. Let them be funny. Cut around
-flubs, never at someone's expense. Never write "Mom" on a card or scoreboard.
+An **ensemble — no single host.** Caleb, **Alma** (his wife) and **Sofia**
+(Alma's little sister — *not* Caleb's daughter) carry the show equally:
+everyone gets bits, votes, and camera time, and the dynamic between the
+three of them IS the voice. Their real reactions are the show. Let them be
+funny. Cut around flubs, never at someone's expense. Never write "Mom" on a
+card or scoreboard.
 
 Whisper mis-transcribes Sofia as "Sophia"; `brand/names.json` corrects it
 automatically at transcription. Check it before shipping anyway.

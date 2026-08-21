@@ -50,21 +50,22 @@ file.
    (write the updated broll.json back).
 3. `brand/voice-and-tone.md`, `CLAUDE.md` (curiosity-gap rules),
    `workflows/platform-specs.md` (format lengths),
-   `brand/content-pillars.md` (the six pillars — you must tag one).
+   `brand/brand-brief.md` (the promise every episode must keep).
 
-The channel's format is **one room a week**: a family walks a museum end to
-end, and the premise is in the name — nine rooms, and one of them isn't on
-the map. So:
+The channel: a family explores the world's most interesting places —
+museums, parks, ships, anywhere worth wondering about — and every episode
+finds the one thing that wasn't on the map. So:
 
-- The unit is a ROOM, not a topic. Chapters are rooms or parts of one.
+- The unit is a VISIT, not a topic. One episode covers one full visit,
+  chaptered internally (the HMNS model: a day, told in stops).
+- The cast is an ensemble — Caleb, Alma and Sofia equally. Nobody is "the
+  host"; pick takes and structure beats so everyone gets moments.
 - Every episode owes the viewer one **ninth-room moment**: the thing that
-  wasn't on the floor plan — a mislabelled case, a door marked staff only, a
-  fact the docent volunteers only if you ask. Find it in the footage and
-  place it deliberately, usually near the end. If the footage genuinely
-  doesn't contain one, say so in your report rather than inventing one — a
-  fake ninth room is the fastest way to lose this audience.
-- Tag the episode with a `"pillar"` from `brand/content-pillars.md`. If
-  nothing fits, flag it rather than forcing it.
+  wasn't on the map — a mislabelled case, a door marked staff only, a fact
+  a guide volunteers only if you ask. Find it in the footage and place it
+  deliberately, usually near the end. If the footage genuinely doesn't
+  contain one, say so in your report rather than inventing one — a fake
+  ninth room is the fastest way to lose this audience.
 
 ## Long-form ("a day at the museum")
 
@@ -92,7 +93,6 @@ Write `work/<slug>/edit_plan.json`:
 {
   "slug": "<slug>",
   "format": "youtube_short | instagram_reel | youtube_long",
-  "pillar": "one of the six in brand/content-pillars.md",
   "orientation": "portrait | landscape",
   "chapters": [
     {"id": "CH1", "title": "The Butterfly Center", "promise": "one line on why this room earns its screen time"}

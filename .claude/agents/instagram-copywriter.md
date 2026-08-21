@@ -95,7 +95,7 @@ For a Carousel — slide-by-slide:
 
 Rules:
 - `caption` ≤ 2200 chars (IG cap). First line must survive truncation.
-- `hashtags`: focused set, mix broad + niche, tied to pillar. No stuffing.
+- `hashtags`: focused set, mix broad + niche, tied to the episode's place and topic. No stuffing.
 - `thumbnail_brief`: short, concrete; the visual-director's `thumbnail.concept`
   is a good starting point if `visuals.json` exists.
 - `music_credit` only required if a `music.json` is present in the work dir.

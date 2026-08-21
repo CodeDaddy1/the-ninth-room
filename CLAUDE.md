@@ -11,8 +11,9 @@ is, what the program does, and the rules every agent follows.
 
 ## The channel in one line
 
-**The Ninth Room** — a family walks a museum end to end, one room a week, and
-the premise is in the name: nine rooms, and one of them isn't on the map.
+**The Ninth Room** — a family explores the world's most interesting places —
+museums, parks, ships, anywhere worth wondering about — and every episode
+finds the one thing that wasn't on the map.
 
 Fun first, educational second, on purpose. The laugh and the fact are the same
 moment. Full brief: `brand/brand-brief.md`.
@@ -130,13 +131,16 @@ returned canvas here. Never the other way round.
 
 ## The channel's personality
 
-**Family friendly, fun, funny while learning.** Kids watch with parents. The
-humour comes from how genuinely strange the real world is, and from the
-family's real reactions on camera — never from mockery, profanity, or shock.
-An episode should teach something true and make someone laugh on the way.
+**Fun first, funny while learning, family-friendly in rating.** The audience
+is general curious viewers of any age — not kids specifically, though kids
+can watch everything. The humour comes from how genuinely strange the real
+world is, and from the family's real reactions on camera — never from
+mockery, profanity, or shock. An episode should teach something true and
+make someone laugh on the way.
 
-On-screen family: Caleb, **Alma** (his wife) and **Sofia** (Alma's little
-sister, *not* Caleb's daughter). Never "Mom" on a card. Whisper mishears
+On-screen family — an **ensemble, no single host**: Caleb, **Alma** (his
+wife) and **Sofia** (Alma's little sister, *not* Caleb's daughter). Everyone
+gets bits, votes, and camera time. Never "Mom" on a card. Whisper mishears
 Sofia as "Sophia"; `brand/names.json` corrects it automatically.
 
 See `brand/voice-and-tone.md` — and note its hard rules, which the renderer
@@ -166,7 +170,7 @@ exactly this. Which card, how often, and how they fail:
 
 | Path | What it's for |
 |---|---|
-| `brand/*.md` | Brief, audience, pillars, voice, visual identity, engagement playbook |
+| `brand/*.md` | Brief, audience, voice, visual identity, engagement playbook |
 | `brand/design-system/` | Synced from Claude Design — tokens, canvases, channel assets |
 | `brand/names.json` | Proper-noun corrections applied to every transcript |
 | `brand/fonts/` | Bricolage + Newsreader, for Pillow (captions) |
@@ -185,8 +189,11 @@ exactly this. Which card, how often, and how they fail:
    fact-checking this in front of their kid.
 2. **Curiosity, not sensationalism.**
 3. **Respect the payoff**, and deliver a ninth room.
-4. **Stay on-pillar** (`brand/content-pillars.md`); flag misfits.
-5. **One voice** (`brand/voice-and-tone.md`) — Caleb's, since he's on camera.
+4. **Any place worth exploring qualifies** — there is no pillar taxonomy.
+   The bar is the brand promise, not a category: something true, something
+   funny, and a ninth-room moment.
+5. **One voice** (`brand/voice-and-tone.md`) — the family's, collectively.
+   The system says "we", never "I"; nobody on camera is "the host".
 6. **Design system first.** If it isn't in the Cyanotype kit, don't invent it
    here — brief it into Claude Design and re-implement what comes back.
 7. **Platform-native** (`workflows/platform-specs.md`): safe zones, lengths,

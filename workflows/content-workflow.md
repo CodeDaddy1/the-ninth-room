@@ -15,7 +15,7 @@ How a room becomes an episode. Every stage maps to something real: an agent in
      └────────────────── what performed ◀───────────────────────┘
 ```
 
-Everything below is slug-scoped: one room, one `work/<slug>/`.
+Everything below is slug-scoped: one visit, one `work/<slug>/`.
 
 ## Stage 0 — Scout (channel level)
 **Command:** "scout ideas"
@@ -54,7 +54,7 @@ whisper runs — Sofia, not Sophia.
 contract forbids skipping the pitch.
 
 **Out:** `edit_plan.json` — theme, hook, beat order, take picks and kill list,
-b-roll placement, transition policy, pillar tag.
+b-roll placement, transition policy.
 
 ## Stage 4 — Graphics + captions
 **Agents:** `graphics-director` → `graphics_plan.json`,
