@@ -1,22 +1,31 @@
-# Curated Curiosities — Project Context
+# The Ninth Room — Project Context
 
-This is the master context file. Read it first. It tells you what the brand is,
-what the program does, and the rules every agent follows.
+This is the master context file. Read it first. It tells you what the channel
+is, what the program does, and the rules every agent follows.
 
-## The brand in one line
+> **Repo path note.** The directory is `~/Projects/the-ninth-room`. A
+> compatibility **symlink** at the old `~/Projects/curated-curiosities` path
+> is deliberate and must stay: DaVinci Resolve stores absolute media paths,
+> and the shipped HMNS timeline still points at the old location. Deleting
+> the symlink takes that timeline offline until every clip is relinked.
 
-**Curated Curiosities** surfaces the fascinating, overlooked, and surprising —
-curated so the audience gets the wonder without the digging.
+## The channel in one line
+
+**The Ninth Room** — a family walks a museum end to end, one room a week, and
+the premise is in the name: nine rooms, and one of them isn't on the map.
+
+Fun first, educational second, on purpose. The laugh and the fact are the same
+moment. Full brief: `brand/brand-brief.md`.
 
 ## What this repo is (v2, 2026-08-18 pivot)
 
 A **fully local DaVinci Resolve auto-editor**. Caleb shoots raw footage —
-talking-head takes of himself (with flubs and retakes) plus b-roll — drops it
-in `work/<slug>/footage/`, and runs `/produce <slug>`. The pipeline
-transcribes everything, picks the best takes, cuts dead space, designs the
-story, renders brand design cards, builds the timeline in DaVinci Resolve
-(cuts, transitions, graphics, captions), and renders the finished video to
-`work/<slug>/deliverables/` — automatically, end to end.
+talking-head takes of himself and the family (with flubs and retakes) plus
+b-roll — drops it in `work/<slug>/footage/`, and runs `/produce <slug>`. The
+pipeline transcribes everything, picks the best takes, cuts dead space,
+designs the story, renders brand design cards, builds the timeline in DaVinci
+Resolve (cuts, transitions, graphics, captions), and renders the finished
+video to `work/<slug>/deliverables/` — automatically, end to end.
 
 The build plan (phases, DoD, risks) lives in `ULTRA-PLAN.md`. The verified
 Resolve ground rules live in `docs/resolve-findings.md` — read it before
@@ -53,96 +62,132 @@ Claude session and read what the hub writes:
 - **Shot needs**: review.json entries may carry `"needs": ["broll","sfx",
   "cards"]` — route them in the fixer round: broll → story/b-roll pass,
   sfx → sound-designer, cards → graphics-director.
-- **Ideas (channel-level)**: "scout ideas" → the scout agent
-  (`.claude/agents/scout.md`) web-searches and writes `work/_scout/
-  ideas.json`; Caleb saves/develops/dismisses on the Ideas tab
-  (`ideas_state.json`) and the next round honors those verdicts.
-- **Assets**: Caleb files requests on the Assets tab
-  (`work/<slug>/asset_requests.json`); "source assets for <slug>" → the
-  asset-sourcer downloads licensed stock into `work/<slug>/assets/` with a
-  manifest; the tab previews, removes, or promotes assets into footage as
-  b-roll.
+- **Ideas (channel-level)**: "scout ideas" → the scout agent writes
+  `work/_scout/ideas.json`; Caleb saves/develops/dismisses on the Ideas tab.
+- **Assets**: Caleb files requests on the Assets tab; "source assets for
+  <slug>" → the asset-sourcer downloads licensed stock with a manifest.
 
-## The agent team (v2)
+## The agent team
 
 1. **story-designer** — reads take transcripts + b-roll catalog + brand docs,
-   writes `edit_plan.json`: the theme/problem the video solves, the hook,
+   writes `edit_plan.json`: the theme/problem the episode solves, the hook,
    beat order, take picks and kill list, b-roll placement, transition policy.
-2. **graphics-director** — decides which moments get design cards and writes
-   their copy (`graphics_plan.json`).
+2. **graphics-director** — decides which moments get cards and writes their
+   copy (`graphics_plan.json`). Reads `brand/engagement-playbook.md`.
 3. **caption-editor** — turns the chosen takes' transcript into clean caption
    lines (text from the cleaned script, timing from whisper — never caption
    raw transcript).
 4. **qc-reviewer** — checks the rendered output against the edit plan.
-5. **post-production** — editing, color grading, and motion-graphics
-   specialist. Use it when a render looks wrong (blown highlights, muddy
-   shadows, bad cuts), when cards/captions/animation need designing or
-   fixing, or when Resolve misbehaves. It measures and looks at frames
-   rather than trusting settings.
+5. **post-production** — editing, colour grading, motion-graphics specialist.
+   Use it when a render looks wrong, when cards/captions/animation need
+   fixing, or when Resolve misbehaves. It measures and looks at frames rather
+   than trusting settings.
 
-## Brand tokens come from the design system
+Dormant survivors from v1: `instagram-copywriter`, `performance-analyst`.
 
-`brand/design-system/tokens/*.css` is synced from the "Curated Curiosities
-Design System" project on claude.ai/design. `pipeline/design_tokens.py` reads
-it, so cards use the same navy/amber/cream, Playfair Display, and Work Sans
-as the thumbnails, site, and social kits. Re-pull the tokens after changing
-the design system; don't hardcode brand values in the pipeline.
+## The brand system
 
-Dormant survivors from v1: `instagram-copywriter` (post copy, reactivate
-later), `performance-analyst` (metrics loop, deferred).
+**Source of truth is Claude Design**, not this repo. The *The Ninth Room
+Design System* project (`4b8bb4a4-b234-45ed-aa84-b35ce761648b`) owns the
+identity; `brand/design-system/` is a synced copy.
+
+| Path | What it holds |
+|---|---|
+| `brand/design-system/tokens/*.css` | The five token files. `pipeline/design_tokens.py` reads them |
+| `brand/design-system/canvases/*.dc.html` | The ground-truth canvases, including the Cyanotype kit |
+| `brand/design-system/channel-assets/` | 153 production files — SVG masters, PNG, JPG, every YouTube slot at exact size |
+
+**Never hardcode a brand value in the pipeline.** Change it in the design
+system, re-pull the tokens, re-bake.
+
+The identity is **Cyanotype**: navy ground, chalk type, one yellow moment,
+cyan for anything structural. The mark is the **Archway**. Full spec:
+`brand/visual-identity.md`.
+
+### The one visual rule
+
+> **No filled plates, and one yellow moment per frame.**
+
+Both halves are enforced in `pipeline/overlay_kit.py`: no text container in
+the kit carries a background, and `emphasize()` marks only the first emphasis
+term. When bright footage threatens legibility the answer is a gradient scrim
+or the chalk double-shadow — **never a box.**
+
+### Overlays come from the design system
+
+`pipeline/overlay_kit.py` is the runtime version of the Cyanotype kit canvas —
+same geometry, same keyframes, same delays, copy parameterised. Its
+`RENDERERS` dict is the authoritative list — **35 keys, 31 distinct screens**
+(the eight overlays, thirteen engagement cards, four transitions in one
+component, the three outro beats, three worked examples) plus four aliases:
+`hook_title`→`hook`, `section`→`lower_third`, `quote`→`payoff`,
+`end_plate`→`outro`. Read the dict, don't trust a count in prose. `pipeline/animate.py`
+renders them by pausing every CSS animation and seeking `currentTime` frame by
+frame in headless Chrome, so what ships is what the canvas shows.
+
+To evolve the look: design it in Claude Design first, then re-implement the
+returned canvas here. Never the other way round.
 
 ## The channel's personality
 
 **Family friendly, fun, funny while learning.** Kids watch with parents. The
-humor comes from how genuinely strange the real world is, and from the family's
-real reactions on camera — never from mockery, profanity, or shock. A video
-should teach something true and make someone laugh on the way. See
-`brand/voice-and-tone.md`.
+humour comes from how genuinely strange the real world is, and from the
+family's real reactions on camera — never from mockery, profanity, or shock.
+An episode should teach something true and make someone laugh on the way.
+
+On-screen family: Caleb, **Alma** (his wife) and **Sofia** (Alma's little
+sister, *not* Caleb's daughter). Never "Mom" on a card. Whisper mishears
+Sofia as "Sophia"; `brand/names.json` corrects it automatically.
+
+See `brand/voice-and-tone.md` — and note its hard rules, which the renderer
+enforces: no exclamation marks and honest numbers only. **Emoji are
+encouraged** — see `voice-and-tone.md` and the `hype-director` agent. (The
+design system readme's "no emoji" line is overridden; Caleb, 2026-08-20.)
 
 ## The core mechanic: the curiosity gap
 
-Every video opens a loop the viewer *needs* closed. The hook creates the gap;
-the content delivers the payoff. The non-negotiable rule:
+Every episode opens a loop the viewer *needs* closed. The hook creates the
+gap; the room delivers the payoff.
 
-> **The payoff must always land.** We open curiosity gaps honestly and we
-> close them completely. No bait-and-switch, no withheld answer for
-> engagement. Clickbait that doesn't deliver is the fastest way to kill a
-> curiosity brand.
+> **The payoff must always land.** We open curiosity gaps honestly and close
+> them completely. No bait-and-switch, no withheld answer for engagement.
+
+And the channel's own promise on top of that: every episode owes the viewer
+one **ninth-room moment** — the thing that wasn't on the map. It cannot be
+manufactured. If we didn't find one, say so and let the takeaway carry it.
+
+## Engagement is the retention strategy
+
+Hand the viewer a job every 60–90 seconds. Thirteen engagement cards exist for
+exactly this. Which card, how often, and how they fail:
+`brand/engagement-playbook.md`. The graphics-director reads it; so should you.
 
 ## Where things live
 
 | Path | What it's for |
 |---|---|
-| `brand/*.md` | Mission, audience, pillars, voice, visual identity |
-| `brand/names.json` | Proper-noun corrections applied to every transcript (Sofia, …) |
+| `brand/*.md` | Brief, audience, pillars, voice, visual identity, engagement playbook |
+| `brand/design-system/` | Synced from Claude Design — tokens, canvases, channel assets |
+| `brand/names.json` | Proper-noun corrections applied to every transcript |
+| `brand/fonts/` | Bricolage + Newsreader, for Pillow (captions) |
+| `brand/_retired-curated-curiosities/` | The old brand. Reference only |
 | `workflows/*.md` | Cadence + platform specs (safe zones, lengths) |
 | `pipeline/` | The Python pipeline (see `pipeline/__init__.py` for the module map) |
 | `docs/resolve-findings.md` | Verified Resolve API ground rules |
 | `docs/reference-renderers/` | Proven whisper/Pillow/ffmpeg techniques from v1 |
-| `work/<slug>/` | Per-video working dir (gitignored): footage in, deliverables out |
+| `work/<slug>/` | Per-episode working dir (gitignored): footage in, deliverables out |
 | `.claude/reminders.md` | Things only Caleb can do — append, don't just mention in chat |
 
 ## Rules every agent follows
 
 1. **Accuracy is the brand.** Surprising claims must be verifiable; frame the
-   unconfirmed as "claimed/disputed," never settled fact.
+   unconfirmed as "claimed/disputed," never settled fact. A parent is
+   fact-checking this in front of their kid.
 2. **Curiosity, not sensationalism.**
-3. **Respect the payoff.** See above.
+3. **Respect the payoff**, and deliver a ninth room.
 4. **Stay on-pillar** (`brand/content-pillars.md`); flag misfits.
 5. **One voice** (`brand/voice-and-tone.md`) — Caleb's, since he's on camera.
-6. **Platform-native** (`workflows/platform-specs.md`): safe zones, lengths,
+6. **Design system first.** If it isn't in the Cyanotype kit, don't invent it
+   here — brief it into Claude Design and re-implement what comes back.
+7. **Platform-native** (`workflows/platform-specs.md`): safe zones, lengths,
    burned-in captions for mute-first viewing.
-
-## Overlays come from Claude Design
-
-`pipeline/overlay_kit.py` is the runtime version of the **HMNS Overlay Kit v2**
-canvas in the "YouTube text overlay project" on claude.ai/design — same markup,
-CSS keyframes, easing and delays, with the copy parameterised. Accent is
-`#12B76A`, type is Gabarito + Manrope. `pipeline/animate.py` renders it by
-pausing every CSS animation and seeking `currentTime` frame by frame in
-headless Chrome, so what ships is what the canvas shows.
-
-To evolve the look: use the **overlay-designer** subagent to write a brief for
-Claude Design, design it there, then re-implement the returned canvas here.
-Imagery an overlay needs comes from the **asset-sourcer** subagent, which
-verifies the license on every file.

@@ -37,8 +37,13 @@ closing line, and what strong material didn't fit. **Stop for Caleb.**
 ## CP3 — Graphics & captions 🛑 REVIEW
 
 Use **graphics-director** → `graphics_plan.json` and **caption-editor** →
-`captions.json`. Render sample stills/animations (`pipeline.animate`) and show
-them composited over real frames. **Stop for Caleb.**
+`captions.json`, then **hype-director** for the energy layer (emoji pops,
+zoom punches, the playful cards). Every episode wants an engagement card
+roughly every 60–90s — `brand/engagement-playbook.md` says which one and why.
+
+Render sample stills/animations (`pipeline.animate`) and show them composited
+over real frames — including the BRIGHTEST frame in the episode, which is the
+legibility acceptance test. **Stop for Caleb.**
 
 ## CP4 — Assembly 🛑 REVIEW
 
@@ -55,6 +60,8 @@ master path plus a preview.
 
 - Use the **post-production** subagent for anything about grading, cuts,
   animation, or Resolve misbehaving.
+- Use **sound-designer** after picture lock for the SFX cue sheet; Caleb
+  mixes in post, so nothing is rendered into the video.
 - Never report a stage done without measuring it (see that agent's checklist).
 - If the bridge is down, `pipeline.cli bridge ensure` starts Resolve and the
   bridge; relay the manual step verbatim only if that fails.

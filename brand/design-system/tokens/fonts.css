@@ -1,0 +1,8 @@
+/* The three brand faces, all Google Fonts. Bricolage Grotesque (display + structural),
+   Newsreader (wordmark, quotes, species labels), Manrope (documents and UI chrome).
+
+   The renderer runs headless Chrome OFFLINE, so this @import is a convenience for
+   documents only — on-video rendering resolves the families from the copies installed
+   in ~/Library/Fonts (Bricolage, Newsreader, Manrope all present) and from the
+   repo copies in brand/fonts/ used by Pillow for captions. */
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400;1,6..72,600&family=Manrope:wght@400;500;600;700;800&display=swap");

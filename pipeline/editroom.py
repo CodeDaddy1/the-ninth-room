@@ -169,6 +169,17 @@ _EDITABLE = ("kicker", "text", "subtext", "subtext_italic", "emphasis",
 
 # Starter copy for a freshly created overlay, per kit screen. Keys must be
 # names overlay_kit.RENDERERS knows (the big emoji screen is "emoji").
+#
+# This dict is what the "+ new overlay" menu offers, and it is NOT the same
+# set as RENDERERS: aliases (hook_title/section/quote/end_plate) and the
+# worked-example screens (compare/flight_path/contact, which need images)
+# are deliberately absent. Everything a person would reach for should be
+# here — the engagement cards especially, since handing the viewer a job is
+# the channel's retention strategy (brand/engagement-playbook.md).
+#
+# What breaks if a screen is missing: it renders fine from a graphics_plan
+# but cannot be created by hand in the Edit Room, so it quietly never
+# gets used.
 _KIT_TEMPLATES = {
     "lower_third": {"kicker": "True fact", "text": "Your fact goes here"},
     "hook": {"kicker": "The setup", "text": "A headline that opens the loop"},
@@ -188,10 +199,47 @@ _KIT_TEMPLATES = {
     "reaction": {"text": "NO WAY.", "attribution": "Sofia"},
     "emoji": {"emojis": [{"char": "😱"}]},
     "watermark": {},
-    "outro": {"kicker": "Thanks for watching",
-              "text": "See you in the next room.",
-              "subtext": "New rooms every week",
-              "cta": "Subscribe"},
+    "outro": {"kicker": "", "text": "", "cta": "",
+              "subtext": "Nine rooms. One you can\u2019t find."},
+
+    # --- the rest of the eight overlays ---
+    "callout": {"kicker": "Look here", "text": "What to notice",
+                "x": 1180, "y": 400, "size": 380},
+    "caption_plate": {"speaker": "Caleb", "text": "A single spoken line"},
+
+    # --- the thirteen engagement cards (brand/engagement-playbook.md) ---
+    "quiz": {"kicker": "One of these is true", "text": "What did it eat?",
+             "rows": [{"label": "The wrong one"},
+                      {"label": "The right one", "correct": True},
+                      {"label": "The other wrong one"}]},
+    "true_false": {"kicker": "True or false", "answer": "false",
+                   "text": "A cocoon and a chrysalis are the same thing"},
+    "countdown": {"kicker": "Guess before we do", "text": "How old is this?",
+                  "subtext": "Say it out loud. We\u2019ll wait."},
+    "prediction": {"kicker": "Call it now", "text": "How many will land on Caleb?",
+                   "subtext": "We\u2019ll find out in a second."},
+    "spot_it": {"kicker": "Spot it", "text": "Find it before we point",
+                "x": 900, "y": 380},
+    "this_that": {"kicker": "Pick one", "text": "Left door or right?",
+                  "sides": [{"label": "Left"}, {"label": "Right"}]},
+    "poll": {"kicker": "You picked", "text": "Left door or right?",
+             "subtext": "From last week\u2019s poll. Real numbers only.",
+             "rows": [{"label": "Left", "value": "68"},
+                      {"label": "Right", "value": "32"}]},
+    "rank": {"kicker": "In order", "text": "Most venomous",
+             "rows": [{"label": "First"}, {"label": "Second"}, {"label": "Third"}]},
+    "scale": {"kicker": "How weird is it", "text": "Rate it",
+              "value": 70, "low": "Normal", "high": "Very"},
+    "verdict": {"kicker": "The verdict", "text": "This room",
+                "value": 4, "subtext": "Four doors out of five"},
+    "streak": {"kicker": "Where we are", "text": "Room five", "active": 5},
+
+    # --- outro beats one and two (three is "outro", the end plate) ---
+    "takeaway": {"kicker": "The takeaway",
+                 "text": "The one line this episode was for."},
+    "next_room": {"kicker": "Next room", "text": "What is coming",
+                  "subtext": "And one thing nobody mentions",
+                  "cta": "Subscribe"},
 }
 
 

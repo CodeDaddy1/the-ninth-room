@@ -1,87 +1,110 @@
-# Content Workflow
+# Content Workflow — The Ninth Room
 
-The pipeline from raw curiosity to published post. Each stage maps to an agent
-in `.claude/agents/`. It's a loop: what gets published feeds what gets made next.
+How a room becomes an episode. Every stage maps to something real: an agent in
+`.claude/agents/`, a desk in the Edit Room, or a pipeline command.
+
+> This replaced the v1 workflow (curiosity-scout → content-strategist →
+> youtube-scriptwriter → visual-director), which described a stock-footage
+> assembly line that no longer exists. None of those agents remain.
 
 ```
-  curiosity-scout  →  content-strategist  →  ┌ youtube-scriptwriter ┐
-   (find + verify)     (plan the slate)       │ instagram-copywriter │
-        ▲                                      └ visual-director ─────┘
-        │                                                  │
-        │                                       asset-scout + fetch_assets.py
-        │                                        (shot list → auto-pull b-roll)
-        │                                                  │  → assemble → publish
-        │                                                  ▼
-        └──────────────── performance-analyst ◀───────── (the numbers)
+  scout ──▶ shoot ──▶ ingest ──▶ story loop ──▶ assemble ──▶ review ──▶ master
+   ideas    footage   takes +     3 pitches      timeline     shots +    render
+   tab      dropped   transcript  → approval     + cards      captions   + grade
+     ▲                                                           │
+     └────────────────── what performed ◀───────────────────────┘
 ```
 
-## Stage 1 — Discover (curiosity-scout)
-**In:** a pillar focus, recent performance learnings, or "find me topics."
-**Out:** 8–10 topic candidates, each with the surprising hook, the honest
-payoff, a fact-check note, and source links.
-**Gate:** anything that can't be verified is cut or clearly labeled as
-disputed/unsolved.
+Everything below is slug-scoped: one room, one `work/<slug>/`.
 
-## Stage 2 — Plan (content-strategist)
-**In:** the scout's candidates.
-**Out:** the week's slate — which topics become what (Reel / carousel / Short /
-long-form), which platform, which pillar, and the rough sequence.
-**Gate:** the mix respects pillar rotation and the cadence in
-`posting-cadence.md`.
+## Stage 0 — Scout (channel level)
+**Command:** "scout ideas"
+**Agent:** `scout`
+**Out:** `work/_scout/ideas.json` — candidate rooms with the surprising hook,
+the honest payoff, a fact-check note, and sources.
+**Where Caleb works:** the Ideas tab. Save / develop / dismiss; the next round
+honours those verdicts.
+**Gate:** anything unverifiable is cut or clearly labelled disputed/unsolved.
+A room with no candidate ninth-room moment is a weak episode — flag it.
 
-## Stage 3 — Produce (parallel)
-- **youtube-scriptwriter** → long-form scripts and Shorts scripts.
-- **instagram-copywriter** → Reel hooks + scripts, carousel copy, captions,
-  hashtags.
-- **visual-director** → thumbnail concepts, carousel layout, on-screen text
-  callouts.
+## Stage 1 — Shoot
+Caleb shoots the room: talking-head takes (flubs and retakes are fine and
+expected), plus b-roll of the cases, the labels, and the family reacting.
 
-These run in parallel off the same approved topic so every format shares one
-spine but is native to its platform.
+**Shoot for the cards.** The engagement plan is not something to bolt on
+later — a `countdown` card needs a reveal to cut to, a `vote` needs the
+family actually disagreeing on camera. See `brand/engagement-playbook.md`
+before the visit, not after.
 
-## Stage 3.5 — Source assets (asset-scout + fetch script)
-Once the script is locked, **asset-scout** reads it and emits a machine-readable
-shot list (`scripts/shot_list.example.json` shows the shape): every beat with its
-visual, source type, search queries, AI-gen prompts, and license flags.
+## Stage 2 — Ingest
+**Command:** `/usr/bin/python3 -m pipeline.cli ingest <slug>` (or drop files
+straight onto the Edit Room page — photos become 6s b-roll clips).
+**Out:** normalized clips, whisper transcripts with word timing, a take
+analysis, and a b-roll catalog.
+Proper nouns are corrected against `brand/names.json` immediately after
+whisper runs — Sofia, not Sophia.
 
-Then `scripts/fetch_assets.py` runs the stock shots automatically — pulling
-candidate clips from Pexels/Pixabay into one folder per shot, plus a
-`manifest.csv` of sources and licenses. The editor picks from the curated
-candidates; AI-gen and motion-graphic shots come through as actionable TODOs.
+## Stage 3 — Story loop
+**Command:** "pitch stories for <slug>" → `story-designer` writes
+`stories.json` with **three** directions.
+**Where Caleb works:** the Story tab — approve or redirect
+(`story_feedback.json`).
+**Then:** "write the edit plan for <slug>".
+**Gate (enforced):** no `edit_plan.json` without an approving round. The agent
+contract forbids skipping the pitch.
 
-**Gate:** any shot flagged `needs_rights_check` (recognizable people, logos,
-brands, artworks) gets human license review before it goes in the cut. Every
-asset must be commercial royalty-free.
+**Out:** `edit_plan.json` — theme, hook, beat order, take picks and kill list,
+b-roll placement, transition policy, pillar tag.
 
-## Stage 4 — Auto-assemble (`program/`)
-The pipeline program turns the approved script + shot list into a **rough
-cut**: TTS voiceover, normalized clips, watermark overlay. One command:
-`python program/cli.py run <slug>`. See `program/README.md` for the stages.
+## Stage 4 — Graphics + captions
+**Agents:** `graphics-director` → `graphics_plan.json`,
+`caption-editor` → `captions.json`.
 
-Non-stock shots come through as brand-navy placeholder slates so timing/pacing
-are right; you swap them for AI-gen or custom shots in your NLE.
+The graphics-director reads `brand/engagement-playbook.md` and places a card
+every 60–90 seconds. Copy follows `brand/voice-and-tone.md` — emoji
+encouraged, no exclamation marks, honest numbers, one yellow moment per card.
 
-## Stage 5 — Polish & QC
-Bring script + copy + visuals together. Run the pre-publish checklist:
-- [ ] Hook opens a real curiosity gap
-- [ ] Payoff fully lands (or the mystery is honestly framed)
-- [ ] Every surprising claim is sourced/verified
-- [ ] On-brand voice and visuals
-- [ ] Correct platform specs (`platform-specs.md`)
-- [ ] Caption, hashtags, CTA present
-- [ ] Title/thumbnail legible at small size
+The caption-editor takes text from the *cleaned script* and timing from
+whisper. **Never caption the raw transcript.**
 
-## Stage 5 — Publish
-Post per the cadence and platform specs. Cross-promote: tease the YouTube
-deep-dive in the IG version of the same topic.
+## Stage 5 — Assemble
+**Command:** "assemble <slug>" — build-timeline + assets + proxies.
+Cards bake to ProRes 4444 alpha .movs; the FCPXML is generated and imported
+into Resolve through the Lua bridge.
 
-## Stage 6 — Learn (performance-analyst)
-**In:** post metrics after a set window (e.g. 48h for IG, 7–28 days for YouTube).
-**Out:** what worked, what didn't, and concrete guidance for the next scout
-brief — winning hook patterns, top pillars per platform, retention drop-off
-points.
-**Loop:** those learnings become the input to Stage 1.
+## Stage 6 — Review
+**Where Caleb works:** the Shots desk, in story order. Entries may carry
+`"needs": ["broll","sfx","cards"]`; route them in the fixer round —
+broll → story/b-roll pass, sfx → `sound-designer`, cards →
+`graphics-director`.
+
+The **Overlays** and **Captions** desks edit card copy and caption text live.
+Exported overlay .movs are **immutable** — a change writes `_v2`, never
+replaces the file, because mutating imported media makes Resolve show Media
+Offline.
+
+## Stage 7 — Grade + master
+**Command:** `cli grade <slug>` grades the live Resolve timeline, then render.
+**Out:** `work/<slug>/deliverables/`.
+
+## Pre-publish checklist
+
+- [ ] Hook opens a real curiosity gap, and the payoff lands
+- [ ] The episode delivers a **ninth-room moment** — or honestly says it didn't
+- [ ] Every surprising claim is sourced; disputed things are labelled
+- [ ] At least one engagement card, spaced 60–90s, all answerable on screen
+- [ ] Exactly one takeaway, serif italic, no accent word
+- [ ] Emoji vocabulary small and consistent; no exclamation marks; no invented numbers
+- [ ] One yellow moment per frame, no filled plates
+- [ ] Names correct — Alma, Sofia; never "Mom"
+- [ ] Burned captions legible over the brightest footage in the episode
+- [ ] Platform specs met (`platform-specs.md`)
+
+## Stage 8 — Learn
+`performance-analyst` (dormant) reads retention and comments. The signal that
+matters most for this channel is **comment composition**: how many answered
+the engagement card versus only praised the video.
 
 ## Batching
-Work in weekly batches: scout and plan once, produce in a block, schedule the
-week, then review. Batching keeps the voice consistent and the cadence reliable.
+Shoot a room, then post-produce it in one block. Two rooms in the pipe at once
+is fine; three means the story loop starts blurring between them.

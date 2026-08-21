@@ -2,7 +2,7 @@
 import json
 from faster_whisper import WhisperModel
 
-BASE = '~/Projects/curated-curiosities/work/houston-no-zoning'
+BASE = '~/Projects/the-ninth-room/work/houston-no-zoning'
 vo = BASE + '/voiceover.mp3'
 out = BASE + '/tmp/words.json'
 

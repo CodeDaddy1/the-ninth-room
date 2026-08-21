@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+  body{margin:0;background:#EDF3FA}
+  a{color:#0B2340}
+  a:hover{color:#4A6E96}
+  @keyframes aWall{from{opacity:0;transform:scaleY(.86)}to{opacity:1;transform:scaleY(1)}}
+  @keyframes aLight{from{clip-path:inset(100% 0 0 0)}to{clip-path:inset(0 0 0 0)}}
+  @keyframes aShadow{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes aFig{from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes aFade{from{opacity:0}to{opacity:1}}
+  @keyframes aUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes aGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+</style>
+</helmet>
+
+<div style="font-family:'Manrope',system-ui,sans-serif;background:#EDF3FA;color:#0B2340;padding:56px 56px 96px">
+
+  <div style="max-width:2100px;margin:0 auto 44px;border-bottom:1px solid #C6D6E6;padding-bottom:24px;display:flex;align-items:flex-end;justify-content:space-between;gap:36px">
+    <div>
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+        <span style="width:15px;height:15px;background:#0B2340"></span>
+        <span style="width:15px;height:15px;background:#FFE04D"></span>
+        <span style="width:15px;height:15px;background:#38E1F0"></span>
+        <span style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96">Locked · the Archway, 13c</span>
+      </div>
+      <h1 style="font-family:'Newsreader',serif;font-size:46px;line-height:1.04;letter-spacing:-.02em;font-weight:600;margin:0">The Archway</h1>
+      <p style="font-size:15px;line-height:1.62;color:#4A6E96;margin:12px 0 0;max-width:90ch">An arched opening seen straight on: cyan outline, warm light in the passage, the wall's thickness thrown as shadow across the right, and one figure at the threshold for scale. The mark is about a person walking into somewhere — everything below exists to protect that.</p>
+    </div>
+    <button onClick="{{ replay }}" style="flex:0 0 auto;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#0B2340;background:#FFE04D;border:0;border-radius:6px;padding:14px 28px;cursor:pointer" style-hover="background:#FFEA85">Replay build</button>
+  </div>
+
+  <div style="max-width:2100px;margin:0 auto;display:flex;flex-direction:column;gap:56px">
+
+    <!-- CONSTRUCTION + CLEAR SPACE -->
+    <div style="display:flex;gap:40px;flex-wrap:wrap;align-items:flex-start">
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+          <h2 style="font-family:'Newsreader',serif;font-size:26px;font-weight:600;letter-spacing:-.02em;margin:0">Construction</h2>
+          <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4A6E96">grid unit u = 1/8 of width</span>
+        </div>
+        <p style="font-size:13px;line-height:1.6;color:#4A6E96;margin:0 0 14px;max-width:46ch">Width 8u, height 10u. The arch radius is exactly 4u, so the head is a true semicircle and never a squashed oval. The shadow arch is the same shape offset 2.6u right and 1.1u down.</p>
+        <div style="background:#0B2340;border-radius:11px;padding:56px 64px;display:flex;align-items:flex-end;justify-content:center">
+          <div style="position:relative;width:240px;height:300px">
+            <div style="position:absolute;inset:0;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(10,1fr)">
+              <div style="grid-column:1/9;grid-row:1/11;background-image:repeating-linear-gradient(90deg,rgba(56,225,240,.22) 0 1px,transparent 1px 30px),repeating-linear-gradient(180deg,rgba(56,225,240,.22) 0 1px,transparent 1px 30px)"></div>
+            </div>
+            <div style="position:absolute;inset:0;box-sizing:border-box;border:4px solid #38E1F0;border-bottom:0;border-radius:120px 120px 0 0;overflow:hidden">
+              <div style="position:absolute;inset:0;background:#FFE04D"></div>
+              <div style="position:absolute;left:78px;top:33px;width:240px;height:300px;border-radius:120px 120px 0 0;background:#0B2340"></div>
+              <div style="position:absolute;left:39px;bottom:0;width:21px;height:60px;background:#0B2340;border-radius:9px 9px 0 0"></div>
+              <div style="position:absolute;left:42px;bottom:60px;width:15px;height:15px;border-radius:999px;background:#0B2340"></div>
+            </div>
+            <div style="position:absolute;left:-58px;top:0;bottom:0;width:22px;border-left:1px solid #38E1F0;border-top:1px solid #38E1F0;border-bottom:1px solid #38E1F0"></div>
+            <div style="position:absolute;left:-96px;top:50%;transform:translateY(-50%);font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:800;letter-spacing:.1em;color:#38E1F0">10u</div>
+            <div style="position:absolute;bottom:-52px;left:0;right:0;height:22px;border-bottom:1px solid #38E1F0;border-left:1px solid #38E1F0;border-right:1px solid #38E1F0"></div>
+            <div style="position:absolute;bottom:-80px;left:50%;transform:translateX(-50%);font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:800;letter-spacing:.1em;color:#38E1F0">8u</div>
+            <div style="position:absolute;left:0;top:120px;right:0;height:1px;background:rgba(56,225,240,.55)"></div>
+            <div style="position:absolute;right:-64px;top:112px;font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:800;letter-spacing:.1em;color:#38E1F0">r=4u</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+          <h2 style="font-family:'Newsreader',serif;font-size:26px;font-weight:600;letter-spacing:-.02em;margin:0">Clear space</h2>
+          <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4A6E96">2u on every side</span>
+        </div>
+        <p style="font-size:13px;line-height:1.6;color:#4A6E96;margin:0 0 14px;max-width:46ch">Two units all round, measured from the outer stroke. Nothing enters it — not the wordmark, not a video frame edge, not a subscribe button.</p>
+        <div style="background:#0B2340;border-radius:11px;padding:44px;display:flex;align-items:center;justify-content:center">
+          <div style="position:relative;padding:60px">
+            <div style="position:absolute;inset:0;border:1px dashed rgba(255,224,77,.45)"></div>
+            <div style="position:relative;width:240px;height:300px;box-sizing:border-box;border:4px solid #38E1F0;border-bottom:0;border-radius:120px 120px 0 0;background:#FFE04D;overflow:hidden">
+              <div style="position:absolute;left:78px;top:33px;width:240px;height:300px;border-radius:120px 120px 0 0;background:#0B2340"></div>
+              <div style="position:absolute;left:39px;bottom:0;width:21px;height:60px;background:#0B2340;border-radius:9px 9px 0 0"></div>
+              <div style="position:absolute;left:42px;bottom:60px;width:15px;height:15px;border-radius:999px;background:#0B2340"></div>
+            </div>
+            <div style="position:absolute;left:20px;top:50%;transform:translateY(-50%);font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:800;color:rgba(255,224,77,.75)">2u</div>
+            <div style="position:absolute;top:20px;left:50%;transform:translateX(-50%);font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:800;color:rgba(255,224,77,.75)">2u</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+          <h2 style="font-family:'Newsreader',serif;font-size:26px;font-weight:600;letter-spacing:-.02em;margin:0">Animated build</h2>
+          <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4A6E96">1.4s · end plate</span>
+        </div>
+        <p style="font-size:13px;line-height:1.6;color:#4A6E96;margin:0 0 14px;max-width:46ch">Outline draws, light floods up the passage, shadow slides in, then the figure walks to the threshold and stops. The figure arriving last is the whole point of the animation.</p>
+        <div style="background:#0B2340;border-radius:11px;padding:44px;display:flex;flex-direction:column;align-items:center;gap:26px">
+          <sc-if value="{{ run }}" hint-placeholder-val="{{ true }}">
+            <div style="position:relative;width:200px;height:250px;box-sizing:border-box;border:4px solid #38E1F0;border-bottom:0;border-radius:100px 100px 0 0;overflow:hidden;transform-origin:bottom;animation:aWall 380ms cubic-bezier(.16,1,.3,1) both">
+              <div style="position:absolute;inset:0;background:#FFE04D;animation:aLight 460ms cubic-bezier(.16,1,.3,1) 300ms both"></div>
+              <div style="position:absolute;left:65px;top:28px;width:200px;height:250px;border-radius:100px 100px 0 0;background:#0B2340;animation:aShadow 380ms cubic-bezier(.16,1,.3,1) 620ms both"></div>
+              <div style="position:absolute;left:33px;bottom:0;width:17px;height:50px;background:#0B2340;border-radius:7px 7px 0 0;animation:aFig 520ms cubic-bezier(.16,1,.3,1) 860ms both"></div>
+              <div style="position:absolute;left:35px;bottom:50px;width:13px;height:13px;border-radius:999px;background:#0B2340;animation:aFig 520ms cubic-bezier(.16,1,.3,1) 860ms both"></div>
+            </div>
+            <div style="font-family:'Newsreader',serif;font-size:34px;letter-spacing:-.025em;font-weight:600;color:#EAF4FF;animation:aFade 300ms ease 1200ms both">The Ninth Room</div>
+            <div style="width:70px;height:2px;background:#38E1F0;transform-origin:center;animation:aGrow 300ms cubic-bezier(.22,.61,.36,1) 1360ms both"></div>
+          </sc-if>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- LOCKUPS -->
+    <div>
+      <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px">
+        <h2 style="font-family:'Newsreader',serif;font-size:28px;font-weight:600;letter-spacing:-.02em;margin:0">Lockups</h2>
+        <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4A6E96">horizontal · stacked · mark only</span>
+      </div>
+      <p style="font-size:14px;line-height:1.6;color:#4A6E96;margin:0 0 16px;max-width:88ch">Wordmark in Newsreader 600, tagline in Bricolage 800 at .26em. The gap between mark and wordmark is 3u — wider than it looks like it needs, because the arch reads as an opening and needs air to stay one.</p>
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div style="background:#0B2340;border-radius:11px;padding:46px 52px;display:flex;align-items:center;gap:36px">
+          <div style="position:relative;width:96px;height:120px;flex:0 0 auto;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:48px 48px 0 0;background:#FFE04D;overflow:hidden">
+            <div style="position:absolute;left:31px;top:13px;width:96px;height:120px;border-radius:48px 48px 0 0;background:#0B2340"></div>
+            <div style="position:absolute;left:16px;bottom:0;width:9px;height:24px;background:#0B2340;border-radius:4px 4px 0 0"></div>
+            <div style="position:absolute;left:17px;bottom:24px;width:7px;height:7px;border-radius:999px;background:#0B2340"></div>
+          </div>
+          <div>
+            <div style="font-family:'Newsreader',serif;font-size:50px;line-height:1;letter-spacing:-.025em;font-weight:600;color:#EAF4FF">The Ninth Room</div>
+            <div style="display:flex;align-items:center;gap:11px;margin-top:14px">
+              <div style="width:28px;height:2px;background:#38E1F0"></div>
+              <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:800;letter-spacing:.26em;text-transform:uppercase;color:#38E1F0">Nine rooms. One you can't find.</span>
+            </div>
+          </div>
+        </div>
+        <div style="background:#0B2340;border-radius:11px;padding:40px 56px;display:flex;flex-direction:column;align-items:center;gap:22px">
+          <div style="position:relative;width:80px;height:100px;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:40px 40px 0 0;background:#FFE04D;overflow:hidden">
+            <div style="position:absolute;left:26px;top:11px;width:80px;height:100px;border-radius:40px 40px 0 0;background:#0B2340"></div>
+            <div style="position:absolute;left:13px;bottom:0;width:7px;height:20px;background:#0B2340;border-radius:3px 3px 0 0"></div>
+            <div style="position:absolute;left:14px;bottom:20px;width:5px;height:5px;border-radius:999px;background:#0B2340"></div>
+          </div>
+          <div style="font-family:'Newsreader',serif;font-size:34px;line-height:1;letter-spacing:-.025em;font-weight:600;color:#EAF4FF;text-align:center">The Ninth Room</div>
+          <div style="width:46px;height:2px;background:#38E1F0"></div>
+        </div>
+        <div style="background:#0B2340;border-radius:11px;padding:40px 46px;display:flex;align-items:center;justify-content:center">
+          <div style="position:relative;width:80px;height:100px;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:40px 40px 0 0;background:#FFE04D;overflow:hidden">
+            <div style="position:absolute;left:26px;top:11px;width:80px;height:100px;border-radius:40px 40px 0 0;background:#0B2340"></div>
+            <div style="position:absolute;left:13px;bottom:0;width:7px;height:20px;background:#0B2340;border-radius:3px 3px 0 0"></div>
+            <div style="position:absolute;left:14px;bottom:20px;width:5px;height:5px;border-radius:999px;background:#0B2340"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KNOCKOUTS + AVATARS -->
+    <div style="display:flex;gap:40px;flex-wrap:wrap;align-items:flex-start">
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+          <h2 style="font-family:'Newsreader',serif;font-size:26px;font-weight:600;letter-spacing:-.02em;margin:0">Knockouts</h2>
+          <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4A6E96">four permitted grounds</span>
+        </div>
+        <p style="font-size:13px;line-height:1.6;color:#4A6E96;margin:0 0 14px;max-width:52ch">On paper the light darkens to #E2A100 so it holds against white. On either accent the light becomes navy and the outline disappears — the arch is then defined by the shadow alone, which still works because the shadow is the shape.</p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          <div style="width:150px;height:170px;background:#0B2340;border-radius:9px;display:flex;align-items:center;justify-content:center">
+            <div style="position:relative;width:64px;height:80px;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:32px 32px 0 0;background:#FFE04D;overflow:hidden">
+              <div style="position:absolute;left:21px;top:9px;width:64px;height:80px;border-radius:32px 32px 0 0;background:#0B2340"></div>
+              <div style="position:absolute;left:10px;bottom:0;width:6px;height:16px;background:#0B2340;border-radius:3px 3px 0 0"></div><div style="position:absolute;left:11px;bottom:16px;width:4px;height:4px;border-radius:999px;background:#0B2340"></div>
+            </div>
+          </div>
+          <div style="width:150px;height:170px;background:#F1F5FA;border:1px solid #D5DFEA;border-radius:9px;display:flex;align-items:center;justify-content:center">
+            <div style="position:relative;width:64px;height:80px;box-sizing:border-box;border:3px solid #0B2340;border-bottom:0;border-radius:32px 32px 0 0;background:#E2A100;overflow:hidden">
+              <div style="position:absolute;left:21px;top:9px;width:64px;height:80px;border-radius:32px 32px 0 0;background:#0B2340"></div>
+              <div style="position:absolute;left:10px;bottom:0;width:6px;height:16px;background:#0B2340;border-radius:3px 3px 0 0"></div><div style="position:absolute;left:11px;bottom:16px;width:4px;height:4px;border-radius:999px;background:#0B2340"></div>
+            </div>
+          </div>
+          <div style="width:150px;height:170px;background:#38E1F0;border-radius:9px;display:flex;align-items:center;justify-content:center">
+            <div style="position:relative;width:64px;height:80px;box-sizing:border-box;border:3px solid #0B2340;border-bottom:0;border-radius:32px 32px 0 0;overflow:hidden">
+              <div style="position:absolute;left:21px;top:9px;width:64px;height:80px;border-radius:32px 32px 0 0;background:#0B2340"></div>
+              <div style="position:absolute;left:10px;bottom:0;width:6px;height:16px;background:#0B2340;border-radius:3px 3px 0 0"></div><div style="position:absolute;left:11px;bottom:16px;width:4px;height:4px;border-radius:999px;background:#0B2340"></div>
+            </div>
+          </div>
+          <div style="width:150px;height:170px;background:#FFE04D;border-radius:9px;display:flex;align-items:center;justify-content:center">
+            <div style="position:relative;width:64px;height:80px;box-sizing:border-box;border:3px solid #0B2340;border-bottom:0;border-radius:32px 32px 0 0;overflow:hidden">
+              <div style="position:absolute;left:21px;top:9px;width:64px;height:80px;border-radius:32px 32px 0 0;background:#0B2340"></div>
+              <div style="position:absolute;left:10px;bottom:0;width:6px;height:16px;background:#0B2340;border-radius:3px 3px 0 0"></div><div style="position:absolute;left:11px;bottom:16px;width:4px;height:4px;border-radius:999px;background:#0B2340"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+          <h2 style="font-family:'Newsreader',serif;font-size:26px;font-weight:600;letter-spacing:-.02em;margin:0">Size ladder</h2>
+          <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4A6E96">what drops, when</span>
+        </div>
+        <p style="font-size:13px;line-height:1.6;color:#4A6E96;margin:0 0 14px;max-width:52ch">The figure is the first thing to go, below 48px tall. Everything below that is the arch, the light and the shadow — three shapes, which is why it survives to 16px.</p>
+        <div style="background:#0B2340;border-radius:11px;padding:26px 30px;display:flex;align-items:flex-end;gap:30px">
+          <div style="position:relative;width:80px;height:100px;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:40px 40px 0 0;background:#FFE04D;overflow:hidden">
+            <div style="position:absolute;left:26px;top:11px;width:80px;height:100px;border-radius:40px 40px 0 0;background:#0B2340"></div>
+            <div style="position:absolute;left:13px;bottom:0;width:7px;height:20px;background:#0B2340;border-radius:3px 3px 0 0"></div>
+            <div style="position:absolute;left:14px;bottom:20px;width:5px;height:5px;border-radius:999px;background:#0B2340"></div>
+          </div>
+          <div style="position:relative;width:48px;height:60px;box-sizing:border-box;border:2px solid #38E1F0;border-bottom:0;border-radius:24px 24px 0 0;background:#FFE04D;overflow:hidden">
+            <div style="position:absolute;left:16px;top:7px;width:48px;height:60px;border-radius:24px 24px 0 0;background:#0B2340"></div>
+            <div style="position:absolute;left:8px;bottom:0;width:5px;height:13px;background:#0B2340"></div><div style="position:absolute;left:9px;bottom:13px;width:3px;height:3px;border-radius:999px;background:#0B2340"></div>
+          </div>
+          <div style="position:relative;width:26px;height:32px;box-sizing:border-box;border:2px solid #38E1F0;border-bottom:0;border-radius:13px 13px 0 0;background:#FFE04D;overflow:hidden">
+            <div style="position:absolute;left:9px;top:4px;width:26px;height:32px;border-radius:13px 13px 0 0;background:#0B2340"></div>
+          </div>
+          <div style="position:relative;width:16px;height:20px;box-sizing:border-box;border:2px solid #38E1F0;border-bottom:0;border-radius:8px 8px 0 0;background:#FFE04D;overflow:hidden">
+            <div style="position:absolute;left:6px;top:3px;width:16px;height:20px;border-radius:8px 8px 0 0;background:#0B2340"></div>
+          </div>
+          <div style="position:relative;width:13px;height:16px;box-sizing:border-box;border:1.5px solid #38E1F0;border-bottom:0;border-radius:7px 7px 0 0;background:#FFE04D;overflow:hidden">
+            <div style="position:absolute;left:5px;top:2px;width:13px;height:16px;border-radius:7px 7px 0 0;background:#0B2340"></div>
+          </div>
+          <span style="font-size:12px;color:#5F81A6;margin-left:auto">100 · 60 · 32 · 20 · 16px tall</span>
+        </div>
+        <div style="background:#0B2340;border-radius:11px;padding:24px 30px;margin-top:14px;display:flex;align-items:center;gap:26px">
+          <div style="width:96px;height:96px;border-radius:999px;overflow:hidden;background:#0B2340;display:flex;align-items:center;justify-content:center;border:1px dashed rgba(255,224,77,.4)">
+            <div style="position:relative;width:42px;height:53px;box-sizing:border-box;border:2px solid #38E1F0;border-bottom:0;border-radius:21px 21px 0 0;background:#FFE04D;overflow:hidden">
+              <div style="position:absolute;left:14px;top:6px;width:42px;height:53px;border-radius:21px 21px 0 0;background:#0B2340"></div>
+              <div style="position:absolute;left:7px;bottom:0;width:5px;height:12px;background:#0B2340"></div><div style="position:absolute;left:8px;bottom:12px;width:3px;height:3px;border-radius:999px;background:#0B2340"></div>
+            </div>
+          </div>
+          <div style="width:56px;height:56px;border-radius:999px;overflow:hidden;background:#0B2340;display:flex;align-items:center;justify-content:center">
+            <div style="position:relative;width:24px;height:30px;box-sizing:border-box;border:2px solid #38E1F0;border-bottom:0;border-radius:12px 12px 0 0;background:#FFE04D;overflow:hidden">
+              <div style="position:absolute;left:8px;top:3px;width:24px;height:30px;border-radius:12px 12px 0 0;background:#0B2340"></div>
+            </div>
+          </div>
+          <div style="width:32px;height:32px;border-radius:999px;overflow:hidden;background:#0B2340;display:flex;align-items:center;justify-content:center">
+            <div style="position:relative;width:14px;height:18px;box-sizing:border-box;border:2px solid #38E1F0;border-bottom:0;border-radius:7px 7px 0 0;background:#FFE04D;overflow:hidden">
+              <div style="position:absolute;left:5px;top:2px;width:14px;height:18px;border-radius:7px 7px 0 0;background:#0B2340"></div>
+            </div>
+          </div>
+          <span style="font-size:12px;color:#5F81A6;margin-left:auto;max-width:22ch">Avatar crops · 96 / 56 / 32px. The circle must never touch the arch shoulders</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- MISUSE -->
+    <div>
+      <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px">
+        <h2 style="font-family:'Newsreader',serif;font-size:28px;font-weight:600;letter-spacing:-.02em;margin:0">Don't</h2>
+        <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4A6E96">four ways it breaks · arch only, so each fault reads clean</span>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">
+        <div>
+          <div style="width:170px;height:170px;background:#0B2340;border-radius:9px;display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="position:relative;width:88px;height:70px;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:44px 44px 0 0;background:#FFE04D;overflow:hidden">
+              <div style="position:absolute;left:29px;top:8px;width:88px;height:70px;border-radius:44px 44px 0 0;background:#0B2340"></div>
+            </div>
+            <div style="position:absolute;left:14px;top:14px;width:22px;height:22px;border-radius:999px;background:#FF5A52"></div>
+          </div>
+          <div style="font-size:12px;color:#4A6E96;margin-top:7px;max-width:20ch">Never stretch. The radius must stay half the width</div>
+        </div>
+        <div>
+          <div style="width:170px;height:170px;background:#0B2340;border-radius:9px;display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="position:relative;width:64px;height:80px;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:32px 32px 0 0;background:#FFE04D;overflow:hidden">
+              <div style="position:absolute;right:21px;top:9px;width:64px;height:80px;border-radius:32px 32px 0 0;background:#0B2340"></div>
+            </div>
+            <div style="position:absolute;left:14px;top:14px;width:22px;height:22px;border-radius:999px;background:#FF5A52"></div>
+          </div>
+          <div style="font-size:12px;color:#4A6E96;margin-top:7px;max-width:20ch">Shadow always falls right. Mirrored, the light source contradicts the kit</div>
+        </div>
+        <div>
+          <div style="width:170px;height:170px;background:#0B2340;border-radius:9px;display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="position:relative;width:64px;height:80px;box-sizing:border-box;border:3px solid #FF8A1F;border-bottom:0;border-radius:32px 32px 0 0;background:#7FE3C4;overflow:hidden">
+              <div style="position:absolute;left:21px;top:9px;width:64px;height:80px;border-radius:32px 32px 0 0;background:#0B2340"></div>
+            </div>
+            <div style="position:absolute;left:14px;top:14px;width:22px;height:22px;border-radius:999px;background:#FF5A52"></div>
+          </div>
+          <div style="font-size:12px;color:#4A6E96;margin-top:7px;max-width:20ch">Two accents only, in their roles. No recolouring</div>
+        </div>
+        <div>
+          <div style="width:170px;height:170px;background:#0B2340;border-radius:9px;display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="position:relative;width:64px;height:80px;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:32px 32px 0 0;background:#FFE04D;overflow:hidden;box-shadow:0 10px 26px rgba(0,0,0,.8)">
+              <div style="position:absolute;left:21px;top:9px;width:64px;height:80px;border-radius:32px 32px 0 0;background:#0B2340"></div>
+            </div>
+            <div style="position:absolute;left:14px;top:14px;width:22px;height:22px;border-radius:999px;background:#FF5A52"></div>
+          </div>
+          <div style="font-size:12px;color:#4A6E96;margin-top:7px;max-width:20ch">No drop shadows or glows. The shadow inside is the only one</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="max-width:2100px;margin:52px auto 0;border-top:1px solid #C6D6E6;padding-top:26px;display:flex;gap:52px;flex-wrap:wrap">
+    <div style="max-width:54ch">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96;margin-bottom:8px">Production note</div>
+      <p style="font-size:14px;line-height:1.62;color:#4A6E96;margin:0">These are drawn in HTML at the sizes shown, which is fine for review but not for handoff. The production mark needs redrawing as SVG on the 8×10u grid above, with the figure as a single compound path so it can be removed for the small variants without editing geometry.</p>
+    </div>
+    <div style="max-width:54ch">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96;margin-bottom:8px">Where it's applied</div>
+      <p style="font-size:14px;line-height:1.62;color:#4A6E96;margin:0">The channel assets file already uses the Archway throughout — cover, profile, watermark, thumbnail, Short and all three ad sizes. The Cyanotype kit is swapped too — identity lockups, knockouts, watermark and the end-plate build all use the Archway. Nothing outstanding.</p>
+    </div>
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { run: true };
+  renderVals() {
+    return {
+      run: this.state.run,
+      replay: () => {
+        this.setState({ run: false });
+        requestAnimationFrame(() => requestAnimationFrame(() => this.setState({ run: true })));
+      }
+    };
+  }
+}
+
+</script>
+</body>
+</html>

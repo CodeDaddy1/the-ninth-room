@@ -34,3 +34,19 @@ End with exactly one of:
 Judge against the brand bars: hook readable in a second, payoff lands
 uncovered, captions above the platform safe zone, one visual voice
 (`brand/visual-identity.md`).
+
+Cyanotype-specific checks — these are the ones that actually fail:
+
+- **No filled plates.** Type sits on footage with a shadow or a gradient
+  scrim behind it, never a box. A rectangle behind a line of text means
+  something is rendering from stale code.
+- **One yellow moment per frame.** Count the yellow (`#FFE04D`) elements in
+  every card frame you extract. Two is a bug, not a style choice.
+- **Cyan is structural only** — eyebrows, rules, crop marks, speaker tags.
+  Cyan used decoratively is a bug.
+- **The brightest frame in the episode.** Find it (the greenhouse, an atrium,
+  a window) and confirm the captions still read there. That is the acceptance
+  test the design system names.
+- **Chapter cards hold ≥ 2.5s** and the nine-square meter increments.
+- Amber, cream, chips, tilts or a 5px outline anywhere = the retired Midnight
+  kit leaking through. Report it as a FAIL with the timestamp.

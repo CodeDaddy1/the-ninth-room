@@ -1,0 +1,44 @@
+:root{
+/* document rhythm */
+--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:22px;
+--space-6:26px;--space-7:34px;--space-8:44px;--space-9:56px;--space-10:64px;--space-12:88px;
+--gutter-doc:64px;
+--measure-doc:88ch;
+--measure-note:54ch;
+
+/* on-video safe insets, 1920x1080 */
+--inset-caption-bottom:150px;
+--inset-side:120px;
+--inset-hook-left:130px;
+--inset-chapter-left:140px;
+--watermark-inset-top:64px;
+--watermark-inset-right:72px;
+/* vertical 1080x1920 */
+--inset-v-bottom:320px;
+--inset-v-top:180px;
+--inset-v-side:64px;
+/* title-safe box inside the 2560x1440 cover */
+--cover-safe-w:1546px;
+--cover-safe-h:423px;
+
+/* strokes. 3px minimum on video so outlines survive compression */
+--stroke-overlay:3px;
+--stroke-mark:4px;
+--stroke-mark-sm:2px;
+--stroke-callout:4px;
+--stroke-rule:3px;
+--rule-poll:6px;
+
+/* radii. the arch is the only curve in the system; panels stay nearly square */
+--radius-card:11px;
+--radius-frame:10px;
+--radius-frame-sm:8px;
+--radius-chip:6px;
+--radius-chip-sm:4px;
+--radius-round:999px;
+
+/* mark grid: 8u wide, 10u tall, arch radius exactly 4u */
+--mark-ratio-w:8; /* @kind other */
+--mark-ratio-h:10; /* @kind other */
+--mark-clear-space:2u; /* @kind other */
+}

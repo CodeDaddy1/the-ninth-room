@@ -1,8 +1,13 @@
-# Curated Curiosities v2 — DaVinci Resolve Auto-Editor
+# The Ninth Room v2 — DaVinci Resolve Auto-Editor
+
+> Rebranded 2026-08-20. This plan was written as *Curated Curiosities*; the
+> program is unchanged, the channel is now **The Ninth Room**. The identity
+> that the graphics phases build against is the Cyanotype system in
+> `brand/visual-identity.md`, not whatever a phase below calls the look.
 
 ## Context
 
-Caleb is pivoting Curated Curiosities from a stock-footage assembly pipeline (Supabase dashboard + worker daemon + ffmpeg) to a **fully local program that edits his own raw footage into finished videos inside DaVinci Resolve, automatically, end to end**. He now shoots the footage himself: talking-head takes of him on camera (with flubs and retakes) plus b-roll he films. The program must transcribe everything, pick the best takes, cut dead space, design the story (theme/problem → hook → escalating beats → payoff, per the brand's curiosity-gap rules), place brand-designed animated graphics, build the timeline in Resolve with good cuts and transitions, and render the final mp4 — no human touch after kickoff.
+Caleb is pivoting the channel from a stock-footage assembly pipeline (Supabase dashboard + worker daemon + ffmpeg) to a **fully local program that edits his own raw footage into finished videos inside DaVinci Resolve, automatically, end to end**. He now shoots the footage himself: talking-head takes of him on camera (with flubs and retakes) plus b-roll he films. The program must transcribe everything, pick the best takes, cut dead space, design the story (theme/problem → hook → escalating beats → payoff, per the brand's curiosity-gap rules), place brand-designed animated graphics, build the timeline in Resolve with good cuts and transitions, and render the final mp4 — no human touch after kickoff.
 
 Locked decisions (Caleb, 2026-08-18): **full teardown** of dashboard/Supabase/daemon/stock-fetcher; footage = on-camera takes + self-shot b-roll; graphics = HTML design cards → PNG → animated in Resolve; **full auto through final render**. Cost stays **$0/mo**: all AI judgment runs as Claude Code subagents (no API), all mechanical work is Python 3.9 + ffmpeg + faster-whisper + Pillow + headless Chrome — all verified installed.
 

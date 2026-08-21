@@ -1,52 +1,73 @@
-# Posting Cadence
+# Posting Cadence — The Ninth Room
 
-A starting rhythm for a brand building from scratch. The goal is consistency you
-can actually sustain, not a volume you'll burn out on. Tune with real data once
-the performance-analyst has a few weeks to work with.
+**One room a week.** That is the format and the promise; the progress meter on
+screen counts nine of them. The cadence is not a growth tactic to be tuned —
+it is the premise.
 
-## Starting cadence
+## The commitment
 
-### Instagram (top of funnel — frequency matters)
-- **Reels:** 4–6 / week. The primary growth driver.
-- **Carousels:** 2–3 / week. Strong for saves and depth.
-- **Stories:** most days — polls, "did you know," behind-the-curtain, teasers
-  for the next post.
+| | |
+|---|---|
+| **Flagship** | One long-form episode per week — one room, 8–14 minutes |
+| **Shorts** | 2–3 per week, cut from the same room |
+| **Season** | Nine episodes, then the ninth-room payoff |
 
-### YouTube (depth + search longevity — quality over frequency)
-- **Long-form (6–12 min):** 1 / week to start. This is the flagship.
-- **Shorts:** 3–5 / week. Repurpose IG Reels and tease long-form.
+## Why one room, not one topic
 
-## Weekly rhythm (example)
+A topic channel has to keep finding topics. A room channel has a building.
+The floor plan does the planning, the progress meter does the retention work,
+and the audience always knows what next week is.
+
+## Weekly rhythm
 
 | Day | Action |
 |---|---|
-| Mon | Scout + strategist: lock the week's slate |
-| Tue–Wed | Produce: scripts, copy, visuals (batch) |
-| Thu | Assemble, QC, schedule the week |
-| Fri | Publish flagship YouTube long-form + IG Reel teasing it |
-| Daily | Reels/Shorts per schedule, Stories, community replies |
-| Sun/Mon | Performance review → feeds next week's scout brief |
+| Mon | Ingest the weekend's footage; "pitch stories for <slug>" |
+| Tue | Approve a direction; edit plan; graphics + captions |
+| Wed | Assemble, review the Shots desk, fixer round |
+| Thu | Grade, master, thumbnail |
+| Fri | Publish the episode |
+| Sat | Shoot the next room |
+| Sun | Cut Shorts from the published episode; scout ahead |
+
+Shooting after publishing, not before, means the previous episode's comments
+can shape what gets filmed — including honouring a `this_that` vote.
+
+## Shorts strategy
+
+A Short is not a trailer. It pays off on its own, in its own 45 seconds, and
+earns the click on merit.
+
+- One engagement card maximum, answerable in the first five seconds
+  (`countdown` and `this_that` are the two that survive the length).
+- Burned captions always — most Shorts views are muted.
+- Vertical insets: 180 top, 320 bottom, 64 sides. The renderer handles this;
+  don't nudge it.
 
 ## Pillar rotation
 
-Spread the six pillars so the feed never feels repetitive. Over any ~7 posts,
-hit at least 4 different pillars. Let performance shift the weighting toward
-what's working per platform — but keep variety.
+Six pillars (`brand/content-pillars.md`). Over any four consecutive episodes,
+hit at least three different ones. Two Big Dead Things episodes back to back
+makes this a fossil channel, and the museum is more interesting than that.
 
-## Cross-platform play
+The **Ninth Room** pillar is not scheduled — it happens when it happens, and
+usually lands inside an episode belonging to another pillar.
 
-- One topic → many formats. A single scouted topic can become an IG Reel, a
-  carousel, a YouTube Short, and a long-form video.
-- Always cross-reference: the IG version teases "full story on YouTube," the
-  Short points to the long-form.
+## Follow-through (non-negotiable)
 
-## Sustainability rules
+If an episode ran a `this_that` or a poll, the next episode **must** show the
+result and act on it. Real numbers, on a `poll` card, and then actually walk
+through the door they picked.
 
-- Better to post 3 great things a week forever than 10 mediocre ones for a month.
-- If a batch week falls short, protect the flagship YouTube piece first.
-- Build a backlog of evergreen content as a buffer for slow weeks.
+Asking for a vote and ignoring it teaches the audience the cards are
+decoration. That is the single most expensive mistake available here.
+
+## Sustainability
+
+- Better one good room a week forever than three rushed ones this month.
+- If a week falls short, protect the flagship and drop the Shorts.
+- Bank b-roll on every visit. A room you have already shot is a week of buffer.
 
 ## Posting times
-Start with platform-suggested peak times for your audience, then let the
-analyst find your actual best windows. Don't over-optimize this early —
-consistency beats timing.
+Start with the platform's suggested window and leave it alone until there are
+enough episodes for the pattern to mean something. Consistency beats timing.

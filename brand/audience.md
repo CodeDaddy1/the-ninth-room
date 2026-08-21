@@ -1,52 +1,70 @@
-# Audience
+# Audience — The Ninth Room
 
 ## Who this is for
 
-Curious, time-poor people who *want* to feel smarter and more amazed by the
-world, but won't wade through a dense article or a 40-minute lecture to get
-there. They follow learning accounts but get bored by dry ones and burned by
-fake ones.
+**Two people on one couch.** A kid who wants the big dead thing, and a parent
+who wants the kid to come away knowing something. The channel is built so
+neither has to compromise: the laugh and the fact arrive in the same moment.
 
 ## Core audience
 
-- **Age:** roughly 18–40, skewing 22–34
-- **Mindset:** lifelong learners, trivia lovers, "did you know" sharers
-- **Behavior:** save and re-share content, watch to the end when hooked, read
-  comments, fall into rabbit holes
-- **What they want:** the feeling of discovery, with zero friction
+- **Primary:** families watching together, kids roughly 7–14 with a parent
+- **Secondary:** adults 25–45 who never stopped liking dinosaurs, gems, or bugs
+- **Behaviour:** watch to the end when the structure is visible, answer
+  on-screen questions out loud, screenshot the stat, plan an actual visit
+- **What they want:** to be shown something properly, by someone who is also
+  enjoying it
 
 ## Personas
 
-### 1. The Rabbit-Holer (primary)
-Loves going deep once something grabs them. Will watch the long YouTube video,
-read the pinned comment, and look things up afterward. Finds us on IG, converts
-to a YouTube subscriber. *Serve them: depth, sources, "more on this."*
+### 1. The Co-Viewer (primary)
+Watching with their kid on a TV or an iPad. Retention depends on the episode
+never feeling like homework and never feeling like noise. *Serve them:* the
+nine-square progress meter, chapter cards, a real takeaway they can repeat at
+dinner.
 
-### 2. The Scroller (volume)
-On IG for the daily hit of "huh, neat." Saves Reels, sends to friends, rarely
-clicks out. The growth engine via shares and saves. *Serve them: tight hooks,
-fast payoffs, shareable single facts.*
+### 2. The Out-Loud Answerer (engagement)
+Shouts the answer at the countdown card. Comments their guess. This is the
+comment section. *Serve them:* one engagement card per major beat, honest
+poll numbers, and follow-through — if last week's poll said left door, walk
+through the left door and say so.
 
-### 3. The Sharer (amplifier)
-Sends content to a group chat or partner as a way of connecting. Cares that the
-fact is *true* because their reputation is attached to the share. *Serve them:
-accuracy and a clean, quotable takeaway.*
+### 3. The Weekend Planner (conversion)
+Watches, then checks whether their local museum has one of these. The highest
+value viewer and the hardest to see in analytics. *Serve them:* real names,
+real locations, real specimen labels — accuracy is what makes the visit
+possible.
+
+### 4. The Shorts Scroller (reach)
+Meets us on a 45-second vertical cut. Rarely clicks through the first time.
+*Serve them:* a hook that works muted, burned captions, and a Short that pays
+off on its own rather than advertising the long one.
 
 ## What they're tired of
 
+- Museum content that is a slideshow with a voiceover
+- Reaction channels where nobody learns anything
 - Clickbait that withholds the answer for engagement
-- "Facts" that turn out to be wrong
-- Content that's all vibe, no substance
-- Educational content that feels like homework
+- Facts that turn out to be wrong, in front of their kid
 
 ## What earns their loyalty
 
-- Being consistently *right*
-- Respecting their time and intelligence
-- Genuinely surprising them
-- Always paying off the hook
+- Being consistently right
+- The structure being visible — knowing how much is left
+- Genuinely surprising them, on camera, in real time
+- Paying off the hook, and delivering a ninth room
 
 ## Anti-audience
 
-We are **not** chasing: rage-baiters, conspiracy seekers, or people who want
-hot takes. Wonder is the emotion we trade in, not outrage.
+Not chasing rage-bait, conspiracy, or hot takes. Wonder is the emotion we
+trade in. Also not chasing the "10 FACTS THAT WILL SHOCK YOU" audience — they
+churn, and serving them would cost us the parent.
+
+## What this means for the edit
+
+- **Muted-first.** Burned captions, always. Half the reach never turns sound
+  on.
+- **The kid needs a job every 60–90 seconds.** That is what the engagement
+  cards are for, and why there are thirteen of them rather than one.
+- **The parent needs the fact to survive a fact-check.** Frame the unconfirmed
+  as claimed or disputed, never as settled.

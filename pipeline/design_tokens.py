@@ -1,9 +1,10 @@
 """Read the brand's design-system tokens so video graphics match everything else.
 
-`brand/design-system/tokens/*.css` is pulled from the "Curated Curiosities
-Design System" project on claude.ai/design (Claude Design). Keeping the video
-cards on those same tokens is the whole point of the sync: change amber once
-in the design system, re-pull, and the next render uses it.
+`brand/design-system/tokens/*.css` is pulled from the **The Ninth Room Design
+System** project on claude.ai/design (project id
+`4b8bb4a4-b234-45ed-aa84-b35ce761648b`). Keeping the video cards on those same
+tokens is the whole point of the sync: change yellow once in the design system,
+re-pull, and the next render uses it.
 
 This parses plain CSS custom properties — no CSS engine, no dependency. Values
 that reference other variables (`var(--amber-500)`) are resolved one level at
@@ -22,11 +23,19 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TOKENS_DIR = PROJECT_ROOT / "brand" / "design-system" / "tokens"
 
 # Used when the design-system files are absent, so rendering never hard-fails.
+# These are the Cyanotype four: base, the one thing to look at, verified, type.
 FALLBACK = {
-    "navy-900": "#0E1B2C",
-    "amber-500": "#E8A33D",
-    "cream-50": "#F4EFE6",
-    "slate-500": "#6B7C93",
+    "navy-900": "#0B2340",
+    "navy-800": "#173456",
+    "chalk": "#EAF4FF",
+    "yellow": "#FFE04D",
+    "cyan": "#38E1F0",
+    "slate-300": "#8FB3D6",
+    "slate-400": "#7C9BBC",
+    "slate-500": "#5F81A6",
+    "font-display": "'Bricolage Grotesque',system-ui,sans-serif",
+    "font-serif": "'Newsreader',Georgia,serif",
+    "font-ui": "'Manrope',system-ui,sans-serif",
 }
 
 _VAR_RE = re.compile(r"--([A-Za-z0-9-]+)\s*:\s*([^;]+);")
@@ -65,20 +74,43 @@ def resolve(tokens: "dict[str, str]", name: str, default: str = "") -> str:
 
 
 def palette(dirpath: "Path | None" = None) -> "dict[str, str]":
-    """The handful of literals the card and caption renderers need."""
+    """The handful of literals the card and caption renderers need.
+
+    Cyanotype names first. The four legacy keys (`amber`, `cream`, `navy_deep`,
+    `font_sans`) are kept as ALIASES onto their Ninth Room equivalents so any
+    caller written against the old Curated Curiosities palette still gets a
+    correct, on-brand colour instead of silently falling back to the retired
+    navy/amber/cream.
+
+    What breaks if this is wrong: a renderer paints the old brand and the drift
+    is invisible in one frame but obvious across a channel.
+    """
     t = load(dirpath)
+    navy = resolve(t, "navy-900", FALLBACK["navy-900"])
+    yellow = resolve(t, "yellow", FALLBACK["yellow"])
+    chalk = resolve(t, "chalk", FALLBACK["chalk"])
+    display = resolve(t, "font-display", FALLBACK["font-display"])
     return {
-        "navy": resolve(t, "navy-900", FALLBACK["navy-900"]),
-        "navy_deep": resolve(t, "navy-950", FALLBACK["navy-900"]),
-        "amber": resolve(t, "amber-500", FALLBACK["amber-500"]),
-        "amber_light": resolve(t, "amber-400", FALLBACK["amber-500"]),
-        "cream": resolve(t, "cream-50", FALLBACK["cream-50"]),
-        "slate": resolve(t, "slate-500", FALLBACK["slate-500"]),
-        "font_display": resolve(t, "font-display", "Didot, serif"),
-        "font_sans": resolve(t, "font-sans", '"Avenir Next", sans-serif'),
-        "ls_eyebrow": resolve(t, "ls-eyebrow", "0.2em"),
-        "lh_tight": resolve(t, "lh-tight", "1.06"),
-        "weight_display": resolve(t, "weight-display-bold", "700"),
+        # Cyanotype
+        "navy": navy,
+        "navy_800": resolve(t, "navy-800", FALLBACK["navy-800"]),
+        "chalk": chalk,
+        "yellow": yellow,
+        "cyan": resolve(t, "cyan", FALLBACK["cyan"]),
+        "slate": resolve(t, "slate-400", FALLBACK["slate-400"]),
+        "slate_support": resolve(t, "slate-300", FALLBACK["slate-300"]),
+        "font_display": display,
+        "font_serif": resolve(t, "font-serif", FALLBACK["font-serif"]),
+        "font_ui": resolve(t, "font-ui", FALLBACK["font-ui"]),
+        "ls_eyebrow": resolve(t, "track-eyebrow", ".24em"),
+        "lh_tight": resolve(t, "leading-display", "1.04"),
+        "weight_display": resolve(t, "weight-display", "800"),
+        # legacy aliases — see docstring
+        "navy_deep": navy,
+        "amber": yellow,
+        "amber_light": yellow,
+        "cream": chalk,
+        "font_sans": display,
     }
 
 
