@@ -136,9 +136,10 @@ or the chalk double-shadow — **never a box.**
 
 `pipeline/overlay_kit.py` is the runtime version of the Cyanotype kit canvas —
 same geometry, same keyframes, same delays, copy parameterised. Its
-`RENDERERS` dict is the authoritative list — **35 keys, 31 distinct screens**
-(the eight overlays, thirteen engagement cards, four transitions in one
-component, the three outro beats, three worked examples) plus four aliases:
+`RENDERERS` dict is the authoritative list — **49 keys, 45 distinct screens**
+(the overlays incl. the glass legibility layer, fourteen engagement cards,
+four transitions in one component, the twelve-clip meme B-roll pack, the
+three outro beats, three worked examples) plus four aliases:
 `hook_title`→`hook`, `section`→`lower_third`, `quote`→`payoff`,
 `end_plate`→`outro`. Read the dict, don't trust a count in prose. `pipeline/animate.py`
 renders them by pausing every CSS animation and seeking `currentTime` frame by

@@ -335,7 +335,10 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
     return errors
 
 
-CARD_TYPES = ("hook_title", "section", "stat", "quote", "outro")
+# "meme" is the story role for the meme B-roll pack (gag clips the
+# graphics-director may place between beats); the fine-grained screen is
+# still named by kit_type, which is validated against RENDERERS below.
+CARD_TYPES = ("hook_title", "section", "stat", "quote", "outro", "meme")
 CARD_ANIMATIONS = ("slide_up", "slide_down", "fade")
 
 # Copy fields the audience actually reads. Brand rules are checked on these.

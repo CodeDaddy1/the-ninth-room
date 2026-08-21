@@ -170,7 +170,9 @@ _EDITABLE = ("kicker", "text", "subtext", "subtext_italic", "emphasis",
              "active", "chapters", "answer", "value", "low", "high",
              "reveal_ms", "style",
              # per-card sizing (Overlays desk sliders)
-             "font_scale", "card_scale")
+             "font_scale", "card_scale",
+             # meme pack subjects
+             "emoji", "emoji2", "image")
 
 # Starter copy for a freshly created overlay, per kit screen. Keys must be
 # names overlay_kit.RENDERERS knows (the big emoji screen is "emoji").
@@ -243,6 +245,31 @@ _KIT_TEMPLATES = {
 
     # --- the legibility layer ---
     "glass": {"value": 55},
+
+    # --- meme B-roll pack: subject = emoji, or an image path in `image` ---
+    "meme_reaction": {"kicker": "Live reaction", "emoji": "\U0001F631",
+                      "text": "We are so cooked"},
+    "meme_drop": {"kicker": "Actual footage", "emoji": "\U0001F5BC",
+                  "text": "The family at hour seven"},
+    "meme_rain": {"emoji": "\U0001F9A5", "stat": "3 tons",
+                  "text": "of sloth, apparently"},
+    "meme_versus": {"emoji": "\U0001F3DB", "emoji2": "\U0001F9A5",
+                    "sides": [{"label": "Expectation"}, {"label": "Reality"}]},
+    "meme_zoom": {"kicker": "Meanwhile", "emoji": "\U0001F419",
+                  "text": "The security guard watching us"},
+    "meme_breaking": {"kicker": "Breaking", "emoji": "\U0001F6A8",
+                      "text": "Dad has found a bench"},
+    "meme_loading": {"emoji": "\U0001F9CD", "text": "Convincing dad to leave"},
+    "meme_wanted": {"kicker": "Wanted", "emoji": "\U0001F47B",
+                    "text": "The ninth room"},
+    "meme_deal": {"emoji": "\U0001F9A5", "text": "Deal with it"},
+    "meme_certified": {"emoji": "\U0001F995", "text": "Certified museum moment"},
+    "meme_chase": {"kicker": "Actual speed", "emoji": "\U0001F3C3",
+                   "emoji2": "\U0001F996", "text": "Hour nine of nine"},
+    "meme_peek": {"kicker": "We saw that", "emoji": "\U0001F440",
+                  "text": "You, still not subscribed"},
+    "caption_this": {"kicker": "Caption this", "text": "This exact moment",
+                     "subtext": "Comment your caption"},
 
     # --- outro beats one and two (three is "outro", the end plate) ---
     "takeaway": {"kicker": "The takeaway",
@@ -382,7 +409,33 @@ def _overlays_state(slug: str) -> "dict":
             # starter copy per screen — the desk's New-card picker renders
             # hover previews from these through /api/overlay/html
             "kit_templates": _KIT_TEMPLATES,
+            # picker grouping lives HERE, next to the templates themselves —
+            # the Studio renders whatever this says and never keeps its own
+            # kit taxonomy (the capability-lookalike lesson)
+            "kit_groups": _kit_groups(),
             "overlays": items}
+
+
+def _kit_groups() -> "list":
+    """Picker sections, in display order. Membership is derived from the
+    template dict so a kit added there can never silently vanish from the
+    picker — anything unclaimed lands in the first (Overlays) group."""
+    named = {
+        "Engagement": ["quiz", "true_false", "prediction", "countdown",
+                       "scale", "poll", "vote", "this_that", "rank",
+                       "spot_it", "caption_this", "streak", "verdict",
+                       "scoreboard"],
+        "Memes": [k for k in _KIT_TEMPLATES if k.startswith("meme_")],
+        "Outro": ["takeaway", "next_room", "outro"],
+    }
+    claimed = {k for ks in named.values() for k in ks}
+    groups = [{"title": "Overlays",
+               "kits": [k for k in _KIT_TEMPLATES if k not in claimed]}]
+    for title in ("Engagement", "Memes", "Outro"):
+        kits = [k for k in named[title] if k in _KIT_TEMPLATES]
+        if kits:
+            groups.append({"title": title, "kits": kits})
+    return groups
 
 
 def _preview_html(card: "dict", w: int, h: int) -> str:

@@ -3,7 +3,7 @@
 The channel's retention strategy in one sentence: **hand the viewer a job.**
 
 A viewer who answered out loud is a viewer who is still there ninety seconds
-later. That is the entire reason the kit has thirteen engagement cards instead
+later. That is the entire reason the kit has fourteen engagement cards instead
 of one. This document says which card to reach for, how often, and what makes
 one fail.
 
@@ -28,7 +28,7 @@ The graphics-director agent reads this file. So should you before writing an
 
 ---
 
-## The thirteen cards
+## The fourteen cards
 
 Every one is an outline; the answer is that outline flooding with yellow. None
 of them is a filled box. `kit_type` is the value to put in `graphics_plan.json`.
@@ -40,8 +40,9 @@ of them is a filled box. `kit_type` is the value to put in `graphics_plan.json`.
 | `quiz` | 3 options, wrong ones dim, the answer floods yellow at 2.5s | There is a genuinely surprising correct answer and two plausible wrong ones |
 | `true_false` | The two-option quiz | The fact is a common misconception — *"a cocoon and a chrysalis are the same thing"* |
 | `countdown` | Ring plus 3·2·1, then cut on the frame the ring closes | You want the answer said out loud before the reveal. The strongest card in the kit |
-| `prediction` | Question, held beat, no options | The answer is a number or an event, not a choice. *"How many will land on Caleb?"* |
+| `prediction` | Options stay open — outlined, no winner; the video pays them off. With no rows, question + held beat | The viewer should call it before the footage answers. *"How many will land on Caleb?"* |
 | `spot_it` | Empty callout frame, viewer hunts | Something is visibly odd in frame before we point at it |
+| `caption_this` | A freeze frame and an empty line — the yellow cursor blinks, the comments write the joke | A face or a moment is funnier than anything we could script |
 
 ### Take-a-side
 
@@ -56,10 +57,26 @@ of them is a filled box. `kit_type` is the value to put in `graphics_plan.json`.
 
 | `kit_type` | What it does | Reach for it when |
 |---|---|---|
-| `rank` | Ordered list, only the top row yellow | Three to five things have a real order — most venomous, oldest, heaviest |
+| `rank` | Cyan `?` slots — the viewer supplies the order; a row with `"rank": N` reveals its number in yellow | Three to five things have a real order and the comments are the scoreboard |
 | `scale` | Dimension bracket with a marker | One thing sits on a spectrum. *"How weird is it?"* |
 | `verdict` | Lit doors out of five — **never stars** | Closing a visit (or a chapter) with a rating. The doors are the brand's rating unit |
 | `streak` | The chapter door meter at full size — one door per chapter, lit as you go | Marking progress as its own beat, usually mid-episode |
+
+### The meme B-roll pack (gag clips, not questions)
+
+Twelve `meme_*` screens ported from the MemeBroll design template. These are
+not engagement cards — they hand the viewer a laugh, not a job — but they
+live in the same kit and follow the same rules: no filled plates (frames and
+washes only), one yellow moment, emoji subjects welcome. Each runs 4–5s over
+footage or the navy wash. `meme_reaction` (subject slams in over a line),
+`meme_drop` (framed "actual footage"), `meme_rain` (a stat under falling
+emoji), `meme_versus` (expectation/reality), `meme_zoom` (slow push on a
+subject), `meme_breaking` (news bug + ticker), `meme_loading` (a bar stuck at
+99%), `meme_wanted` (poster), `meme_deal` (glasses drop), `meme_certified`
+(rubber stamp), `meme_chase` (two emoji, one fleeing), `meme_peek` (eyes from
+the frame edge). Subject is `emoji` (or an `image` path — it gets the yellow
+frame); `meme_versus` and `meme_chase` take `emoji2` for the second party.
+Use at most one or two per episode — a gag repeated is a gag killed.
 
 ---
 
@@ -88,7 +105,7 @@ one** card, and it must be answerable in the first five seconds. `countdown`
 and `this_that` are the two that survive a 45-second cut. Everything else
 needs setup a Short doesn't have.
 
-All thirteen cards reposition for 1080×1920 automatically — the renderer uses
+All fourteen cards reposition for 1080×1920 automatically — the renderer uses
 the vertical insets (180 top, 320 bottom, 64 sides) so nothing lands under the
 Shorts UI.
 

@@ -155,6 +155,21 @@ KEYFRAMES = """
 @keyframes yBracket{0%,10%{transform:scaleX(0);opacity:0}22%{opacity:1}44%{transform:scaleX(1);opacity:1}62%,100%{opacity:0}}
 @keyframes yDraw{to{stroke-dashoffset:0}}
 @keyframes yBurst{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(0,-260px) scale(.3)}}
+@keyframes mSlam{0%{opacity:0;transform:scale(0)}55%{opacity:1;transform:scale(1.14)}78%{transform:scale(.96)}100%{opacity:1;transform:scale(1)}}
+@keyframes mWobble{0%{rotate:0deg}12%{rotate:6deg}28%{rotate:-5deg}45%{rotate:3.5deg}62%{rotate:-2deg}80%{rotate:1deg}100%{rotate:0deg}}
+@keyframes mDrop{0%{transform:translateY(-720px)}70%{transform:translateY(26px)}100%{transform:translateY(0)}}
+@keyframes mZoomSlow{from{transform:scale(1)}to{transform:scale(1.06)}}
+@keyframes mZoomBig{from{transform:scale(.6)}to{transform:scale(3.4)}}
+@keyframes mFall{from{transform:translateY(-160px) rotate(0deg)}to{transform:translateY(1240px) rotate(var(--spin,160deg))}}
+@keyframes mTicker{from{transform:translateX(0)}to{transform:translateX(-1400px)}}
+@keyframes mBarGrow{from{width:0%}to{width:99%}}
+@keyframes mStamp{0%{opacity:0;transform:rotate(-8deg) scale(2.2)}30%{opacity:1}100%{opacity:1;transform:rotate(-8deg) scale(1)}}
+@keyframes mRun{from{transform:translateX(-260px) scaleX(-1)}to{transform:translateX(2200px) scaleX(-1)}}
+@keyframes mRun2{from{transform:translateX(-640px) scaleX(-1)}to{transform:translateX(2050px) scaleX(-1)}}
+@keyframes mBob{0%,100%{margin-top:0}50%{margin-top:-26px}}
+@keyframes mPeek{0%{transform:translateY(-50%) translateX(-420px) rotate(12deg)}22%,78%{transform:translateY(-50%) translateX(-80px) rotate(12deg)}100%{transform:translateY(-50%) translateX(-440px) rotate(12deg)}}
+@property --p { syntax: '<integer>'; initial-value: 0; inherits: false; }
+@keyframes mCount{from{--p:0}to{--p:99}}
 @keyframes yInk{from{color:#EAF4FF;text-shadow:0 0 4px rgba(4,16,32,.95),0 4px 18px rgba(4,16,32,.9)}to{color:#0B2340;text-shadow:0 0 4px rgba(4,16,32,0),0 4px 18px rgba(4,16,32,0)}}
 """
 
@@ -1021,19 +1036,27 @@ def true_false(card: "dict", F: "dict") -> str:
 
 
 def prediction(card: "dict", F: "dict") -> str:
-    """Prediction — the question, then a held beat. No options, on purpose.
+    """Prediction — options STAY OPEN; the video pays them off.
 
-    The viewer says it out loud; the footage answers. Yellow sits on the
-    eyebrow because there is no option for it to land on.
+    Per the EngagementCard template: no option ever floods, no winner is
+    crowned on the card — the footage answers. With no `rows` the card
+    degrades to the question + a held beat, which is still a legitimate
+    use. Yellow stays on the eyebrow either way.
     """
-    head, close = _engagement_head(card, F, YELLOW, "Call it now", 260)
+    head, close = _engagement_head(card, F, YELLOW, "Call it now", 220)
+    rows = card.get("rows") or []
+    body = ""
+    if rows:
+        opts = "".join(_outline_option(r.get("label", ""), 300 + i * 100)
+                       for i, r in enumerate(rows[:4]))
+        body = ('<div style="display:flex;flex-direction:column;gap:16px;'
+                'width:%dpx;margin-top:14px">%s</div>'
+                % (min(1200, F["inner"]), opts))
     sub = _e(card.get("subtext") or "We\u2019ll find out in a second.")
-    return head + ("""
-  <div style="width:180px;height:3px;background:%s;margin-top:34px;transform-origin:center;
-              animation:yGrow 320ms %s 420ms both"></div>
-  <div style="font-family:%s;font-size:34px;font-weight:600;color:%s;margin-top:24px;
+    return head + body + ("""
+  <div style="font-family:%s;font-size:32px;font-weight:600;color:%s;margin-top:26px;
               text-shadow:%s;animation:yFade 240ms ease 600ms both">%s</div>
-""" % (YELLOW, EASE_RULE, FONT_DISPLAY, SLATE_300, SHADOW_CHALK, sub)) + close
+""" % (FONT_DISPLAY, SLATE_300, SHADOW_CHALK, sub)) + close
 
 
 def this_that(card: "dict", F: "dict") -> str:
@@ -1050,25 +1073,52 @@ def this_that(card: "dict", F: "dict") -> str:
                    % "".join(opts)) + close
 
 
+def caption_this(card: "dict", F: "dict") -> str:
+    """Caption this — a freeze frame and an empty line (the EngagementCard
+    template's thirteenth screen, previously missing from the kit). The
+    yellow cursor blinks at the start of the empty line; the comments
+    supply the caption.
+    """
+    head, close = _engagement_head(card, F, YELLOW, "Caption this", 200,
+                                   q_size=72)
+    return head + ("""
+  <div style="width:%(w)dpx;margin-top:36px;animation:yUp 320ms %(ease)s 300ms both">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="display:inline-block;width:6px;height:58px;background:%(yellow)s;animation:yPulse 900ms ease-in-out 600ms 3"></span>
+      <div style="flex:1;height:3px;background:rgba(234,244,255,.4);margin-top:44px"></div>
+    </div>
+    <div style="font-family:%(display)s;font-size:30px;font-weight:600;color:%(slate)s;margin-top:22px;text-align:center;text-shadow:%(shadow)s;animation:yFade 240ms ease 700ms both">%(sub)s</div>
+  </div>
+""" % {"w": min(1200, F["inner"]), "ease": EASE_REVEAL, "yellow": YELLOW,
+       "display": FONT_DISPLAY, "slate": SLATE_300, "shadow": SHADOW_CHALK,
+       "sub": _e(card.get("subtext") or "Comment your caption")}) + close
+
+
 def rank(card: "dict", F: "dict") -> str:
-    """Rank — an ordered list. Only the top row is yellow."""
+    """Rank — the VIEWER supplies the order: cyan ? slots beside each
+    option (the EngagementCard template's reading — "comments are the
+    scoreboard"). A row carrying an explicit `"rank": N` shows its number
+    instead, so a payoff card can reuse the same screen to reveal the
+    answer.
+    """
     rows = card.get("rows") or card.get("entries") or []
     items = []
     for i, r in enumerate(rows[:5]):
-        won = i == 0
+        n = r.get("rank")
         items.append("""
-    <div style="display:flex;align-items:baseline;gap:26px;margin-top:%(mt)dpx;
+    <div style="display:flex;align-items:center;gap:26px;margin-top:%(mt)dpx;
                 animation:yUp 280ms %(ease)s %(d)dms both">
-      <span style="font-family:%(display)s;font-size:44px;font-weight:800;color:%(nc)s;
-                   width:64px;text-shadow:%(shadow)s">%(n)d</span>
-      <span style="font-family:%(display)s;font-size:52px;font-weight:%(fw)d;color:%(lc)s;
+      <span style="width:74px;height:74px;border:3px solid %(slot)s;box-sizing:border-box;
+                   display:flex;align-items:center;justify-content:center;
+                   font-family:%(display)s;font-size:40px;font-weight:800;color:%(slot)s;
+                   border-radius:6px;text-shadow:%(shadow)s">%(mark)s</span>
+      <span style="font-family:%(display)s;font-size:52px;font-weight:700;color:%(chalk)s;
                    text-shadow:%(shadow)s">%(label)s</span>
     </div>""" % {"mt": 0 if not i else 18, "ease": EASE_REVEAL, "d": 300 + i * 100,
-                 "display": FONT_DISPLAY, "nc": YELLOW if won else SLATE_400,
-                 "shadow": SHADOW_CHALK, "n": i + 1,
-                 "fw": 800 if won else 700, "lc": CHALK if won else SLATE_400,
-                 "label": _e(r.get("label", ""))})
-    head, close = _engagement_head(card, F, CYAN, "In order", 190, q_size=72)
+                 "slot": YELLOW if n else CYAN, "display": FONT_DISPLAY,
+                 "shadow": SHADOW_CHALK, "mark": _e(str(n)) if n else "?",
+                 "chalk": CHALK, "label": _e(r.get("label", ""))})
+    head, close = _engagement_head(card, F, CYAN, "Your turn", 190, q_size=72)
     return head + ('<div style="margin-top:26px;width:%dpx">%s</div>'
                    % (min(1100, F["inner"]), "".join(items))) + close
 
@@ -1288,6 +1338,326 @@ def outro(card: "dict", F: "dict") -> str:
              "arch": _arch(200, animate=True), "serif": FONT_SERIF,
              "chalk": CHALK, "cyan": CYAN, "display": FONT_DISPLAY,
              "tagline": tagline}
+
+
+# --- meme B-roll pack -------------------------------------------------------
+# Ported 1:1 from the "Meme B-roll" template on claude.ai/design (project
+# 44828815, meme-broll-piece.jsx) — twelve short gag clips that cover a
+# three-to-five-second hole where footage runs thin. Every subject is an
+# emoji by default and becomes a dropped-in image when the card carries an
+# `image` path. Clips whose source composited over footage render with a
+# transparent ground + navy wash (they sit over A-roll); the rest are full
+# navy plates. The design's own note: this pack is the sanctioned lane for
+# emoji as SUBJECT MATTER, inside the brand's frame.
+
+MEME_EASE_BACK = "cubic-bezier(.34,1.56,.64,1)"   # easeOutBack, the slam
+MEME_EASE_SINE = "cubic-bezier(.445,.05,.55,.95)" # easeInOutSine, the zoom
+
+
+def _meme_subject(card: "dict", size: int = 260, frame: bool = True,
+                  slam_at: int = 0, wobble: bool = False,
+                  extra: str = "") -> str:
+    """Emoji glyph, or a dropped-in image in the yellow gag frame."""
+    img = card.get("image")
+    anim = "animation:mSlam 380ms %s %dms both" % (MEME_EASE_BACK, slam_at)
+    if wobble:
+        anim += ",mWobble 1400ms ease-out %dms both" % (slam_at + 380)
+    if img:
+        return ('<div style="width:%dpx;height:%dpx;position:relative;%s;'
+                'overflow:hidden;%s;%s">'
+                '<img src="file://%s" alt="" style="width:100%%;height:100%%;'
+                'object-fit:cover;display:block"></div>'
+                % (int(size * 1.5), int(size * 1.5),
+                   ("border:5px solid %s" % YELLOW) if frame else "border:0",
+                   anim, extra, _e(str(img))))
+    return ('<div style="font-size:%dpx;line-height:1;filter:%s;%s;%s">%s</div>'
+            % (size, EMOJI_SHADOW, anim, extra,
+               html.escape(str(card.get("emoji", "\U0001F631")))))
+
+
+def _meme_eyebrow(text: str, at_ms: int, tone: str = CYAN) -> str:
+    return ('<div style="display:flex;align-items:center;gap:14px;'
+            'justify-content:center;animation:yUp 300ms %s %dms both">'
+            '<div style="width:50px;height:3px;background:%s"></div>'
+            '<span style="font-family:%s;font-size:28px;font-weight:800;'
+            'letter-spacing:.24em;text-transform:uppercase;color:%s">%s</span>'
+            '<div style="width:50px;height:3px;background:%s"></div></div>'
+            % (EASE_REVEAL, at_ms, tone, FONT_DISPLAY, tone, _caps(text), tone))
+
+
+def _meme_line(text: str, at_ms: int, size: int = 72) -> str:
+    return ('<div style="font-family:%s;font-size:%dpx;font-weight:800;'
+            'letter-spacing:-.04em;color:%s;text-shadow:%s;text-align:center;'
+            'animation:yUp 400ms %s %dms both">%s</div>'
+            % (FONT_DISPLAY, size, CHALK, SHADOW_DISPLAY, EASE_REVEAL,
+               at_ms, _e(text)))
+
+
+def meme_reaction(card: "dict", F: "dict") -> str:
+    """1 · Reaction slam — over footage; cut on the frame it reacts to."""
+    return """%(wash)s
+<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px">
+  %(eyebrow)s
+  %(subject)s
+  %(line)s
+</div>""" % {"wash": _wash("rgba(11,35,64,.55)"),
+             "eyebrow": _meme_eyebrow(card.get("kicker") or "Live reaction", 150, YELLOW),
+             "subject": _meme_subject(card, 300, slam_at=400, wobble=True),
+             "line": _meme_line(card.get("text", ""), 1100)}
+
+
+def meme_drop(card: "dict", F: "dict") -> str:
+    """2 · Meme drop — the image falls into a crop-marked frame, slow zoom."""
+    img = card.get("image")
+    inner = ('<img src="file://%s" alt="" style="width:100%%;height:100%%;'
+             'object-fit:cover;display:block;animation:mZoomSlow 4000ms linear 1000ms both">'
+             % _e(str(img))) if img else (
+             '<div style="position:absolute;inset:0;display:flex;align-items:center;'
+             'justify-content:center;font-size:300px;line-height:1;filter:%s;'
+             'animation:mZoomSlow 4000ms linear 1000ms both">%s</div>'
+             % (EMOJI_SHADOW, html.escape(str(card.get("emoji", "\U0001F5BC")))))
+    return """
+<div style="position:absolute;inset:0;background:%(navy)s"></div>
+<div style="position:absolute;left:50%%;top:150px;width:820px;height:560px;transform:translateX(-50%%)">
+  <div style="animation:mDrop 450ms %(back)s 300ms both">
+    <div style="position:absolute;inset:-30px;animation:yFade 250ms ease 800ms both">%(marks)s</div>
+    <div style="position:absolute;inset:0;overflow:hidden;border:5px solid %(yellow)s;background:%(ink)s;width:820px;height:560px">%(inner)s</div>
+  </div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:130px;display:flex;flex-direction:column;align-items:center;gap:18px">
+  %(eyebrow)s
+  %(line)s
+</div>""" % {"navy": NAVY, "back": MEME_EASE_BACK, "yellow": YELLOW,
+             "ink": NAVY_800, "inner": inner,
+             "marks": _crop_marks(YELLOW, 30, 0),
+             "eyebrow": _meme_eyebrow(card.get("kicker") or "Actual footage", 1100),
+             "line": _meme_line(card.get("text", ""), 1350, 66)}
+
+
+def meme_rain(card: "dict", F: "dict") -> str:
+    """3 · Emoji rain — emojis tumble down while a giant stat slams in."""
+    ch = html.escape(str(card.get("emoji", "\U0001F9A5")))
+    xs = [.06, .16, .27, .38, .5, .61, .72, .83, .93, .11, .33, .56, .78, .89]
+    drops = []
+    for i, x in enumerate(xs):
+        start = 100 + (i % 7) * 140
+        spin = (1 if i % 2 else -1) * 160
+        drops.append('<div style="position:absolute;left:%dpx;top:0;'
+                     'font-size:%dpx;line-height:1;--spin:%ddeg;filter:%s;'
+                     'animation:mFall 2600ms cubic-bezier(.55,.085,.68,.53) %dms both">%s</div>'
+                     % (int(x * 1920) - 60, 96 + (i % 3) * 30, spin,
+                        EMOJI_SHADOW, start, ch))
+    return """%(wash)s
+<div style="position:absolute;inset:0;overflow:hidden">%(drops)s</div>
+<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+  <div style="font-family:%(display)s;font-size:220px;line-height:1;font-weight:800;letter-spacing:-.06em;color:%(yellow)s;text-shadow:%(statshadow)s;animation:mSlam 380ms %(back)s 900ms both">%(stat)s</div>
+  <div style="font-family:%(display)s;font-size:44px;font-weight:700;color:%(chalk)s;text-shadow:%(shadow)s;animation:yUp 400ms %(ease)s 1300ms both">%(unit)s</div>
+</div>""" % {"wash": _wash("rgba(11,35,64,.62)"), "drops": "".join(drops),
+             "display": FONT_DISPLAY, "yellow": YELLOW,
+             "statshadow": SHADOW_STAT, "back": MEME_EASE_BACK,
+             "stat": _e(card.get("stat", "")), "chalk": CHALK,
+             "shadow": SHADOW_CHALK, "ease": EASE_REVEAL,
+             "unit": _e(card.get("text", ""))}
+
+
+def meme_versus(card: "dict", F: "dict") -> str:
+    """4 · Expectation vs reality — reality lands in the yellow frame."""
+    left_inner = ('<div style="font-size:260px;line-height:1;filter:%s">%s</div>'
+                  % (EMOJI_SHADOW, html.escape(str(card.get("emoji", "\U0001F3DB")))))
+    img = card.get("image")
+    right_inner = ('<img src="file://%s" alt="" style="width:100%%;height:100%%;object-fit:cover;display:block">'
+                   % _e(str(img))) if img else (
+                   '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;'
+                   'font-size:260px;line-height:1;filter:%s">%s</div>'
+                   % (EMOJI_SHADOW, html.escape(str(card.get("emoji2", "\U0001F9A5")))))
+    labels = card.get("sides") or [{}, {}]
+    lab = lambda i, d: _e((labels[i] if i < len(labels) else {}).get("label", d))
+    return """
+<div style="position:absolute;inset:0;background:%(navy)s"></div>
+<div style="position:absolute;left:120px;top:190px;width:760px;height:560px;border:3px solid %(dim)s;box-sizing:border-box;display:flex;align-items:center;justify-content:center;animation:mSlam 380ms %(back)s 300ms both">
+  %(left)s
+  <div style="position:absolute;left:0;right:0;bottom:-76px;text-align:center;font-family:%(display)s;font-size:34px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:%(slate)s">%(llab)s</div>
+</div>
+<div style="position:absolute;left:50%%;top:240px;transform:translateX(-50%%);display:flex;flex-direction:column;align-items:center;gap:12px;animation:yUp 300ms %(ease)s 1000ms both">
+  <div style="width:3px;height:170px;background:%(dim)s"></div>
+  <span style="font-family:%(display)s;font-size:32px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:%(cyan)s">vs</span>
+  <div style="width:3px;height:170px;background:%(dim)s"></div>
+</div>
+<div style="position:absolute;right:120px;top:190px;width:760px;height:560px;animation:mSlam 380ms %(back)s 1300ms both">
+  <div style="position:absolute;inset:0;border:5px solid %(yellow)s;overflow:hidden;background:%(ink)s">%(right)s</div>
+  <div style="position:absolute;left:0;right:0;bottom:-76px;text-align:center;font-family:%(display)s;font-size:34px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:%(yellow)s">%(rlab)s</div>
+</div>""" % {"navy": NAVY, "dim": INERT, "back": MEME_EASE_BACK,
+             "left": left_inner, "display": FONT_DISPLAY, "slate": SLATE_300,
+             "llab": lab(0, "Expectation"), "ease": EASE_REVEAL, "cyan": CYAN,
+             "yellow": YELLOW, "ink": NAVY_800, "right": right_inner,
+             "rlab": lab(1, "Reality")}
+
+
+def meme_zoom(card: "dict", F: "dict") -> str:
+    """5 · Slow zoom — one subject, dead centre, relentless."""
+    return """%(wash)s
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+  <div style="animation:mZoomBig 4400ms %(sine)s both">%(subject)s</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:150px;display:flex;flex-direction:column;align-items:center;gap:16px">
+  %(eyebrow)s
+  %(line)s
+</div>""" % {"wash": _wash("rgba(11,35,64,.6)"), "sine": MEME_EASE_SINE,
+             "subject": _meme_subject(card, 260, slam_at=0),
+             "eyebrow": _meme_eyebrow(card.get("kicker") or "Meanwhile", 400),
+             "line": _meme_line(card.get("text", ""), 800, 66)}
+
+
+def meme_breaking(card: "dict", F: "dict") -> str:
+    """6 · Breaking news — headline, subject slam, scrolling ticker."""
+    tick = _caps("more on this as it develops · nobody is going anywhere · ") * 6
+    return """%(wash)s
+<div style="position:absolute;right:190px;top:170px;animation:mSlam 380ms %(back)s 300ms both">%(subject)s</div>
+<div style="position:absolute;left:120px;bottom:260px;right:120px">
+  <div style="display:flex;align-items:center;gap:14px;animation:yUp 300ms %(ease)s 500ms both">
+    <div style="width:56px;height:3px;background:%(yellow)s"></div>
+    <span style="font-family:%(display)s;font-size:30px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:%(yellow)s">%(kicker)s</span>
+  </div>
+  <div style="font-family:%(display)s;font-size:88px;font-weight:800;letter-spacing:-.045em;color:%(chalk)s;margin-top:16px;text-shadow:%(shadow)s;animation:yUp 400ms %(ease)s 800ms both">%(line)s</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:150px;border-top:2px solid %(dim)s;border-bottom:2px solid %(dim)s;padding:14px 0;overflow:hidden;white-space:nowrap;animation:yFade 300ms ease 1100ms both">
+  <div style="font-family:%(display)s;font-size:26px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:%(slate)s;animation:mTicker 5400ms linear 0ms both">%(tick)s</div>
+</div>""" % {"wash": _wash("rgba(11,35,64,.4)"), "back": MEME_EASE_BACK,
+             "subject": _meme_subject(card, 280, slam_at=300),
+             "ease": EASE_REVEAL, "yellow": YELLOW, "display": FONT_DISPLAY,
+             "kicker": _caps(card.get("kicker") or "Breaking"),
+             "chalk": CHALK, "shadow": SHADOW_DISPLAY,
+             "line": _e(card.get("text", "")), "dim": INERT,
+             "slate": SLATE_400, "tick": tick}
+
+
+def meme_loading(card: "dict", F: "dict") -> str:
+    """7 · Loading — the bar races to 99 and sticks. Chrome animates the
+    registered --p integer and a ::before counter renders it, so the
+    percentage genuinely counts up frame by frame in the bake."""
+    return """
+<style>.mpct{animation:mCount 2000ms cubic-bezier(.215,.61,.355,1) 600ms both;counter-reset:pp var(--p)}
+.mpct::before{content:counter(pp) "%%"}</style>
+<div style="position:absolute;inset:0;background:%(navy)s"></div>
+<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px">
+  %(subject)s
+  %(line)s
+  <div style="width:1000px;animation:yUp 400ms %(ease)s 700ms both">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:%(display)s;font-size:34px;font-weight:700;color:%(chalk)s">
+      <span>Progress</span>
+      <span class="mpct" style="font-size:48px;font-weight:800;color:%(yellow)s"></span>
+    </div>
+    <div style="height:6px;background:rgba(234,244,255,.24);margin-top:14px;position:relative">
+      <div style="position:absolute;left:0;top:0;bottom:0;background:%(yellow)s;animation:mBarGrow 2000ms cubic-bezier(.215,.61,.355,1) 600ms both"></div>
+    </div>
+  </div>
+  <div style="font-family:%(display)s;font-size:28px;font-weight:600;color:%(slate)s;animation:yFade 300ms ease 2900ms both">%(sub)s</div>
+</div>""" % {"navy": NAVY,
+             "subject": _meme_subject(card, 220, slam_at=200),
+             "line": _meme_line(card.get("text", ""), 500, 64),
+             "ease": EASE_REVEAL, "display": FONT_DISPLAY, "chalk": CHALK,
+             "yellow": YELLOW, "slate": SLATE_300,
+             "sub": _e(card.get("subtext") or "…it has been stuck here for twenty minutes")}
+
+
+def meme_wanted(card: "dict", F: "dict") -> str:
+    """8 · Wanted poster — last seen: not on the map."""
+    img = card.get("image")
+    inner = ('<img src="file://%s" alt="" style="width:100%%;height:100%%;object-fit:cover;display:block">'
+             % _e(str(img))) if img else (
+             '<div style="font-size:240px;line-height:1;filter:%s">%s</div>'
+             % (EMOJI_SHADOW, html.escape(str(card.get("emoji", "\U0001F47B")))))
+    return """
+<div style="position:absolute;inset:0;background:%(navy)s"></div>
+<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px">
+  %(eyebrow)s
+  <div style="position:relative;animation:mSlam 380ms %(back)s 500ms both">
+    <div style="position:absolute;inset:-30px">%(marks)s</div>
+    <div style="width:460px;height:400px;border:5px solid %(yellow)s;overflow:hidden;display:flex;align-items:center;justify-content:center;background:%(ink)s">%(inner)s</div>
+    <div style="position:absolute;inset:0;animation:mZoomSlow 3200ms linear 800ms both"></div>
+  </div>
+  %(line)s
+  <div style="font-family:%(display)s;font-size:30px;font-weight:600;color:%(slate)s;animation:yUp 300ms %(ease)s 1700ms both">%(sub)s</div>
+</div>""" % {"navy": NAVY,
+             "eyebrow": _meme_eyebrow(card.get("kicker") or "Wanted", 200, YELLOW),
+             "back": MEME_EASE_BACK, "marks": _crop_marks(YELLOW, 30, 0),
+             "yellow": YELLOW, "ink": NAVY_800, "inner": inner,
+             "line": _meme_line(card.get("text", ""), 1200, 76),
+             "display": FONT_DISPLAY, "slate": SLATE_300, "ease": EASE_REVEAL,
+             "sub": _e(card.get("subtext") or "Last seen: not on the map")}
+
+
+def meme_deal(card: "dict", F: "dict") -> str:
+    """9 · Deal with it — the yellow sunglasses drop on."""
+    is_img = bool(card.get("image"))
+    bar_top = 90 if is_img else 74
+    bar_w = 340 if is_img else 250
+    return """%(wash)s
+<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px">
+  <div style="position:relative">
+    %(subject)s
+    <div style="position:absolute;left:50%%;top:%(bt)dpx;width:%(bw)dpx;height:44px;margin-left:-%(hw)dpx;background:%(navy)s;border:3px solid %(yellow)s;box-sizing:border-box;display:flex;animation:mDrop 450ms %(back)s 1300ms both">
+      <div style="flex:1;background:%(yellow)s;margin:5px"></div><div style="width:26px"></div><div style="flex:1;background:%(yellow)s;margin:5px"></div>
+    </div>
+  </div>
+  %(line)s
+</div>""" % {"wash": _wash("rgba(11,35,64,.5)"),
+             "subject": _meme_subject(card, 300, slam_at=300),
+             "bt": bar_top, "bw": bar_w, "hw": bar_w // 2, "navy": NAVY,
+             "yellow": YELLOW, "back": MEME_EASE_BACK,
+             "line": _meme_line(card.get("text") or "Deal with it", 2100)}
+
+
+def meme_certified(card: "dict", F: "dict") -> str:
+    """10 · Certified — a rotated stamp slams over the subject."""
+    return """%(wash)s
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+  <div style="animation:yUp 500ms %(ease)s 200ms both">%(subject)s</div>
+  <div style="position:absolute;animation:mStamp 320ms cubic-bezier(.55,.055,.675,.19) 1100ms both">
+    <div style="position:relative;padding:20px">
+      %(marks)s
+      <div style="border:5px solid %(yellow)s;padding:18px 40px;font-family:%(display)s;font-size:54px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:%(yellow)s;text-shadow:%(shadow)s">%(line)s</div>
+    </div>
+  </div>
+</div>""" % {"wash": _wash("rgba(11,35,64,.45)"), "ease": EASE_REVEAL,
+             "subject": _meme_subject(card, 320, slam_at=0),
+             "marks": _crop_marks(YELLOW, 30, 1100), "yellow": YELLOW,
+             "display": FONT_DISPLAY, "shadow": SHADOW_CHALK,
+             "line": _caps(card.get("text") or "Certified museum moment")}
+
+
+def meme_chase(card: "dict", F: "dict") -> str:
+    """11 · The chase — one emoji sprints, a bigger one follows."""
+    e1 = html.escape(str(card.get("emoji", "\U0001F3C3")))
+    e2 = html.escape(str(card.get("emoji2", "\U0001F996")))
+    return """%(wash)s
+<div style="position:absolute;left:0;top:520px;font-size:200px;line-height:1;filter:%(eshadow)s;animation:mRun 3100ms linear 300ms both">
+  <div style="animation:mBob 350ms ease-in-out 300ms 9 both">%(e1)s</div>
+</div>
+<div style="position:absolute;left:0;top:500px;font-size:240px;line-height:1;filter:%(eshadow)s;animation:mRun2 2950ms linear 450ms both">
+  <div style="animation:mBob 290ms ease-in-out 450ms 11 both">%(e2)s</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:160px;display:flex;flex-direction:column;align-items:center;gap:14px">
+  %(eyebrow)s
+  %(line)s
+</div>""" % {"wash": _wash("rgba(11,35,64,.5)"), "eshadow": EMOJI_SHADOW,
+             "e1": e1, "e2": e2,
+             "eyebrow": _meme_eyebrow(card.get("kicker") or "Actual speed", 300, YELLOW),
+             "line": _meme_line(card.get("text", ""), 700, 66)}
+
+
+def meme_peek(card: "dict", F: "dict") -> str:
+    """12 · The peek — leans in from the left edge, holds, retreats."""
+    return """
+<div style="position:absolute;inset:0;background:%(navy)s"></div>
+<div style="position:absolute;left:0;top:50%%;animation:mPeek 4000ms %(ease)s both">%(subject)s</div>
+<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding-left:240px">
+  %(eyebrow)s
+  %(line)s
+</div>""" % {"navy": NAVY, "ease": MEME_EASE_SINE,
+             "subject": _meme_subject(card, 340, slam_at=0),
+             "eyebrow": _meme_eyebrow(card.get("kicker") or "We saw that", 1200),
+             "line": _meme_line(card.get("text", ""), 1500)}
 
 
 def glass(card: "dict", F: "dict") -> str:
@@ -1550,6 +1920,20 @@ RENDERERS = {
     "streak": streak,
     # legibility layer
     "glass": glass,
+    # meme B-roll pack (claude.ai/design project 44828815)
+    "meme_reaction": meme_reaction,
+    "meme_drop": meme_drop,
+    "meme_rain": meme_rain,
+    "meme_versus": meme_versus,
+    "meme_zoom": meme_zoom,
+    "meme_breaking": meme_breaking,
+    "meme_loading": meme_loading,
+    "meme_wanted": meme_wanted,
+    "meme_deal": meme_deal,
+    "meme_certified": meme_certified,
+    "meme_chase": meme_chase,
+    "meme_peek": meme_peek,
+    "caption_this": caption_this,
     # transitions + outro
     "transition": transition,
     "takeaway": takeaway,
