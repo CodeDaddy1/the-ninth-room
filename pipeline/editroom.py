@@ -944,6 +944,101 @@ def _save_idea_state(idea_id: str, status: str, notes: str) -> None:
     _write_json(p, state)
 
 
+# --- the episode plan (pre-shoot planning, Studio Planner desk) -----------
+# work/<slug>/plan.json is an agent-readable artifact like edit_plan.json:
+# the story-designer may read it for intent, and Caleb prints it as the
+# shoot-day sheet. The server owns nothing here except shape validation —
+# identity comes from the slug, and the whole document is client-editable
+# because unlike a card there is no baked artifact downstream to protect.
+
+_PLAN_CHECKLIST_SOURCES = ("card", "brand", "custom")
+
+
+def _plan_path(slug: str) -> Path:
+    return work_path(slug) / "plan.json"
+
+
+def _plan_state(slug: str) -> "dict":
+    p = _plan_path(slug)
+    if not p.exists():
+        return {"slug": slug, "exists": False, "plan": None}
+    return {"slug": slug, "exists": True,
+            "plan": json.loads(p.read_text())}
+
+
+def _validate_plan(plan: "dict") -> "list":
+    """Same posture as pipeline.schemas: name every problem, reject on any.
+
+    What breaks if this is loose: the Studio writes a malformed plan, the
+    story-designer agent reads it mid-produce, and the failure surfaces two
+    stages later as a nonsense edit plan instead of here as a 400.
+    """
+    errors = []
+    if not isinstance(plan, dict):
+        return ["plan: not an object"]
+    for key in ("place", "notes"):
+        if key in plan and not isinstance(plan[key], str):
+            errors.append("plan: '%s' must be a string" % key)
+    if "visit_date" in plan and plan["visit_date"]:
+        import re as _re
+        if not _re.match(r"^\d{4}-\d{2}-\d{2}$", str(plan["visit_date"])):
+            errors.append("plan: visit_date must be YYYY-MM-DD")
+    chapters = plan.get("chapters", [])
+    if not isinstance(chapters, list):
+        errors.append("plan: 'chapters' must be a list")
+        chapters = []
+    if len(chapters) > 12:
+        errors.append("plan: %d chapters — the door meter caps at 12"
+                      % len(chapters))
+    for i, ch in enumerate(chapters):
+        where = "chapters[%d]" % i
+        if not isinstance(ch, dict):
+            errors.append(where + ": not an object"); continue
+        if not isinstance(ch.get("title", ""), str):
+            errors.append(where + ": 'title' must be a string")
+        for lk, fields in (("shots", ("desc",)), ("card_ideas", ("kit_type",))):
+            items = ch.get(lk, [])
+            if not isinstance(items, list):
+                errors.append("%s: '%s' must be a list" % (where, lk)); continue
+            for j, it in enumerate(items):
+                if not isinstance(it, dict):
+                    errors.append("%s.%s[%d]: not an object" % (where, lk, j))
+                    continue
+                for f in fields:
+                    if not isinstance(it.get(f, ""), str):
+                        errors.append("%s.%s[%d]: '%s' must be a string"
+                                      % (where, lk, j, f))
+        # card_ideas must name real kit screens, same check the graphics
+        # validator gained — a typo here otherwise survives to bake time.
+        from .overlay_kit import RENDERERS
+        for j, it in enumerate(ch.get("card_ideas", []) or []):
+            if isinstance(it, dict) and it.get("kit_type") and \
+                    it["kit_type"] not in RENDERERS:
+                errors.append("%s.card_ideas[%d]: kit_type '%s' is not a "
+                              "kit screen" % (where, j, it["kit_type"]))
+    for lk in ("ninth_room_candidates", "checklist"):
+        items = plan.get(lk, [])
+        if not isinstance(items, list):
+            errors.append("plan: '%s' must be a list" % lk)
+    for j, it in enumerate(plan.get("checklist", []) or []):
+        if isinstance(it, dict) and it.get("source") and \
+                it["source"] not in _PLAN_CHECKLIST_SOURCES:
+            errors.append("checklist[%d]: source '%s' not in %s"
+                          % (j, it["source"], _PLAN_CHECKLIST_SOURCES))
+    return errors
+
+
+def _save_plan(slug: str, plan: "dict") -> "dict":
+    errors = _validate_plan(plan)
+    if errors:
+        raise IngestError("plan failed validation:\n  " + "\n  ".join(errors))
+    plan = dict(plan)
+    plan["slug"] = slug          # identity is the server's, not the client's
+    plan["updated"] = int(time.time())
+    _write_json(_plan_path(slug), plan)
+    return _plan_state(slug)
+
+
 def _still_to_clip(inp: Path, clip: Path) -> None:
     """A still image becomes a 6s UHD clip the b-roll pipeline can place."""
     proc = subprocess.run(
@@ -1254,6 +1349,8 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, _footage_state(self._slug_q()))
             elif self.path.startswith("/api/ideas"):
                 self._send(200, _ideas_state())
+            elif self.path.startswith("/api/plan"):
+                self._send(200, _plan_state(self._slug_q()))
             elif self.path.startswith("/api/assets"):
                 self._send(200, _assets_state(self._slug_q()))
             elif self.path.startswith("/media/"):
@@ -1386,6 +1483,13 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 log("[footage] %s cleared (%d files to .trash)"
                     % (body.get("slug"), result["removed"]))
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/plan/save":
+                # `body` was already read at the top of _post — reading the
+                # socket again blocks forever on a drained stream.
+                pslug = body.get("slug", "")
+                if not _valid_slug(pslug):
+                    raise IngestError("unknown project '%s'" % pslug)
+                self._send(200, _save_plan(pslug, body.get("plan") or {}))
             elif self.path == "/api/idea/state":
                 _save_idea_state(body.get("id", ""), body.get("status", ""),
                                  body.get("notes", ""))

@@ -55,6 +55,15 @@ console settings, recordings, decisions). Check items off when done.
     figure. Every current call site passes a positive literal, so this only
     matters if either becomes caller-driven or Edit-Room-exposed.
 
+- [ ] **Studio + landing page follow-ups (2026-08-21):**
+  - Create the Vercel project for `CodeDaddy1/the-ninth-room-studio` (import
+    the repo in the Vercel dashboard; no env vars needed — the Studio routes
+    self-disable without `STUDIO=1`). Attach a domain whenever you buy one.
+  - On launch day: put the first episode's YouTube video id into
+    `the-ninth-room-studio/src/lib/site.config.ts` `EPISODES` and redeploy.
+  - Delete the old `curated-curiosities` Vercel project (it will fail-build
+    on pushes and is retired).
+
 - [ ] Optional: in Resolve, delete the spike leftovers (project
   `CURATED_SPIKE`, timelines `spike_*`) — harmless if kept.
 

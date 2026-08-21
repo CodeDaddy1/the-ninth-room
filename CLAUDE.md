@@ -46,6 +46,24 @@ scripting. Timelines are generated as FCPXML and imported; transitions survive
 import, transform keyframes do not — so all graphics animation is **baked into
 ProRes 4444 alpha clips** with ffmpeg before they reach the timeline.
 
+## The Studio (canonical UI) and the Edit Room (legacy)
+
+**The Ninth Room Studio** (`~/Projects/the-ninth-room-studio`, Next.js) is
+the canonical UI over this pipeline: channel landing page at `/`, and the
+desks — Ideas, Planner, Overlays, Captions, Review — at `/studio` (local,
+`STUDIO=1`). It talks to this repo's engine over HTTP and reads/writes the
+same JSON artifacts the agents use. Read that repo's CLAUDE.md before
+changing any `/api/*` shape here — the Studio's `src/lib/engine.ts` mirrors
+them.
+
+The Planner desk writes `work/<slug>/plan.json` (pre-shoot: chapters, shot
+lists, card ideas, ninth-room candidates, derived checklist). The engine
+validates it in `_validate_plan` and stamps identity; the story-designer
+may read it for intent when present.
+
+The inline-HTML UI served by `editroom.py` itself is **frozen legacy** —
+kept working, gets no new features; new surfaces go in the Studio.
+
 ## The Edit Room production hub
 
 `/usr/bin/python3 -m pipeline.cli editroom` serves every project at
