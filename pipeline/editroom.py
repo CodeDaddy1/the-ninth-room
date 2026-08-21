@@ -241,6 +241,9 @@ _KIT_TEMPLATES = {
     "streak": {"kicker": "Where we are", "text": "Halfway",
                "active": 3, "chapters": 5},
 
+    # --- the legibility layer ---
+    "glass": {"value": 55},
+
     # --- outro beats one and two (three is "outro", the end plate) ---
     "takeaway": {"kicker": "The takeaway",
                  "text": "The one line this episode was for."},

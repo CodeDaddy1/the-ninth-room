@@ -977,19 +977,24 @@ def vote(card: "dict", F: "dict") -> str:
     boxes = []
     for i, r in enumerate(rows[:4]):
         won = wins[i]
+        # All options arrive TOGETHER: the old 100ms stagger read as the
+        # non-yellow side failing to finish its pop (Caleb, 2026-08-21 —
+        # "looks very off"). And a loser stays LEGIBLE: chalk label, bright
+        # slate value — the winner is distinct by its yellow outline and
+        # label, not by dimming everyone else into the footage.
         boxes.append("""
     <div style="border:%(s)dpx solid %(bc)s;padding:20px 44px;text-align:center;
-                animation:yUp 300ms %(ease)s %(d)dms both">
+                animation:yUp 300ms %(ease)s 300ms both">
       <div style="font-family:%(display)s;font-size:34px;font-weight:%(fw)d;color:%(lc)s;
                   text-shadow:%(shadow)s">%(label)s</div>
       <div style="font-family:%(display)s;font-size:76px;font-weight:800;color:%(vc)s;
                   line-height:1.05;text-shadow:%(shadow)s%(tick)s">%(value)s</div>
     </div>""" % {"s": STROKE, "bc": YELLOW if won else INERT, "ease": EASE_REVEAL,
-                 "d": 300 + i * 100, "display": FONT_DISPLAY,
+                 "display": FONT_DISPLAY,
                  "fw": 800 if won else 700,
-                 "lc": YELLOW if won else (SLATE_300 if contested else CHALK),
+                 "lc": YELLOW if won else CHALK,
                  "shadow": SHADOW_CHALK, "label": _e(r.get("label", "")),
-                 "vc": CHALK if (won or not contested) else SLATE_500,
+                 "vc": CHALK if (won or not contested) else SLATE_300,
                  "tick": ";animation:yTick 460ms %s 1000ms both" % EASE_REVEAL if won else "",
                  "value": _e(r.get("value", ""))})
     head, close = _engagement_head(card, F, YELLOW, "Cast your vote", 170, q_size=76)
@@ -1285,6 +1290,34 @@ def outro(card: "dict", F: "dict") -> str:
              "tagline": tagline}
 
 
+def glass(card: "dict", F: "dict") -> str:
+    """A full-frame glass wash — the legibility layer (Caleb, 2026-08-21).
+
+    Busy footage was eating chalk type; this sits on a track UNDER other
+    cards and calms the whole frame so anything above it reads. `value` is
+    the wash strength as a percent (default 55, clamped 20-90).
+
+    Honesty note: a true frosted-glass blur is impossible in an alpha
+    overlay — the clip cannot blur footage it does not contain; blurring
+    the footage itself is a Resolve/Fusion job. What ships is the next best
+    physical read of glass: a deep navy wash, slightly denser at the foot,
+    with a hairline top edge catching light.
+    """
+    try:
+        pct = max(20, min(90, int(float(card.get("value", 55) or 55))))
+    except (TypeError, ValueError):
+        pct = 55
+    a = pct / 100.0
+    return """
+<div style="position:absolute;inset:0;animation:yFade 320ms ease both">
+  <div style="position:absolute;inset:0;background:linear-gradient(180deg,
+      rgba(11,35,64,%(a1).2f) 0%%, rgba(11,35,64,%(a2).2f) 60%%,
+      rgba(11,35,64,%(a3).2f) 100%%)"></div>
+  <div style="position:absolute;left:0;right:0;top:0;height:2px;
+      background:rgba(234,244,255,.18)"></div>
+</div>""" % {"a1": a * 0.82, "a2": a, "a3": min(0.96, a * 1.18)}
+
+
 # --- legacy screens, restyled ----------------------------------------------
 # Kept so graphics plans written before the rebrand still render. Each one is
 # now built from Cyanotype parts — no chips, no plates.
@@ -1515,6 +1548,8 @@ RENDERERS = {
     "spot_it": spot_it,
     "verdict": verdict,
     "streak": streak,
+    # legibility layer
+    "glass": glass,
     # transitions + outro
     "transition": transition,
     "takeaway": takeaway,
