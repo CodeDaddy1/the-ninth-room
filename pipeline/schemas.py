@@ -430,6 +430,16 @@ def validate_graphics_plan(plan: "dict[str, Any]",
                               % (where, kit, NEEDS_ROWS[kit]))
         errors.extend(_brand_copy_errors(c, where))
 
+        # Sizing multipliers: numeric and sane, or named. The renderer also
+        # clamps, but a plan carrying "font_scale": "big" should fail HERE,
+        # not render silently at 1.0.
+        for fld in ("font_scale", "card_scale"):
+            if fld in c:
+                v = c[fld]
+                if not isinstance(v, (int, float)) or not 0.5 <= v <= 2.0:
+                    errors.append("%s: %s must be a number between 0.5 and 2.0"
+                                  % (where, fld))
+
         ctype = c.get("type")
         if ctype == "stat":
             _req(errors, c, "stat", str, where)

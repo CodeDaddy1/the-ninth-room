@@ -168,7 +168,9 @@ _EDITABLE = ("kicker", "text", "subtext", "subtext_italic", "emphasis",
              "sides", "travel_ms", "accent", "x", "y",
              # chapter door meter + the Cyanotype engagement screens
              "active", "chapters", "answer", "value", "low", "high",
-             "reveal_ms", "style")
+             "reveal_ms", "style",
+             # per-card sizing (Overlays desk sliders)
+             "font_scale", "card_scale")
 
 # Starter copy for a freshly created overlay, per kit screen. Keys must be
 # names overlay_kit.RENDERERS knows (the big emoji screen is "emoji").
@@ -374,6 +376,9 @@ def _overlays_state(slug: str) -> "dict":
             # exports use graphics.CANVAS (UHD) with the same layout at 2x
             "canvas": list(graphics.KIT_DESIGN[orient]),
             "export_dir": str(d), "kits": sorted(_KIT_TEMPLATES),
+            # starter copy per screen — the desk's New-card picker renders
+            # hover previews from these through /api/overlay/html
+            "kit_templates": _KIT_TEMPLATES,
             "overlays": items}
 
 

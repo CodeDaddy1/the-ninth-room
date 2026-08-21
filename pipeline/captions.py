@@ -88,7 +88,7 @@ EMOJI_SCALE = 1.22            # relative to the caption font size
 
 # Bump when anything in this module changes rendered pixels — it invalidates
 # every cached caption bake (see produce._beat_caption_clips).
-CAPTIONS_V = 4   # v4: Cyanotype captions — no plate, yellow keyword, emoji in-line
+CAPTIONS_V = 5   # v5: band rendering + half-res derived shadows (audit P0-3)
 _EMOJI_CACHE: "dict" = {}
 
 
@@ -188,26 +188,26 @@ def group_phrases(timed_words: "list[dict]") -> "list[list[dict]]":
 
 
 def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
-               orientation: str) -> None:
+               orientation: str) -> int:
     """Render one caption phrase the Cyanotype way: chalk type, no plate.
 
-    Each word is drawn over two dark shadows — a tight 4px one and a soft
-    18px one dropped 4px — which is the Pillow equivalent of the brand's
-    `--shadow-chalk`. That pairing is what lets white type sit straight on
-    bright museum footage without a box behind it. The spoken word is the
-    line's single yellow moment and scales up rather than gaining a chip.
+    Returns the band's y offset: the image written to `dest` is only the
+    caption BAND, not the full canvas — the caller overlays it at (0, y0).
+    Rendering the band instead of the frame, and deriving both shadows from
+    the text layer's own alpha at HALF resolution, is what took the bake
+    from ~63 s a beat to a few seconds (workflow audit P0-3): the Gaussian
+    blurs were burning full-canvas UHD passes per word-state.
 
-    Emoji ride inside the line, popping with the spoken word, drawn from
-    Apple Color Emoji and given the same two shadows so they sit on footage
-    the way the words do. The phrase wraps within the frame's side insets
-    rather than running off the edge.
+    The half-res shadows are visually lossless — a blur is soft by
+    definition, and it is upscaled bilinearly — while the text layer stays
+    full resolution, so glyph edges keep their razor. Deriving shadows from
+    the text alpha also covers emoji automatically (they composite into the
+    text layer and their silhouette rides into both shadows).
 
-    All pixel constants are authored for a 1080-class canvas; `s` scales them
-    by canvas size so a 4K bake is the same design at twice the density.
-
-    What breaks if this is wrong: captions become illegible over the bright
-    greenhouse/atrium footage (shadows too weak), or the line overruns the
-    frame (wrap disabled) and the last word is cut off mid-stroke.
+    What breaks if this is wrong: captions become illegible over bright
+    footage (shadows too weak), the band clips a tall phrase (pad too
+    small), or a visible seam appears at the band edge (it must stay fully
+    transparent at its top row).
     """
     s = min(w, h) / 1080.0
     size = int(round(PHRASE_FONT_SIZE[orientation] * s))
@@ -218,8 +218,8 @@ def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
     max_w = w - side_inset * 2
 
     if not words:
-        Image.new("RGBA", (w, h), (0, 0, 0, 0)).save(dest)
-        return
+        Image.new("RGBA", (w, 4), (0, 0, 0, 0)).save(dest)
+        return h - 4
 
     # Curly apostrophes throughout — the brand sets them, and whisper emits
     # straight ones. Purely typographic; never changes which word is spoken.
@@ -263,58 +263,58 @@ def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
     line_h = int((ascent + descent) * 1.06)
     block_h = line_h * len(lines)
     top = h - bottom_inset - block_h
-
-    # Two layers: the shadow stack, blurred, and the type itself on top.
-    shadow_tight = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    shadow_soft = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    text_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    dt = ImageDraw.Draw(shadow_tight)
-    ds = ImageDraw.Draw(shadow_soft)
-    dx = ImageDraw.Draw(text_layer)
+    # Shadow bleed pad: the soft blur reaches ~2.5x its radius plus its drop.
+    pad = int((SHADOW_SOFT_BLUR * 2.5 + SHADOW_SOFT_DY + 8) * s)
+    y0 = max(0, top - pad)
+    bh = h - y0
 
     soft_dy = int(round(SHADOW_SOFT_DY * s))
+    text_layer = Image.new("RGBA", (w, bh), (0, 0, 0, 0))
+    dx = ImageDraw.Draw(text_layer)
     for row, idxs in enumerate(lines):
         total = sum(widths[i] for i in idxs) + word_gap * (len(idxs) - 1)
         x = (w - total) / 2.0
-        y = top + row * line_h
+        y = (top - y0) + row * line_h
         for i in idxs:
             if i in emoji_imgs:
                 em = emoji_imgs[i]
                 if em is not None:
-                    # Centre the glyph on the line's x-height, and give it the
-                    # same two shadows the words carry by compositing its own
-                    # alpha as a dark silhouette underneath.
                     ey = int(y + (ascent - em.height) * 0.86)
-                    sil = Image.new("RGBA", em.size, SHADOW_INK + (0,))
-                    sil.putalpha(em.getchannel("A"))
-                    shadow_tight.alpha_composite(sil, (int(x), ey))
-                    shadow_soft.alpha_composite(sil, (int(x), ey + soft_dy))
                     text_layer.alpha_composite(em, (int(x), ey))
+                    dx = ImageDraw.Draw(text_layer)
                 x += widths[i] + word_gap
                 continue
             f = _wf(i)
-            # Baseline-align the larger keyword with its neighbours.
             a, _ = f.getmetrics()
             wy = y + (ascent - a)
-            dt.text((x, wy), words[i], font=f, fill=SHADOW_INK + (SHADOW_TIGHT_ALPHA,))
-            ds.text((x, wy + soft_dy), words[i], font=f,
-                    fill=SHADOW_INK + (SHADOW_SOFT_ALPHA,))
             dx.text((x, wy), words[i], font=f,
                     fill=(YELLOW if i == active else CHALK) + (255,))
             x += widths[i] + word_gap
 
+    # Shadows: the text layer's own alpha, halved, blurred at half radius,
+    # upscaled. One source of truth for the silhouette; a fraction of the
+    # blur cost.
     from PIL import ImageFilter
-    shadow_soft = shadow_soft.filter(
-        ImageFilter.GaussianBlur(max(1.0, SHADOW_SOFT_BLUR * s / 2.0)))
-    shadow_tight = shadow_tight.filter(
-        ImageFilter.GaussianBlur(max(0.5, SHADOW_TIGHT_BLUR * s / 2.0)))
+    sil = text_layer.getchannel("A").resize(
+        (max(1, w // 2), max(1, bh // 2)), Image.BILINEAR)
+    tight_m = sil.filter(ImageFilter.GaussianBlur(max(0.5, SHADOW_TIGHT_BLUR * s / 4.0)))
+    soft_m = sil.filter(ImageFilter.GaussianBlur(max(0.5, SHADOW_SOFT_BLUR * s / 4.0)))
+    tight_m = tight_m.resize((w, bh), Image.BILINEAR)
+    soft_m = soft_m.resize((w, bh), Image.BILINEAR)
+    if SHADOW_SOFT_ALPHA < 255:
+        soft_m = soft_m.point(lambda v: v * SHADOW_SOFT_ALPHA // 255)
 
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    img.alpha_composite(shadow_soft)
+    img = Image.new("RGBA", (w, bh), (0, 0, 0, 0))
+    soft_rgba = Image.new("RGBA", (w, bh), SHADOW_INK + (0,))
+    soft_rgba.putalpha(soft_m)
+    img.alpha_composite(soft_rgba, (0, soft_dy))
+    tight_rgba = Image.new("RGBA", (w, bh), SHADOW_INK + (0,))
+    tight_rgba.putalpha(tight_m)
     for _ in range(SHADOW_TIGHT_PASSES):
-        img.alpha_composite(shadow_tight)
+        img.alpha_composite(tight_rgba)
     img.alpha_composite(text_layer)
     img.save(dest)
+    return y0
 
 
 def _norm(s: str) -> str:
@@ -397,7 +397,7 @@ def bake_caption_clip(timed_words: "list[dict]", duration: float, out_mov: Path,
         words = [x["disp"] for x in phrase]
         for w_i, word in enumerate(phrase):
             png = tmp_dir / ("cap_%03d.png" % idx)
-            phrase_png(words, w_i, png, w, h, orientation)
+            y0 = phrase_png(words, w_i, png, w, h, orientation)
             start = word["t"]
             if w_i + 1 < len(phrase):
                 end = phrase[w_i + 1]["t"]
@@ -413,19 +413,20 @@ def bake_caption_clip(timed_words: "list[dict]", duration: float, out_mov: Path,
                 # Beats whose audio ends with the last word are unaffected —
                 # their tail pad is far shorter than the 1.6s hold.
                 end = min(duration, start + 1.6)
-            states.append((png, start, end))
+            states.append((png, start, end, y0))
             idx += 1
 
     inputs = ["-f", "lavfi", "-i",
               "color=c=black@0.0:s=%dx%d:r=%d:d=%.3f,format=rgba" % (w, h, fps, duration)]
     chains = []
     prev = "[0:v]"
-    for i, (png, s, e) in enumerate(states):
+    for i, (png, s, e, y0) in enumerate(states):
         inputs += ["-loop", "1", "-t", "%.3f" % duration, "-r", str(fps), "-i", str(png)]
         s = max(0.0, min(s, duration - 0.05))
         e = max(s + 0.05, min(e, duration))
-        chains.append("%s[%d:v]overlay=0:0:format=auto:enable='between(t,%.3f,%.3f)'[v%d]"
-                      % (prev, i + 1, s, e, i))
+        # the state PNG is only the caption BAND; place it at its own y
+        chains.append("%s[%d:v]overlay=0:%d:format=auto:enable='between(t,%.3f,%.3f)'[v%d]"
+                      % (prev, i + 1, y0, s, e, i))
         prev = "[v%d]" % i
     from .graphics import prores_encode_args
     cmd = (["ffmpeg", "-y", "-loglevel", "error"] + inputs +

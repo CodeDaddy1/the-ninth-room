@@ -295,9 +295,26 @@ def _text_width(text: str, size: int) -> float:
         * (size / 100.0)
 
 
+def _fscale(card: "dict") -> float:
+    """The card's font_scale, clamped. 1.0 when absent or malformed —
+    a bad value must never make type vanish or explode."""
+    try:
+        return max(0.5, min(2.0, float(card.get("font_scale", 1.0) or 1.0)))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _cscale(card: "dict") -> float:
+    """The card's card_scale (whole-overlay zoom), clamped like _fscale."""
+    try:
+        return max(0.5, min(2.0, float(card.get("card_scale", 1.0) or 1.0)))
+    except (TypeError, ValueError):
+        return 1.0
+
+
 def _fit(text: str, base: int, per_char: "int | None" = None,
          floor_ratio: float = 0.52, budget: int = 1560,
-         lines: int = 1) -> int:
+         lines: int = 1, fscale: float = 1.0) -> int:
     """Shrink display type when the copy is longer than the frame allows.
 
     The kit's sizes assume the brand's length caps (three-to-five-word hooks,
@@ -316,12 +333,16 @@ def _fit(text: str, base: int, per_char: "int | None" = None,
     What breaks if this is wrong: a long lower third runs past the frame edge
     and the last word is cut in half — invisible in a plan, obvious on screen.
     """
-    width = _text_width(text, base)
+    # font_scale multiplies the COMPUTED size, then the fit re-checks the
+    # budget at the scaled size — a 2x headline still may not run off the
+    # frame; it wraps or shrinks from its scaled target instead.
+    target = int(base * fscale)
+    width = _text_width(text, target)
     allowed = float(budget) * max(1, lines)
     if width <= allowed:
-        return base
-    scaled = int(base * allowed / width)
-    return max(int(base * floor_ratio), scaled)
+        return target
+    scaled = int(target * allowed / width)
+    return max(int(base * floor_ratio * min(1.0, fscale)), scaled)
 
 
 # --- shared primitives -----------------------------------------------------
@@ -485,7 +506,8 @@ def hook(card: "dict", F: "dict") -> str:
             cut = len(words) // 2
             lines = [" ".join(words[:cut]), " ".join(words[cut:])]
     size = _fit(lines[0] if lines else text,
-                104 if not F["portrait"] else 92, budget=F["inner"])
+                104 if not F["portrait"] else 92, budget=F["inner"],
+                fscale=_fscale(card))
     # Yellow belongs on the SECOND line by design — the eye should read the
     # setup before the payoff word. But if the emphasis only occurs on the
     # first line, marking nothing leaves the hook with no yellow at all,
@@ -530,7 +552,8 @@ def lower_third(card: "dict", F: "dict") -> str:
     """
     text = card.get("text", "")
     size = _fit(text, 70 if not F["portrait"] else 62, lines=2,
-                budget=1080 if not F["portrait"] else F["inner"])
+                budget=1080 if not F["portrait"] else F["inner"],
+                fscale=_fscale(card))
     sub = ""
     if card.get("subtext"):
         italic = "font-style:italic;" if card.get("subtext_italic", True) else ""
@@ -597,7 +620,7 @@ def stat(card: "dict", F: "dict") -> str:
     """
     value = card.get("stat") or card.get("text", "")
     size = _fit(str(value), 230 if not F["portrait"] else 180,
-                budget=F["inner"])
+                budget=F["inner"], fscale=_fscale(card))
     label = ""
     if card.get("stat") and card.get("text"):
         label = ('<div style="font-family:%s;font-size:44px;font-weight:700;'
@@ -657,7 +680,8 @@ def callout(card: "dict", F: "dict") -> str:
              "lw": max(60, lead_right - lead_left), "mid": mid,
              "side": F["side"] + 30, "ly": mid - 74, "display": FONT_DISPLAY,
              "kicker": _caps(card.get("kicker", "Look here")),
-             "headline": _display(_fit(card.get("text", ""), 62, lines=3, budget=540)),
+             "headline": _display(_fit(card.get("text", ""), 62, lines=3, budget=540,
+                                       fscale=_fscale(card))),
              "text": _e(card.get("text", ""))}
 
 
@@ -680,7 +704,7 @@ def chapter(card: "dict", F: "dict") -> str:
     """
     text = card.get("text", "")
     size = _fit(text, 150 if not F["portrait"] else 110, lines=2,
-                budget=F["inner"])
+                budget=F["inner"], fscale=_fscale(card))
     # `or 3` would turn an explicit active=0 (a cold open — nothing done yet)
     # into 3 lit doors. Only substitute the default when the key is ABSENT.
     try:
@@ -739,7 +763,7 @@ def payoff(card: "dict", F: "dict") -> str:
     """
     text = card.get("text", "")
     size = _fit(text, 78 if not F["portrait"] else 66, lines=3,
-                budget=F["inner"] - 140)
+                budget=F["inner"] - 140, fscale=_fscale(card))
     attr = ""
     if card.get("attribution"):
         attr = ('<div style="font-family:%s;font-size:26px;font-weight:800;'
@@ -813,7 +837,8 @@ def _engagement_head(card: "dict", F: "dict", eyebrow_color: str,
 """ % {"side": F["side"], "top": top,
        "eyebrow": _eyebrow(card.get("kicker") or default_eyebrow, eyebrow_color,
                            0, 26, centered=True),
-       "display": _display(_fit(q, q_size, lines=2, budget=F["inner"]))
+       "display": _display(_fit(q, q_size, lines=2, budget=F["inner"],
+                                fscale=_fscale(card)))
                   + ";animation:yUp 320ms %s 120ms both" % EASE_REVEAL,
        "q": _e(q)}
     return head, "</div>"
@@ -914,7 +939,7 @@ def poll(card: "dict", F: "dict") -> str:
              "width": 880 if not F["portrait"] else F["inner"], "chalk": CHALK,
              "eyebrow": _eyebrow(card.get("kicker") or "You picked", YELLOW, 0, 26),
              "display": _display(_fit(card.get("text", ""), 68, lines=2,
-                                      budget=880)),
+                                      budget=880, fscale=_fscale(card))),
              "ease": EASE_REVEAL, "q": _e(card.get("text", "")),
              "bars": "".join(bars), "note": note}
 
@@ -1137,7 +1162,8 @@ def transition(card: "dict", F: "dict") -> str:
 </div>""" % {"left": F["chapter_left"],
              "eyebrow": _eyebrow(card.get("kicker") or "Next", CYAN, 0, 26,
                                  track=".24em"),
-             "display": _display(_fit(title, 120, lines=2, budget=F["inner"]),
+             "display": _display(_fit(title, 120, lines=2, budget=F["inner"],
+                                      fscale=_fscale(card)),
                                  "-.055em", lh="1"),
              "title": _e(title)}
     if style == "iris":
@@ -1188,7 +1214,7 @@ def takeaway(card: "dict", F: "dict") -> str:
              "kicker": _caps(card.get("kicker") or "The takeaway"),
              "serif": FONT_SERIF,
              "size": _fit(text, 82 if not F["portrait"] else 68, lines=3,
-                          budget=F["inner"] - 120),
+                          budget=F["inner"] - 120, fscale=_fscale(card)),
              "chalk": CHALK, "ease": EASE_REVEAL, "text": _e(text)}
 
 
@@ -1224,7 +1250,8 @@ def next_room(card: "dict", F: "dict") -> str:
              "eyebrow": _eyebrow(card.get("kicker") or "Next room", YELLOW, 0, 28,
                                  track=".24em"),
              "display": _display(_fit(title, 132 if not F["portrait"] else 100,
-                                      lines=2, budget=F["inner"]),
+                                      lines=2, budget=F["inner"],
+                                      fscale=_fscale(card)),
                                  "-.055em", lh="1"),
              "ease": EASE_REVEAL, "title": _e(title), "sub": sub, "s": STROKE,
              "cyan": CYAN, "font": FONT_DISPLAY, "cta": cta, "slate": SLATE_300,
@@ -1287,7 +1314,7 @@ def stamp(card: "dict", F: "dict") -> str:
   </div>
 </div>""" % {"s": STROKE_CALLOUT, "yellow": YELLOW, "ease": EASE_REVEAL,
              "display": FONT_DISPLAY,
-             "size": _fit(text, 72, budget=1200),
+             "size": _fit(text, 72, budget=1200, fscale=_fscale(card)),
              "shadow": SHADOW_CHALK, "text": _e(text)}
 
 
@@ -1306,7 +1333,8 @@ def reaction(card: "dict", F: "dict") -> str:
               animation:yStretch 320ms %(ease)s both">%(text)s</div>
   %(attr)s
 </div>""" % {"scrim": _scrim("lower"),
-             "display": _display(_fit(text, 96, lines=2, budget=F["inner"])),
+             "display": _display(_fit(text, 96, lines=2, budget=F["inner"],
+                                      fscale=_fscale(card))),
              "maxw": F["inner"], "ease": EASE_REVEAL, "text": _e(text),
              "attr": ('<div style="font-family:%s;font-size:26px;font-weight:800;'
                       'letter-spacing:.24em;text-transform:uppercase;color:%s;'
@@ -1424,7 +1452,8 @@ def flight_path(card: "dict", F: "dict") -> str:
              "scrim": _scrim("lower"), "side": F["side"],
              "bottom": 200 if not F["portrait"] else F["bottom"] + 120,
              "eyebrow": _eyebrow(card.get("kicker", ""), CYAN, 0, 26, track=".24em"),
-             "display": _display(_fit(card.get("text", ""), 70, lines=2, budget=1080)),
+             "display": _display(_fit(card.get("text", ""), 70, lines=2, budget=1080,
+                                      fscale=_fscale(card))),
              "text": emphasize(card.get("text", ""), card.get("emphasis"))}
 
 
@@ -1513,10 +1542,21 @@ def overlay_html(card: "dict", w: int = 1920, h: int = 1080) -> str:
     render = RENDERERS.get(kind)
     if render is None:
         raise ValueError("no kit renderer for type %r" % kind)
+    body = render(card, _frame(w, h))
+    cs = _cscale(card)
+    if cs != 1.0:
+        # `zoom` scales the whole overlay uniformly — type, paddings AND
+        # insets — so a card grows or shrinks while staying proportionally
+        # anchored. Chrome-only is fine: the preview and the bake are both
+        # Chrome, so what the desk shows is what ships. Full-frame layers
+        # (scrims, washes) scale past the stage and clip on its
+        # overflow:hidden.
+        body = '<div style="zoom:%g;width:%dpx;height:%dpx;position:relative">%s</div>' % (
+            cs, w, h, body)
     return """<!doctype html><html><head><meta charset="utf-8">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:%(w)dpx;height:%(h)dpx;background:transparent}
 %(keyframes)s
 </style></head><body><div class="stage" style="position:relative;width:%(w)dpx;height:%(h)dpx;overflow:hidden">%(body)s</div></body></html>
-""" % {"w": w, "h": h, "keyframes": KEYFRAMES, "body": render(card, _frame(w, h))}
+""" % {"w": w, "h": h, "keyframes": KEYFRAMES, "body": body}
