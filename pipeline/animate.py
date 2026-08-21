@@ -38,7 +38,7 @@ from .ingest import IngestError
 
 # Bump when animate.py, overlay_kit.py, or the design tokens change rendered
 # pixels — it invalidates every cached card bake (see graphics.build_cards).
-BAKE_V = 2   # v2: The Ninth Room kit (Midnight chips, design handoff 2026-08-19)
+BAKE_V = 3   # v3: The Ninth Room Cyanotype kit (design system, 2026-08-20)
 
 # Frames rendered per Chrome launch. A launch costs ~2.3s regardless of page
 # size, so batching is nearly free speedup; 6 keeps the tallest page

@@ -20,7 +20,7 @@ constraint: **stay word-for-word close to what was actually said.**
 {
   "slug": "<slug>",
   "beats": [
-    {"beat_id": "BT01", "text": "Here's something strange about the Hoover Dam: it has a star map baked into its concrete."}
+    {"beat_id": "BT01", "text": "Nobody agrees who Tutankhamun's parents were, and he's the best-known pharaoh on earth."}
   ]
 }
 ```
@@ -38,5 +38,14 @@ content (use the take's transcript restricted to the beat's trim).
   but captioning a filler is worse.
 - Numbers: caption them the way they're spoken ("nineteen forty-eight" said
   → "1948" shown is fine; the aligner handles it).
+- **Emoji are welcome and are yours to leave alone.** The hype-director adds
+  them as standalone tokens right after the word they react to; the renderer
+  draws them in-line with the same shadow the words carry. Never strip one,
+  and never add one yourself — that placement is the hype-director's call.
+  An emoji token has no transcript word to match, and the aligner expects
+  that, so it does not break sync.
+- One word per beat may be marked in `emphasis` — the renderer scales it up
+  and turns it yellow. Pick the word the line turns on, and only one: the
+  frame gets exactly one yellow moment.
 
 End with the path and the total caption word count per beat.

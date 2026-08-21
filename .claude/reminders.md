@@ -17,9 +17,25 @@ console settings, recordings, decisions). Check items off when done.
   project `curated-curiosities`. Note: the next push to `main` may trigger a
   failing Vercel build (the `dashboard/` root dir no longer exists) — deleting
   the Vercel project stops that noise.
-- [ ] **Sign off on the brand POV change** in `brand/brand-brief.md`: v1
-  locked "voice on, face off"; v2 puts you on camera. The brief still says
-  face-off until you approve the edit.
+- [ ] **Confirm HMNS custom overlay `OV03`.** It was a pure-emoji card —
+  text `🦜 = 🦋`, attribution `???` — so there is no wording to check the
+  intent against. It is now a proper `emoji` kit card rendering
+  🦜 = 🦋 across the frame, which preserves the original exactly; confirm
+  that is the gag you meant. `work/hmns/overlays_custom.json`; original at
+  `work/hmns/overlays_custom.pre-cyanotype.json`.
+
+- [ ] **Restart the Edit Room.** The instance on port 8765 (PID 49527,
+  started 2026-08-20 21:57) has the PRE-rebrand `overlay_kit`, `captions` and
+  token modules held in memory, so anything previewed there still shows the
+  retired Midnight kit. Stop it and re-run
+  `/usr/bin/python3 -m pipeline.cli editroom`.
+
+- [ ] **Decide on one dropped clause in HMNS `CARD46` (Slothzilla).** The
+  subtext was "its size and bulk matched that of an average male African bush
+  elephant"; the Cyanotype lower third reserves that slot for the specimen
+  name in serif italic, so it now reads "Eremotherium, the giant ground
+  sloth". The elephant comparison is a good fact with nowhere on that card to
+  live — either let it go, or give it its own `stat`/`lower_third` beat.
 - [ ] Optional: in Resolve, delete the spike leftovers (project
   `CURATED_SPIKE`, timelines `spike_*`) — harmless if kept.
 
@@ -27,6 +43,10 @@ console settings, recordings, decisions). Check items off when done.
 
 - [x] 2026-08-18 — Started the Curated Bridge once so Phase 0 could verify
   the in-app scripting route.
+- [x] 2026-08-20 — **Brand POV signed off.** v1's "voice on, face off" is
+  retired; `brand/brand-brief.md` now locks **on camera** (Caleb, Alma and
+  Sofia appear; Caleb carries the narration) as part of The Ninth Room
+  rebrand. No further approval outstanding.
 
 ## Added 2026-08-18 (HMNS render)
 

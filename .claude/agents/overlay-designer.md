@@ -22,17 +22,33 @@ design cannot ship:
 - **Every animation must be seekable.** Motion is captured by pausing all
   animations and setting `currentTime`, so anything time-based must be a CSS
   animation with an explicit duration and delay. Infinite loops are fine.
-- **Fonts must be Google Fonts or already installed** (currently Gabarito,
-  Manrope, Playfair Display, Work Sans). Name them explicitly.
+- **Fonts are the three brand faces**, all Google Fonts and all installed
+  locally: **Bricolage Grotesque** (everything on video), **Newsreader**
+  (wordmark, quotes, takeaways, specimen names), **Manrope** (documents and
+  UI chrome only — never on video). Name them explicitly. Do not introduce a
+  fourth face; Gabarito, Playfair Display and Work Sans are retired.
 - **Raster assets can't exceed ~190 KB** to come through the design API, so
   prefer CSS shapes, SVG, or small PNGs; say so in the brief.
-- **Legibility over footage.** Real clips are bright and busy. Specify a
-  scrim, plate, or stroke for anything that must read over unknown footage.
+- **Legibility over footage — but NEVER a plate.** Real clips are bright and
+  busy. The brand's protection method is **shadow and scrim, never capsule**:
+  chalk type carries a double text-shadow, and where footage must be
+  suppressed you specify one of the three gradient scrims (lower, side, tall)
+  or a flat navy wash. A filled box behind type is the one thing the identity
+  exists to avoid — see the rule below.
+- **The rule the whole kit hangs on:** *no filled plates, one yellow moment
+  per frame.* If two things are yellow, neither is the thing to look at.
+- **Authored at 1920×1080, rendered at 4K.** The canvas is written in true
+  frame pixels and baked at 2× device pixel ratio, so specify sizes in
+  1920-wide px and never in viewport units.
 
 ## Before writing a brief
 
 1. Read `brand/voice-and-tone.md` and `brand/visual-identity.md`, plus
-   `brand/design-system/tokens/*.css` for the live tokens.
+   `brand/design-system/tokens/*.css` for the live tokens. The source of
+   truth is the **The Ninth Room Design System** project on claude.ai/design
+   (`4b8bb4a4-b234-45ed-aa84-b35ce761648b`); its Cyanotype kit canvas is
+   mirrored at `brand/design-system/canvases/`. Extend that system — a brief
+   that invents a second visual language will be rejected.
 2. Read `pipeline/overlay_kit.py` to see what already exists — extend the
    existing language rather than inventing a second one, unless asked.
 3. Read the video's `edit_plan.json` so every overlay you request is tied to a

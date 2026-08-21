@@ -1,0 +1,11 @@
+:root{
+--ease-standard:cubic-bezier(0.22,0.61,0.36,1);
+--ease-out-soft:cubic-bezier(0.16,1,0.3,1);
+--ease-in-out:cubic-bezier(0.45,0,0.55,1);
+--dur-instant:90ms;
+--dur-fast:160ms;
+--dur-base:240ms;
+--dur-slow:420ms;
+--dur-reveal:700ms;
+--reveal-hold:900ms;
+}

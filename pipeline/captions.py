@@ -25,50 +25,70 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .ingest import IngestError
 
-# --- Ninth Room caption tokens (design handoff, 2026-08-19) ---------------
-# Captions are CHIPS, matching overlay_kit.py exactly: a midnight-deep plate
-# at 0.94 alpha with a 5px ice outline, 14px radius, and a hard offset
-# shadow. The active word sits on its own little amber chip with
-# midnight text. Over bright footage the plate alone is enough — the spec
-# forbids adding a stroke as well.
-ICE = (232, 239, 246)         # --ice-paper, type on the plate
-DEEP = (11, 18, 28)           # --midnight-deep
-PLATE = (11, 18, 28, 240)     # plate fill at 0.94 alpha
-AMBER = (255, 174, 59)        # --fun: the active-word chip
-SHADOW_FILL = (5, 9, 15, 153) # hard offset shadow, no blur
-CREAM = ICE                   # legacy alias for old call sites
+# --- Ninth Room caption tokens (Cyanotype design system, 2026-08-20) ------
+# Captions carry NO PLATE. The brand's protection method is "shadow and
+# scrim, never capsule": each chalk word is drawn over a double dark shadow
+# (a tight one and a soft dropped one), which is exactly what removes the
+# need for a box. One keyword per line scales up in yellow — the frame's
+# single yellow moment. Emoji are banned brand-wide and are stripped, not
+# rendered.
+#
+# What breaks if this is wrong: a plate creeps back in and every caption
+# reads as a template, which is the one thing the identity is built to avoid.
+CHALK = (234, 244, 255)       # --chalk: all caption type
+NAVY = (11, 35, 64)           # --navy-900
+YELLOW = (255, 224, 77)       # --yellow: the keyword, the only accent
+CYAN = (56, 225, 240)         # --cyan: speaker tag (overlay kit draws it)
+SHADOW_INK = (4, 16, 32)      # the colour both text shadows are made of
 
-# Legacy word-chip constants (word_chip renderer, kept for old callers).
-NAVY_CHIP = (11, 18, 28, 240)
-CHIP_ANCHOR_Y = {"portrait": 1290, "landscape": 830}
-CHIP_FONT_SIZE = {"portrait": 110, "landscape": 84}
+# The two shadows, in 1080-class pixels. Mirrors --shadow-chalk exactly:
+#   0 0 4px rgba(4,16,32,.95), 0 4px 18px rgba(4,16,32,.9)
+# Burned captions use the STRONG variant (--shadow-chalk-strong), which the
+# canvas itself specifies for the bright-footage frame:
+#   0 0 5px rgba(4,16,32,1), 0 4px 18px rgba(4,16,32,.95)
+# A burned caption cannot know what is behind it, so it is always sized for
+# the worst case. The tight core is composited twice to reach full density,
+# which Pillow's single blurred pass cannot do on its own.
+SHADOW_TIGHT_BLUR = 5
+SHADOW_TIGHT_ALPHA = 255      # 1.0
+SHADOW_TIGHT_PASSES = 2
+SHADOW_SOFT_BLUR = 18
+SHADOW_SOFT_DY = 4
+SHADOW_SOFT_ALPHA = 242       # .95
+
+# Legacy aliases so any old call site still resolves to an on-brand colour.
+ICE = CHALK
+DEEP = NAVY
+CREAM = CHALK
+AMBER = YELLOW
 
 PHRASE_MAX_WORDS = 4
 PHRASE_MAX_CHARS = 26
 PHRASE_GAP_SEC = 0.9          # a pause this long always starts a new phrase
-PHRASE_FONT_SIZE = {"portrait": 72, "landscape": 56}
-BOTTOM_INSET = {"portrait": 320, "landscape": 120}  # chip bottom edge
-WORD_GAP = 14                 # column gap between words on the plate
-PLATE_PAD_X = 30
-PLATE_PAD_Y = 16
-PLATE_RADIUS = 14
-OUTLINE_PX = 5
-ACTIVE_PAD_X = 12             # the amber chip around the active word
-ACTIVE_RADIUS = 8
-SHADOW_OFFSET = 8
+# The design system's on-video ramp: caption 64px, keyword 86px at 1920 wide.
+PHRASE_FONT_SIZE = {"portrait": 76, "landscape": 64}
+KEYWORD_SCALE = 86 / 64.0     # the spoken word scales up, it does not get a chip
+# Fixed insets, and the design system forbids nudging them.
+BOTTOM_INSET = {"portrait": 320, "landscape": 150}
+WORD_GAP = 20                 # `gap:0 20px` on the caption row
+SIDE_INSET = {"portrait": 64, "landscape": 180}
 
 
-# --- emoji in captions (Caleb, 2026-08-19) --------------------------------
-# Emoji ride INSIDE the caption line, popping with the spoken word — attached
-# to the joke, never covering a face, inheriting the caption's visibility
-# treatment. A standalone centered emoji card (overlay_kit.emoji_pop) is the
-# fallback only for moments with no caption on screen.
+# --- emoji in captions (Caleb, 2026-08-19, reaffirmed 2026-08-20) ---------
+# Emoji are ENCOURAGED. They ride INSIDE the caption line, popping with the
+# spoken word — attached to the joke, never covering a face, and inheriting
+# the caption's visibility treatment. A standalone burst with no caption on
+# screen is overlay_kit.emoji_pop instead.
+#
+# They are drawn from Apple Color Emoji as images, so they carry the same
+# double shadow the chalk type does — otherwise a bright emoji floats off a
+# bright frame while the words beside it stay anchored.
 EMOJI_TTC = "/System/Library/Fonts/Apple Color Emoji.ttc"
 EMOJI_SCALE = 1.22            # relative to the caption font size
 
 # Bump when anything in this module changes rendered pixels — it invalidates
 # every cached caption bake (see produce._beat_caption_clips).
-CAPTIONS_V = 2   # v2: Ninth Room chip captions (design handoff 2026-08-19)
+CAPTIONS_V = 4   # v4: Cyanotype captions — no plate, yellow keyword, emoji in-line
 _EMOJI_CACHE: "dict" = {}
 
 
@@ -110,8 +130,8 @@ _FONT_CACHE: "dict" = {}
 
 
 def _font(size: int, heavy: bool = True):
-    """Bricolage Grotesque ExtraBold — the kit's chip face (repo copy in
-    brand/fonts). Gabarito and system faces are the fallbacks."""
+    """Bricolage Grotesque ExtraBold — everything on video is set in it
+    (repo copy in brand/fonts). System faces are the fallbacks."""
     key = (size, heavy)
     if key in _FONT_CACHE:
         return _FONT_CACHE[key]
@@ -169,86 +189,131 @@ def group_phrases(timed_words: "list[dict]") -> "list[list[dict]]":
 
 def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
                orientation: str) -> None:
-    """Render one phrase as a Ninth Room caption chip.
+    """Render one caption phrase the Cyanotype way: chalk type, no plate.
 
-    The whole phrase sits on a midnight-deep plate (0.94 alpha, 5px ice
-    outline, hard offset shadow); the active word sits on its own amber
-    chip with midnight text. Matches overlay_kit.caption_plate exactly.
+    Each word is drawn over two dark shadows — a tight 4px one and a soft
+    18px one dropped 4px — which is the Pillow equivalent of the brand's
+    `--shadow-chalk`. That pairing is what lets white type sit straight on
+    bright museum footage without a box behind it. The spoken word is the
+    line's single yellow moment and scales up rather than gaining a chip.
 
-    All pixel constants are authored for a 1080-class canvas; `s` scales
-    them by canvas size so a 4K bake is the same design at twice the pixel
-    density (s=1.0 on 1080, s=2.0 on UHD — outputs at s=1 are unchanged).
+    Emoji ride inside the line, popping with the spoken word, drawn from
+    Apple Color Emoji and given the same two shadows so they sit on footage
+    the way the words do. The phrase wraps within the frame's side insets
+    rather than running off the edge.
+
+    All pixel constants are authored for a 1080-class canvas; `s` scales them
+    by canvas size so a 4K bake is the same design at twice the density.
+
+    What breaks if this is wrong: captions become illegible over the bright
+    greenhouse/atrium footage (shadows too weak), or the line overruns the
+    frame (wrap disabled) and the last word is cut off mid-stroke.
     """
     s = min(w, h) / 1080.0
     size = int(round(PHRASE_FONT_SIZE[orientation] * s))
+    key_size = int(round(size * KEYWORD_SCALE))
     word_gap = int(round(WORD_GAP * s))
-    pad_x = int(round(PLATE_PAD_X * s))
-    pad_y = int(round(PLATE_PAD_Y * s))
-    radius = int(round(PLATE_RADIUS * s))
-    outline_px = max(1, int(round(OUTLINE_PX * s)))
-    active_pad = int(round(ACTIVE_PAD_X * s))
-    active_radius = int(round(ACTIVE_RADIUS * s))
-    shadow_off = int(round(SHADOW_OFFSET * s))
     bottom_inset = int(round(BOTTOM_INSET[orientation] * s))
-    hug = int(round(4 * s))
+    side_inset = int(round(SIDE_INSET[orientation] * s))
+    max_w = w - side_inset * 2
+
+    if not words:
+        Image.new("RGBA", (w, h), (0, 0, 0, 0)).save(dest)
+        return
+
+    # Curly apostrophes throughout — the brand sets them, and whisper emits
+    # straight ones. Purely typographic; never changes which word is spoken.
+    # Emoji tokens pass through untouched.
+    words = [wd if _is_emoji(wd) else wd.replace("'", "\u2019") for wd in words]
+
     font = _font(size)
+    key_font = _font(key_size)
+    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
 
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+    def _wf(i):
+        return key_font if i == active else font
 
-    # Measure. The active word carries its chip padding; emoji measure by
-    # their rendered image.
-    ascent, descent = font.getmetrics()
-    line_h = ascent + descent
-    widths, emoji_imgs = [], {}
+    # Emoji measure by their rendered image, not by the text font. The spoken
+    # one is scaled up like a keyword would be.
+    emoji_imgs = {}
+    widths = []
     for i, word in enumerate(words):
         if _is_emoji(word):
-            px = int(size * EMOJI_SCALE * (1.12 if i == active else 1.0))
+            px = int(size * EMOJI_SCALE * (KEYWORD_SCALE if i == active else 1.0))
             em = _emoji_img(word, px)
             emoji_imgs[i] = em
-            widths.append(em.width if em else 0)
+            widths.append(float(em.width) if em is not None else 0.0)
         else:
-            tw = d.textlength(word, font=font)
-            if i == active:
-                tw += active_pad * 2
-            widths.append(tw)
-    total = sum(widths) + word_gap * (len(words) - 1)
+            widths.append(probe.textlength(word, font=_wf(i)))
 
-    plate_w = int(total + pad_x * 2)
-    plate_h = int(line_h + pad_y * 2)
-    px0 = int((w - plate_w) / 2)
-    py0 = h - bottom_inset - plate_h
-
-    # Hard offset shadow, then plate, then the ice outline.
-    d.rounded_rectangle((px0 + shadow_off, py0 + shadow_off,
-                         px0 + plate_w + shadow_off, py0 + plate_h + shadow_off),
-                        radius=radius, fill=SHADOW_FILL)
-    d.rounded_rectangle((px0, py0, px0 + plate_w, py0 + plate_h),
-                        radius=radius, fill=PLATE,
-                        outline=tuple(ICE), width=outline_px)
-
-    x = px0 + pad_x
-    ty = py0 + pad_y
-    mid_y = ty + line_h * 0.52
+    # Wrap into lines that fit between the side insets.
+    lines, cur, cur_w = [], [], 0.0
     for i, word in enumerate(words):
-        if i in emoji_imgs:
-            em = emoji_imgs[i]
-            if em is not None:
-                ey = int(mid_y - em.height / 2)
-                img.alpha_composite(em, (int(x), ey))
-                d = ImageDraw.Draw(img)   # plate edits above may invalidate
-            x += widths[i] + word_gap
-            continue
-        if i == active:
-            # the amber chip behind the spoken word, midnight text on it
-            cw = widths[i]
-            d.rounded_rectangle((x, py0 + pad_y - hug,
-                                 x + cw, py0 + plate_h - pad_y + hug),
-                                radius=active_radius, fill=tuple(AMBER))
-            d.text((x + active_pad, ty), word, font=font, fill=tuple(DEEP))
+        add = widths[i] + (word_gap if cur else 0)
+        if cur and cur_w + add > max_w:
+            lines.append(cur)
+            cur, cur_w = [i], widths[i]
         else:
-            d.text((x, ty), word, font=font, fill=tuple(ICE))
-        x += widths[i] + word_gap
+            cur.append(i)
+            cur_w += add
+    if cur:
+        lines.append(cur)
+
+    ascent, descent = key_font.getmetrics()
+    line_h = int((ascent + descent) * 1.06)
+    block_h = line_h * len(lines)
+    top = h - bottom_inset - block_h
+
+    # Two layers: the shadow stack, blurred, and the type itself on top.
+    shadow_tight = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    shadow_soft = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    text_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dt = ImageDraw.Draw(shadow_tight)
+    ds = ImageDraw.Draw(shadow_soft)
+    dx = ImageDraw.Draw(text_layer)
+
+    soft_dy = int(round(SHADOW_SOFT_DY * s))
+    for row, idxs in enumerate(lines):
+        total = sum(widths[i] for i in idxs) + word_gap * (len(idxs) - 1)
+        x = (w - total) / 2.0
+        y = top + row * line_h
+        for i in idxs:
+            if i in emoji_imgs:
+                em = emoji_imgs[i]
+                if em is not None:
+                    # Centre the glyph on the line's x-height, and give it the
+                    # same two shadows the words carry by compositing its own
+                    # alpha as a dark silhouette underneath.
+                    ey = int(y + (ascent - em.height) * 0.86)
+                    sil = Image.new("RGBA", em.size, SHADOW_INK + (0,))
+                    sil.putalpha(em.getchannel("A"))
+                    shadow_tight.alpha_composite(sil, (int(x), ey))
+                    shadow_soft.alpha_composite(sil, (int(x), ey + soft_dy))
+                    text_layer.alpha_composite(em, (int(x), ey))
+                x += widths[i] + word_gap
+                continue
+            f = _wf(i)
+            # Baseline-align the larger keyword with its neighbours.
+            a, _ = f.getmetrics()
+            wy = y + (ascent - a)
+            dt.text((x, wy), words[i], font=f, fill=SHADOW_INK + (SHADOW_TIGHT_ALPHA,))
+            ds.text((x, wy + soft_dy), words[i], font=f,
+                    fill=SHADOW_INK + (SHADOW_SOFT_ALPHA,))
+            dx.text((x, wy), words[i], font=f,
+                    fill=(YELLOW if i == active else CHALK) + (255,))
+            x += widths[i] + word_gap
+
+    from PIL import ImageFilter
+    shadow_soft = shadow_soft.filter(
+        ImageFilter.GaussianBlur(max(1.0, SHADOW_SOFT_BLUR * s / 2.0)))
+    shadow_tight = shadow_tight.filter(
+        ImageFilter.GaussianBlur(max(0.5, SHADOW_TIGHT_BLUR * s / 2.0)))
+
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    img.alpha_composite(shadow_soft)
+    for _ in range(SHADOW_TIGHT_PASSES):
+        img.alpha_composite(shadow_tight)
+    img.alpha_composite(text_layer)
     img.save(dest)
 
 
@@ -306,21 +371,9 @@ def align_words(display_text: str, whisper_words: "list[dict]") -> "list[dict]":
 
 # --- rendering ------------------------------------------------------------
 
-def word_chip(word: str, dest: Path, w: int, h: int, orientation: str) -> None:
-    """One big word on a rounded navy chip, centered, safe-zone anchored."""
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    fo = _font(CHIP_FONT_SIZE[orientation])
-    bb = d.textbbox((0, 0), word, font=fo)
-    tw = bb[2] - bb[0]
-    x = (w - tw) / 2 - bb[0]
-    y = CHIP_ANCHOR_Y[orientation]
-    pad = 40
-    d.rounded_rectangle(
-        [x + bb[0] - pad, y - pad, x + bb[0] + tw + pad, y + (bb[3] - bb[1]) + pad + 16],
-        radius=32, fill=NAVY_CHIP)
-    d.text((x, y - bb[1]), word, font=fo, fill=CREAM)
-    img.save(dest)
+# `word_chip` (one big word on a rounded navy chip) was removed in the
+# Cyanotype rebrand — a filled chip is precisely what the brand forbids, and
+# nothing called it. The caption renderer above is the only word treatment.
 
 
 def bake_caption_clip(timed_words: "list[dict]", duration: float, out_mov: Path,

@@ -15,6 +15,11 @@ from pathlib import Path
 from . import resolve_api as ra
 from .ingest import work_path, analysis_dir, IngestError
 
+# The DaVinci Resolve project name. DELIBERATELY NOT RENAMED in the 2026-08-20
+# Ninth Room rebrand: this string is what `open_project` looks up, and the
+# existing project holds the shipped HMNS timeline plus every media link in it.
+# Renaming it here would silently create a SECOND, empty project and orphan the
+# real one. If it is ever renamed, rename it inside Resolve first, then here.
 PROJECT_NAME = "Curated Curiosities"
 DURATION_TOLERANCE_SEC = 0.75
 

@@ -1,29 +1,52 @@
 :root{
---font-display:'Playfair Display','Didot','Bodoni MT',Georgia,serif;
---font-sans:'Work Sans','Helvetica Neue',Helvetica,sans-serif;
---font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+--font-display:'Bricolage Grotesque',system-ui,sans-serif; /* everything on video */
+--font-serif:'Newsreader',Georgia,serif;                   /* wordmark, quotes, takeaways, species names */
+--font-ui:'Manrope',system-ui,sans-serif;                  /* documents, specs, UI chrome */
 
-/* type scale — display (hooks, titles, wordmarks) */
---size-hook-xl:88px; --size-hook-lg:64px; --size-hook-md:44px; --size-hook-sm:32px;
-/* type scale — body / UI */
---size-body-lg:20px; --size-body-md:17px; --size-body-sm:15px; --size-body-xs:13px;
---size-label:12px; --size-eyebrow:11px;
+--weight-display:800; /* @kind other */
+--weight-display-mid:700; /* @kind other */
+--weight-display-soft:600; /* @kind other */
+--weight-serif:600; /* @kind other */
 
---lh-tight:1.05;
---lh-snug:1.2;
---lh-normal:1.5;
---lh-loose:1.65;
+/* tracking */
+--track-display:-.04em;   /* display headlines */
+--track-display-xl:-.055em; /* chapter and stat */
+--track-serif:-.025em; /* @kind other */
+--track-eyebrow:.24em;    /* structural caps */
+--track-eyebrow-tight:.22em; /* @kind other */
+--track-tagline:.26em; /* @kind other */
+--track-label:.2em; /* @kind other */
 
---ls-wordmark:0.18em; --ls-eyebrow:0.28em; --ls-caps:0.12em; --ls-display:0.01em; --ls-body:0em;
+/* on-video type ramp, at 1920x1080 */
+--video-stat:230px;
+--video-chapter:150px;
+--video-hook:104px;
+--video-keyword:86px;
+--video-headline:80px;
+--video-quote:78px;
+--video-lower-third:70px;
+--video-caption:64px;
+--video-option:46px;
+--video-support:34px;
+--video-eyebrow:28px;
+--video-eyebrow-sm:26px;
 
---weight-display:500; --weight-display-bold:700;
---weight-body:400; --weight-medium:500; --weight-bold:600;
+/* document ramp */
+--doc-h1:46px;
+--doc-h2:40px;
+--doc-h3:28px;
+--doc-h4:26px;
+--doc-body:15px;
+--doc-body-sm:14px;
+--doc-caption:13px;
+--doc-micro:12px;
+--doc-label:11px;
+--leading-body:1.62; /* @kind other */
+--leading-display:1.04; /* @kind other */
 
-/* semantic roles */
---text-hook:var(--weight-display-bold) var(--size-hook-lg)/var(--lh-tight) var(--font-display);
---text-title:var(--weight-display) var(--size-hook-md)/var(--lh-snug) var(--font-display);
---text-subtitle:var(--weight-display) var(--size-hook-sm)/var(--lh-snug) var(--font-display);
---text-body:var(--weight-body) var(--size-body-md)/var(--lh-normal) var(--font-sans);
---text-caption:var(--weight-body) var(--size-body-sm)/var(--lh-normal) var(--font-sans);
---text-ui-label:var(--weight-medium) var(--size-label)/1.2 var(--font-sans);
+/* every chalk line on footage carries this instead of a plate */
+--shadow-chalk:0 0 4px rgba(4,16,32,.95),0 4px 18px rgba(4,16,32,.9);
+--shadow-chalk-strong:0 0 5px rgba(4,16,32,1),0 4px 18px rgba(4,16,32,.95);
+--shadow-chalk-display:0 0 5px rgba(4,16,32,.95),0 5px 24px rgba(4,16,32,.9);
+--shadow-stat:0 6px 30px rgba(4,16,32,.85);
 }

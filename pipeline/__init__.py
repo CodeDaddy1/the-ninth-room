@@ -1,4 +1,4 @@
-"""Curated Curiosities v2 — the DaVinci Resolve auto-editor pipeline.
+"""The Ninth Room v2 — the DaVinci Resolve auto-editor pipeline.
 
 Raw footage in `work/<slug>/footage/` goes in one end; a finished, rendered
 video comes out of `work/<slug>/deliverables/`. Mechanical stages are Python

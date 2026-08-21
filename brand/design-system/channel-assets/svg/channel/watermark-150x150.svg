@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="150" height="150" viewBox="0 0 150 150"><g transform="translate(35.000,25.000) scale(0.100000)"><clipPath id="litwmd"><path d="M 20.0,1000 L 20.0,400 A 380.0,380.0 0 0,1 780.0,400 L 780.0,1000 Z"/></clipPath>
+<g clip-path="url(#litwmd)"><path d="M 20.0,1000 L 20.0,400 A 380.0,380.0 0 0,1 780.0,400 L 780.0,1000 Z M 280.0,1130.0 L 280.0,530.0 A 400,400 0 0,1 1080.0,530.0 L 1080.0,1130.0 Z" fill="#FFE04D" fill-rule="evenodd"/></g>
+<g clip-path="url(#litwmd)"><path d="M 144.0,1000 L 144.0,830.0 A 30.0,30.0 0 0,1 174.0,800.0 L 184.0,800.0 A 30.0,30.0 0 0,1 214.0,830.0 L 214.0,1000 Z M 154.0,775.0 A 25.0,25.0 0 1,0 204.0,775.0 A 25.0,25.0 0 1,0 154.0,775.0 Z" fill="#0B2340"/></g>
+<path d="M 10.0,1000 L 10.0,400 A 390.0,390.0 0 0,1 790.0,400 L 790.0,1000" fill="none" stroke="#EAF4FF" stroke-width="20.0" stroke-linecap="butt" stroke-opacity="0.7"/></g></svg>

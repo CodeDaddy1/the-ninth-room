@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+  body{margin:0;background:#EDF3FA}
+  a{color:#0B2340}
+  a:hover{color:#4A6E96}
+  @keyframes yFade{from{opacity:0}to{opacity:1}}
+  @keyframes yUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes ySlide{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes yGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  @keyframes yGrowY{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+  @keyframes yStretch{0%{opacity:0;transform:scaleY(.55) scaleX(1.16)}60%{opacity:1;transform:scaleY(1.07) scaleX(.98)}100%{opacity:1;transform:scale(1)}}
+  @keyframes yPop{0%{opacity:0;transform:scale(.78)}62%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+  @keyframes yRing{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  @keyframes yCount{0%{opacity:0;transform:scale(1.5)}8%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1)}}
+  @keyframes yCountHold{0%{opacity:0;transform:scale(1.5)}8%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1)}}
+  @keyframes yDim{from{opacity:1}to{opacity:.28}}
+  @keyframes yDot{0%{opacity:0;transform:scale(.5)}100%{opacity:1;transform:scale(1)}}
+  @keyframes yPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.035);opacity:.82}}
+  @keyframes yTick{0%{transform:translateY(0) scale(1)}36%{transform:translateY(-16px) scale(1.28)}100%{transform:translateY(0) scale(1)}}
+  @keyframes yRule{0%,12%{left:-1%}62%,100%{left:101%}}
+  @keyframes yReveal{0%,12%{clip-path:inset(0 100% 0 0)}62%,100%{clip-path:inset(0 0 0 0)}}
+  @keyframes yIris{0%{clip-path:inset(0 0 0 0)}44%,56%{clip-path:inset(42% 46% 42% 46%)}100%{clip-path:inset(0 0 0 0)}}
+  @keyframes yMark{0%{opacity:0;transform:scale(1.5)}30%,66%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.5)}}
+  @keyframes yColUp{0%,10%{transform:scaleY(0)}44%,58%{transform:scaleY(1)}94%,100%{transform:scaleY(0)}}
+  @keyframes yColShow{0%,46%{opacity:0}56%,100%{opacity:1}}
+  @keyframes yPushOut{0%,10%{transform:translateX(0)}58%,100%{transform:translateX(-100%)}}
+  @keyframes yPushIn{0%,10%{transform:translateX(100%)}58%,100%{transform:translateX(0)}}
+  @keyframes yBracket{0%,10%{transform:scaleX(0);opacity:0}22%{opacity:1}44%{transform:scaleX(1);opacity:1}62%,100%{opacity:0}}
+</style>
+</helmet>
+
+<div style="font-family:'Manrope',system-ui,sans-serif;background:#EDF3FA;color:#0B2340">
+
+  <!-- ================= SECTION HEADER ================= -->
+  <div style="padding:56px 64px 0">
+    <div style="max-width:2180px;margin:0 auto;border-bottom:1px solid #C6D6E6;padding-bottom:26px;display:flex;align-items:flex-end;justify-content:space-between;gap:44px;flex-wrap:wrap">
+      <div style="max-width:88ch">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+          <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#38E1F0;background:#0B2340;border-radius:4px;padding:4px 9px">02</span>
+          <span style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96">Overlays, cards, transitions, outro</span>
+        </div>
+        <h1 style="font-family:'Newsreader',serif;font-size:46px;line-height:1.04;letter-spacing:-.02em;font-weight:600;margin:0">Eight overlays, four cards, four cuts</h1>
+        <p style="font-size:15px;line-height:1.62;color:#4A6E96;margin:12px 0 0">Everything that appears over footage, plus the engagement cards, the four transitions and the three-beat outro. The rule that governs all of it is <strong style="color:#0B2340;font-weight:700">no filled plates</strong> — type sits on footage with outlines, hairlines and brackets doing the work a box would normally do.</p>
+      </div>
+      <button onClick="{{ replayAll }}" style="flex:0 0 auto;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#EAF4FF;background:#0B2340;border:0;border-radius:6px;padding:13px 26px;cursor:pointer" style-hover="background:#22303F">Replay everything</button>
+    </div>
+  </div>
+
+  <!-- ================= 1. THE MARK ================= -->
+  <div style="padding:64px 64px 72px">
+    <div style="max-width:2180px;margin:0 auto">
+      <div style="border-bottom:1px solid #C6D6E6;padding-bottom:22px;margin-bottom:36px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96;margin-bottom:9px">The mark in use</div>
+        <h2 style="font-family:'Newsreader',serif;font-size:40px;line-height:1.06;letter-spacing:-.02em;font-weight:600;margin:0">The mark, applied</h2>
+        <p style="font-size:15px;line-height:1.62;color:#4A6E96;margin:11px 0 0;max-width:88ch">An arched opening seen straight on: cyan outline, warm light in the passage, the wall's thickness thrown as shadow across the right, and one figure at the threshold. It is drawn the way the overlays are drawn, so the logo and a lower third are visibly the same hand.</p>
+      </div>
+
+      <div style="display:flex;gap:40px;flex-wrap:wrap;align-items:flex-start">
+
+        <!-- primary lockup -->
+        <div style="flex:0 0 700px">
+          <div style="background:#0B2340;border-radius:12px;padding:56px 60px;display:flex;align-items:center;gap:38px">
+            <div style="position:relative;flex:0 0 auto"><div style="position:relative;width:96px;height:120px;flex:0 0 auto;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:48px 48px 0 0;background:#FFE04D;overflow:hidden"><div style="position:absolute;left:31px;top:13px;width:96px;height:120px;border-radius:48px 48px 0 0;background:#0B2340"></div><div style="position:absolute;left:16px;bottom:0;width:8px;height:24px;background:#0B2340;border-radius:4px 4px 0 0"></div><div style="position:absolute;left:17px;bottom:24px;width:6px;height:6px;border-radius:999px;background:#0B2340"></div></div>
+            </div>
+            <div>
+              <div style="font-family:'Newsreader',serif;font-size:52px;line-height:1;letter-spacing:-.025em;font-weight:600;color:#EAF4FF">The Ninth Room</div>
+              <div style="display:flex;align-items:center;gap:11px;margin-top:14px">
+                <div style="width:28px;height:2px;background:#38E1F0"></div>
+                <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:14px;font-weight:800;letter-spacing:.26em;text-transform:uppercase;color:#38E1F0">Nine rooms. One you can't find.</span>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:13px;color:#5F81A6;margin-top:9px">Primary lockup · horizontal. Wordmark in Newsreader, structural type in Bricolage. Minimum clear space is one room width on every side</div>
+        </div>
+
+        <!-- construction -->
+        <div style="flex:0 0 460px">
+          <div style="background:#0B2340;border-radius:12px;padding:44px;display:flex;align-items:center;justify-content:center">
+            <div style="position:relative;width:236px;height:236px">
+              <div style="position:absolute;left:23px;top:0;width:190px;height:236px;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:95px 95px 0 0;overflow:hidden">
+    <div style="position:absolute;inset:0;background:#FFE04D;opacity:.9"></div>
+    <div style="position:absolute;left:62px;top:26px;width:190px;height:236px;border-radius:95px 95px 0 0;background:#0B2340"></div>
+    <div style="position:absolute;left:31px;bottom:0;width:17px;height:47px;background:#0B2340;border-radius:8px 8px 0 0"></div>
+    <div style="position:absolute;left:33px;bottom:47px;width:13px;height:13px;border-radius:999px;background:#0B2340"></div>
+    <div style="position:absolute;left:0;right:0;top:95px;height:1px;background:rgba(11,35,64,.4)"></div>
+  </div>
+              <div style="position:absolute;left:-32px;top:0;bottom:0;width:20px;border-left:1px solid #38E1F0;border-top:1px solid #38E1F0;border-bottom:1px solid #38E1F0"></div>
+              <div style="position:absolute;left:-70px;top:50%;transform:translateY(-50%);font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.1em;color:#38E1F0">10u</div>
+              <div style="position:absolute;bottom:-32px;left:0;right:0;height:20px;border-bottom:1px solid #38E1F0;border-left:1px solid #38E1F0;border-right:1px solid #38E1F0"></div>
+              <div style="position:absolute;bottom:-58px;left:50%;transform:translateX(-50%);font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.1em;color:#38E1F0">8u</div>
+              <div style="position:absolute;right:-46px;bottom:0;height:68px;display:flex;align-items:center;font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;letter-spacing:.1em;color:#FFE04D">r=4u</div>
+            </div>
+          </div>
+          <div style="font-size:13px;color:#5F81A6;margin-top:9px">Construction · 8u wide by 10u tall, arch radius exactly 4u so the head is a true semicircle</div>
+        </div>
+
+        <!-- knockouts -->
+        <div style="flex:0 0 420px;display:flex;flex-direction:column;gap:14px">
+          <div style="background:#EAF4FF;border:1px solid #C6D6E6;border-radius:12px;padding:26px 30px;display:flex;align-items:center;gap:20px">
+            <div style="position:relative;width:52px;height:65px;flex:0 0 auto;box-sizing:border-box;border:2px solid #0B2340;border-bottom:0;border-radius:26px 26px 0 0;background:#E2A100;overflow:hidden;margin-right:4px"><div style="position:absolute;left:17px;top:7px;width:52px;height:65px;border-radius:26px 26px 0 0;background:#0B2340"></div><div style="position:absolute;left:8px;bottom:0;width:5px;height:13px;background:#0B2340;border-radius:3px 3px 0 0"></div><div style="position:absolute;left:9px;bottom:13px;width:3px;height:3px;border-radius:999px;background:#0B2340"></div></div>
+            <div style="font-family:'Newsreader',serif;font-size:28px;letter-spacing:-.02em;font-weight:600;color:#0B2340">The Ninth Room</div>
+          </div>
+          <div style="background:#38E1F0;border-radius:12px;padding:26px 30px;display:flex;align-items:center;gap:20px">
+            <div style="position:relative;width:52px;height:65px;flex:0 0 auto;box-sizing:border-box;border:2px solid #0B2340;border-bottom:0;border-radius:26px 26px 0 0;background:#0B2340;overflow:hidden;margin-right:4px"><div style="position:absolute;left:17px;top:7px;width:52px;height:65px;border-radius:26px 26px 0 0;background:#38E1F0"></div><div style="position:absolute;left:8px;bottom:0;width:5px;height:13px;background:#38E1F0;border-radius:3px 3px 0 0"></div><div style="position:absolute;left:9px;bottom:13px;width:3px;height:3px;border-radius:999px;background:#38E1F0"></div></div>
+            <div style="font-family:'Newsreader',serif;font-size:28px;letter-spacing:-.02em;font-weight:600;color:#0B2340">The Ninth Room</div>
+          </div>
+          <div style="background:#FFE04D;border-radius:12px;padding:26px 30px;display:flex;align-items:center;gap:20px">
+            <div style="position:relative;width:52px;height:65px;flex:0 0 auto;box-sizing:border-box;border:2px solid #0B2340;border-bottom:0;border-radius:26px 26px 0 0;background:#0B2340;overflow:hidden;margin-right:4px"><div style="position:absolute;left:17px;top:7px;width:52px;height:65px;border-radius:26px 26px 0 0;background:#FFE04D"></div><div style="position:absolute;left:8px;bottom:0;width:5px;height:13px;background:#FFE04D;border-radius:3px 3px 0 0"></div><div style="position:absolute;left:9px;bottom:13px;width:3px;height:3px;border-radius:999px;background:#FFE04D"></div></div>
+            <div style="font-family:'Newsreader',serif;font-size:28px;letter-spacing:-.02em;font-weight:600;color:#0B2340">The Ninth Room</div>
+          </div>
+          <div style="font-size:13px;color:#5F81A6">Knockouts · on paper the light darkens to E2A100 to hold against white. On either accent the light goes navy and the shadow alone defines the arch</div>
+        </div>
+
+        <!-- stacked + submark + watermark -->
+        <div style="flex:0 0 480px">
+          <div style="background:#0B2340;border-radius:12px;padding:44px 40px;display:flex;flex-direction:column;align-items:center;gap:22px">
+            <div style="position:relative;width:80px;height:100px;flex:0 0 auto;box-sizing:border-box;border:3px solid #38E1F0;border-bottom:0;border-radius:40px 40px 0 0;background:#FFE04D;overflow:hidden"><div style="position:absolute;left:26px;top:11px;width:80px;height:100px;border-radius:40px 40px 0 0;background:#0B2340"></div><div style="position:absolute;left:13px;bottom:0;width:7px;height:20px;background:#0B2340;border-radius:4px 4px 0 0"></div><div style="position:absolute;left:14px;bottom:20px;width:5px;height:5px;border-radius:999px;background:#0B2340"></div></div>
+            <div style="font-family:'Newsreader',serif;font-size:40px;line-height:1;letter-spacing:-.025em;font-weight:600;color:#EAF4FF;text-align:center">The Ninth Room</div>
+            <div style="width:52px;height:2px;background:#38E1F0"></div>
+          </div>
+          <div style="font-size:13px;color:#5F81A6;margin-top:9px">Stacked lockup · for avatars, end cards and anything square</div>
+        </div>
+
+        <!-- on footage watermark -->
+        <div style="flex:0 0 640px">
+          <div style="width:640px;height:360px;overflow:hidden;position:relative;border-radius:12px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3333);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">footage</span></div>
+              <div style="position:absolute;right:72px;top:64px;display:flex;align-items:center;gap:16px;opacity:.9">
+                <div style="position:relative;width:52px;height:65px;flex:0 0 auto;box-sizing:border-box;border:3px solid rgba(234,244,255,.7);border-bottom:0;border-radius:26px 26px 0 0;overflow:hidden">
+    <div style="position:absolute;left:0;right:17px;top:0;bottom:0;border-radius:26px 0 0 0;background:#FFE04D"></div>
+    <div style="position:absolute;left:8px;bottom:0;width:5px;height:13px;background:#0B2340;border-radius:2px 2px 0 0"></div>
+  </div>
+                <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:rgba(234,244,255,.82)">Ninth Room</div>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:13px;color:#5F81A6;margin-top:9px">On-footage watermark · top right, never moves. Outline at 70% chalk, light at full yellow so the mark still reads at phone size</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 2. OVERLAYS ================= -->
+  <div style="background:#E3ECF6;padding:64px 64px 72px">
+    <div style="max-width:2180px;margin:0 auto">
+      <div style="border-bottom:1px solid #C6D6E6;padding-bottom:22px;margin-bottom:36px;display:flex;align-items:flex-end;justify-content:space-between;gap:36px">
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96;margin-bottom:9px">Overlays</div>
+          <h2 style="font-family:'Newsreader',serif;font-size:40px;line-height:1.06;letter-spacing:-.02em;font-weight:600;margin:0">Eight components, no plates</h2>
+          <p style="font-size:15px;line-height:1.62;color:#4A6E96;margin:11px 0 0;max-width:88ch">Every white line carries a double text-shadow so it survives without a box. Where footage is bright, a cyanotype gradient scrim on the lower third does the work — never a filled panel. Frames are 1920×1080 at 36%.</p>
+        </div>
+        <button onClick="{{ replay.ov }}" style="flex:0 0 auto;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#0B2340;background:transparent;border:1px solid #A9C0D6;border-radius:6px;padding:11px 20px;cursor:pointer" style-hover="border-color:#0B2340">Replay overlays</button>
+      </div>
+
+      <div style="display:flex;gap:32px;flex-wrap:wrap">
+
+        <!-- hook -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">museum entrance</span></div>
+              <sc-if value="{{ run.ov }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:130px;top:280px;right:300px">
+                  <div style="display:flex;align-items:center;gap:14px;animation:yFade 220ms ease both">
+                    <div style="width:56px;height:3px;background:#38E1F0;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:#38E1F0">Open to close</span>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:104px;line-height:1.03;font-weight:800;letter-spacing:-.045em;color:#EAF4FF;margin-top:22px;text-shadow:0 0 4px rgba(4,16,32,.95),0 5px 22px rgba(4,16,32,.9)">
+                    <div style="animation:yUp 340ms cubic-bezier(.16,1,.3,1) 120ms both">One family vs.</div>
+                    <div style="animation:yUp 340ms cubic-bezier(.16,1,.3,1) 240ms both">an <span style="color:#FFE04D">entire museum</span></div>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:34px;font-weight:600;color:#8FB3D6;margin-top:24px;animation:yFade 240ms ease 460ms both">Nine hours. One wrong turn. Zero regrets.</div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Hook · the only overlay allowed two lines of display type. Yellow lands on the second line, never the first</div>
+        </div>
+
+        <!-- lower third -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">person frame-right, sloth behind</span></div>
+              <sc-if value="{{ run.ov }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:120px;bottom:200px;width:1080px">
+                  <div style="display:flex;align-items:center;gap:14px;animation:yFade 220ms ease both">
+                    <div style="width:56px;height:3px;background:#38E1F0;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:#38E1F0">Verified · Slothzilla, officially</span>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:70px;font-weight:800;letter-spacing:-.04em;color:#EAF4FF;margin-top:16px;text-shadow:0 0 4px rgba(4,16,32,.95),0 5px 22px rgba(4,16,32,.9);animation:yUp 320ms cubic-bezier(.16,1,.3,1) 120ms both">About <span style="color:#FFE04D">13 feet</span> tall and 3 tons</div>
+                  <div style="height:2px;background:rgba(234,244,255,.28);margin-top:18px;transform-origin:left;animation:yGrow 320ms cubic-bezier(.22,.61,.36,1) 300ms both"></div>
+                  <div style="font-family:'Newsreader',serif;font-style:italic;font-size:34px;color:#8FB3D6;margin-top:14px;animation:yFade 240ms ease 400ms both">Eremotherium, the giant ground sloth</div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Lower third · the species name is the one place the serif appears on video, in italic — it reads as a label from a case</div>
+        </div>
+
+        <!-- caption dark -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">dark exhibit hall</span></div>
+              <sc-if value="{{ run.ov }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:0;right:0;bottom:150px;display:flex;flex-direction:column;align-items:center;gap:16px">
+                  <div style="display:flex;align-items:center;gap:12px;animation:yFade 200ms ease both">
+                    <div style="width:44px;height:3px;background:#38E1F0;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#38E1F0">Alma</span>
+                    <div style="width:44px;height:3px;background:#38E1F0;transform-origin:right;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:64px;font-weight:800;letter-spacing:-.035em;color:#EAF4FF;display:flex;flex-wrap:wrap;gap:0 20px;justify-content:center;align-items:baseline;max-width:1560px;text-shadow:0 0 4px rgba(4,16,32,.95),0 4px 18px rgba(4,16,32,.9)">
+                    <span style="animation:ySlide 180ms ease 100ms both">Wait,</span>
+                    <span style="animation:ySlide 180ms ease 200ms both">that</span>
+                    <span style="animation:ySlide 180ms ease 300ms both">whole</span>
+                    <span style="animation:ySlide 180ms ease 400ms both">thing</span>
+                    <span style="animation:ySlide 180ms ease 500ms both">is</span>
+                    <span style="animation:ySlide 180ms ease 600ms both">one</span>
+                    <span style="font-size:86px;color:#FFE04D;animation:yStretch 320ms cubic-bezier(.16,1,.3,1) 700ms both">tooth?</span>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Caption · words slide 100ms apart, one keyword per line scales up in yellow. Bottom inset 150px</div>
+        </div>
+
+        <!-- caption bright -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#DDE3D6;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#8B9184">bright greenhouse</span></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,35,64,0) 48%,rgba(11,35,64,.6) 76%,rgba(11,35,64,.9) 100%)"></div>
+              <sc-if value="{{ run.ov }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:0;right:0;bottom:150px;display:flex;flex-direction:column;align-items:center;gap:16px">
+                  <div style="display:flex;align-items:center;gap:12px;animation:yFade 200ms ease both">
+                    <div style="width:44px;height:3px;background:#38E1F0;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#38E1F0">Caleb</span>
+                    <div style="width:44px;height:3px;background:#38E1F0;transform-origin:right;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:64px;font-weight:800;letter-spacing:-.035em;color:#EAF4FF;display:flex;flex-wrap:wrap;gap:0 20px;justify-content:center;align-items:baseline;max-width:1560px;text-shadow:0 0 5px rgba(4,16,32,1),0 4px 18px rgba(4,16,32,.95)">
+                    <span style="animation:ySlide 180ms ease 100ms both">You're</span>
+                    <span style="animation:ySlide 180ms ease 200ms both">done.</span>
+                    <span style="animation:ySlide 180ms ease 300ms both">You're</span>
+                    <span style="font-size:86px;color:#FFE04D;animation:yStretch 320ms cubic-bezier(.16,1,.3,1) 400ms both">cooked</span>
+                    <span style="animation:ySlide 180ms ease 620ms both">for</span>
+                    <span style="animation:ySlide 180ms ease 720ms both">life.</span>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Same caption, bright footage · a cyanotype gradient scrim replaces what a plate would have done. This is the acceptance test frame</div>
+        </div>
+
+        <!-- stat -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">meteorite close-up</span></div>
+              <sc-if value="{{ run.ov }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:0;right:0;top:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+                  <div style="display:flex;align-items:center;gap:14px;animation:yFade 220ms ease both">
+                    <div style="width:56px;height:3px;background:#38E1F0;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:#38E1F0">Older than the planet</span>
+                    <div style="width:56px;height:3px;background:#38E1F0;transform-origin:right;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:230px;line-height:1;font-weight:800;letter-spacing:-.06em;color:#FFE04D;text-shadow:0 6px 30px rgba(4,16,32,.85);animation:yStretch 420ms cubic-bezier(.16,1,.3,1) 160ms both">4.6bn</div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:44px;font-weight:700;letter-spacing:-.01em;color:#EAF4FF;animation:yUp 300ms cubic-bezier(.16,1,.3,1) 380ms both">years old, give or take</div>
+                  <div style="display:flex;gap:12px;align-items:flex-end;height:14px;margin-top:22px;animation:yFade 300ms ease 620ms both">
+                    <div style="width:2px;height:14px;background:rgba(234,244,255,.5)"></div>
+                    <div style="width:2px;height:8px;background:rgba(234,244,255,.28)"></div>
+                    <div style="width:2px;height:8px;background:rgba(234,244,255,.28)"></div>
+                    <div style="width:2px;height:14px;background:rgba(234,244,255,.5)"></div>
+                    <div style="width:2px;height:8px;background:rgba(234,244,255,.28)"></div>
+                    <div style="width:2px;height:8px;background:rgba(234,244,255,.28)"></div>
+                    <div style="width:2px;height:14px;background:rgba(234,244,255,.5)"></div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Stat · the number is the whole overlay. Measurement ticks below are the one flourish, and they arrive last</div>
+        </div>
+
+        <!-- callout -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">wide of the diorama</span></div>
+              <sc-if value="{{ run.ov }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:1180px;top:400px;width:380px;height:280px;animation:yPop 320ms cubic-bezier(.16,1,.3,1) 240ms both">
+                  <div style="position:absolute;inset:0;border:4px solid #FFE04D"></div>
+                  <div style="position:absolute;left:-1px;top:-38px;width:1px;height:32px;background:#FFE04D"></div>
+                  <div style="position:absolute;left:-38px;top:-1px;width:32px;height:1px;background:#FFE04D"></div>
+                  <div style="position:absolute;right:-1px;bottom:-38px;width:1px;height:32px;background:#FFE04D"></div>
+                  <div style="position:absolute;right:-38px;bottom:-1px;width:32px;height:1px;background:#FFE04D"></div>
+                </div>
+                <div style="position:absolute;left:700px;top:534px;width:460px;height:3px;background:#FFE04D;transform-origin:right;animation:yGrow 280ms cubic-bezier(.22,.61,.36,1) 420ms both"></div>
+                <div style="position:absolute;left:150px;top:460px;width:540px;animation:yUp 300ms cubic-bezier(.16,1,.3,1) 540ms both">
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:#FFE04D">Look here</div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:62px;font-weight:800;letter-spacing:-.04em;color:#EAF4FF;margin-top:12px;text-shadow:0 0 4px rgba(4,16,32,.95),0 4px 18px rgba(4,16,32,.9)">Wrong continent entirely</div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Callout · a square frame with crop marks, not a circle. The leader line draws toward the label and stops level with the frame's centre</div>
+        </div>
+
+        <!-- chapter -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">corridor</span></div>
+              <div style="position:absolute;inset:0;background:rgba(11,35,64,.86)"></div>
+              <sc-if value="{{ run.ov }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:140px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:20px">
+                  <div style="display:flex;align-items:center;gap:20px;animation:yFade 240ms ease both">
+                    <div style="display:flex;gap:7px">
+                      <div style="width:20px;height:20px;background:#FFE04D;animation:yDot 200ms ease 160ms both"></div>
+                      <div style="width:20px;height:20px;background:#FFE04D;animation:yDot 200ms ease 260ms both"></div>
+                      <div style="width:20px;height:20px;background:#FFE04D;animation:yDot 200ms ease 360ms both"></div>
+                      <div style="width:20px;height:20px;border:2px solid rgba(234,244,255,.34);box-sizing:border-box"></div>
+                      <div style="width:20px;height:20px;border:2px solid rgba(234,244,255,.34);box-sizing:border-box"></div>
+                      <div style="width:20px;height:20px;border:2px solid rgba(234,244,255,.34);box-sizing:border-box"></div>
+                      <div style="width:20px;height:20px;border:2px solid rgba(234,244,255,.34);box-sizing:border-box"></div>
+                      <div style="width:20px;height:20px;border:2px solid rgba(234,244,255,.34);box-sizing:border-box"></div>
+                      <div style="width:20px;height:20px;border:2px solid rgba(234,244,255,.34);box-sizing:border-box"></div>
+                    </div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:#38E1F0">Room three of nine</span>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:150px;line-height:1;font-weight:800;letter-spacing:-.055em;color:#EAF4FF;animation:yUp 400ms cubic-bezier(.16,1,.3,1) 200ms both">The gem vault</div>
+                  <div style="width:220px;height:3px;background:#FFE04D;transform-origin:left;animation:yGrow 320ms cubic-bezier(.22,.61,.36,1) 520ms both"></div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Chapter card · the progress meter doubles as the chapter marker, so the viewer always knows how much is left</div>
+        </div>
+
+        <!-- quote -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">slow-mo, wide</span></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,35,64,0) 34%,rgba(11,35,64,.62) 74%,rgba(11,35,64,.92) 100%)"></div>
+              <sc-if value="{{ run.ov }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:190px;right:190px;bottom:200px;text-align:center">
+                  <div style="font-family:'Newsreader',serif;font-size:78px;line-height:1.14;font-weight:400;font-style:italic;letter-spacing:-.02em;color:#EAF4FF;text-shadow:0 4px 22px rgba(4,16,32,.9);animation:yUp 380ms cubic-bezier(.16,1,.3,1) both">“Nine rooms, and the one we'll remember wasn't on the map.”</div>
+                  <div style="width:180px;height:2px;background:#FFE04D;margin:30px auto 0;transform-origin:center;animation:yGrow 320ms cubic-bezier(.22,.61,.36,1) 420ms both"></div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:#38E1F0;margin-top:20px;animation:yFade 240ms ease 560ms both">Sofia</div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Quote · the one overlay set in the serif, italic, attribution below. Reserved for the takeaway line, once per video</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 3. ENGAGEMENT ================= -->
+  <div style="padding:64px 64px 72px">
+    <div style="max-width:2180px;margin:0 auto">
+      <div style="border-bottom:1px solid #C6D6E6;padding-bottom:22px;margin-bottom:36px;display:flex;align-items:flex-end;justify-content:space-between;gap:36px">
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96;margin-bottom:9px">Engagement</div>
+          <h2 style="font-family:'Newsreader',serif;font-size:40px;line-height:1.06;letter-spacing:-.02em;font-weight:600;margin:0">Cards that hand the viewer a job</h2>
+          <p style="font-size:15px;line-height:1.62;color:#4A6E96;margin:11px 0 0;max-width:88ch">Because options start as outlines, yellow flooding one of them is both the answer and the animation — no dimming trick required. One card per two minutes, and every question gets its answer in the same video.</p>
+        </div>
+        <button onClick="{{ replay.en }}" style="flex:0 0 auto;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#0B2340;background:transparent;border:1px solid #A9C0D6;border-radius:6px;padding:11px 20px;cursor:pointer" style-hover="border-color:#0B2340">Replay cards</button>
+      </div>
+
+      <div style="display:flex;gap:32px;flex-wrap:wrap">
+
+        <!-- quiz -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">the skull case</span></div>
+              <sc-if value="{{ run.en }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:0;right:0;top:130px;display:flex;flex-direction:column;align-items:center;gap:22px">
+                  <div style="display:flex;align-items:center;gap:12px;animation:yFade 200ms ease both">
+                    <div style="width:44px;height:3px;background:#38E1F0;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#38E1F0">One of these is true</span>
+                    <div style="width:44px;height:3px;background:#38E1F0;transform-origin:right;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:80px;font-weight:800;letter-spacing:-.04em;color:#EAF4FF;text-shadow:0 0 4px rgba(4,16,32,.95),0 4px 18px rgba(4,16,32,.9);animation:yUp 320ms cubic-bezier(.16,1,.3,1) 120ms both">What did it eat?</div>
+                  <div style="display:flex;flex-direction:column;gap:16px;width:1200px;margin-top:10px">
+                    <div style="border:3px solid rgba(234,244,255,.4);padding:16px 32px;font-family:'Bricolage Grotesque',sans-serif;font-size:46px;font-weight:700;color:#EAF4FF;text-align:center;animation:yUp 280ms cubic-bezier(.16,1,.3,1) 280ms both,yDim 260ms ease 2500ms both">Fish, mostly</div>
+                    <div style="position:relative;border:3px solid #FFE04D;padding:16px 32px;font-family:'Bricolage Grotesque',sans-serif;font-size:46px;font-weight:800;text-align:center;animation:yUp 280ms cubic-bezier(.16,1,.3,1) 380ms both">
+                      <div style="position:absolute;inset:0;background:#FFE04D;transform-origin:left;animation:yGrow 420ms cubic-bezier(.22,.61,.36,1) 2500ms both"></div>
+                      <span style="position:relative;color:#EAF4FF">Leaves, and a lot of them</span>
+                    </div>
+                    <div style="border:3px solid rgba(234,244,255,.4);padding:16px 32px;font-family:'Bricolage Grotesque',sans-serif;font-size:46px;font-weight:700;color:#EAF4FF;text-align:center;animation:yUp 280ms cubic-bezier(.16,1,.3,1) 480ms both,yDim 260ms ease 2500ms both">Other sloths</div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Quiz · at 2.5s the wrong options drop to 28% and yellow floods the answer. Set the answer text to 0B2340 once the fill lands</div>
+        </div>
+
+        <!-- countdown -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">covered exhibit label</span></div>
+              <sc-if value="{{ run.en }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:0;right:0;top:150px;display:flex;flex-direction:column;align-items:center;gap:26px">
+                  <div style="display:flex;align-items:center;gap:12px;animation:yFade 200ms ease both">
+                    <div style="width:44px;height:3px;background:#FFE04D;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#FFE04D">Guess before we do</span>
+                    <div style="width:44px;height:3px;background:#FFE04D;transform-origin:right;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:80px;font-weight:800;letter-spacing:-.04em;color:#EAF4FF;text-shadow:0 0 4px rgba(4,16,32,.95),0 4px 18px rgba(4,16,32,.9);animation:yUp 320ms cubic-bezier(.16,1,.3,1) 120ms both">How old is this thing?</div>
+                  <div style="position:relative;width:240px;height:240px;margin-top:10px;animation:yFade 240ms ease 280ms both">
+                    <div style="position:absolute;inset:0;border-radius:999px;border:6px solid rgba(234,244,255,.22)"></div>
+                    <div style="position:absolute;inset:0;border-radius:999px;border:6px solid transparent;border-top-color:#FFE04D;animation:yRing 3s linear 420ms both"></div>
+                    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Bricolage Grotesque',sans-serif;font-size:140px;font-weight:800;color:#EAF4FF">
+                      <span style="position:absolute;animation:yCount 1s cubic-bezier(.16,1,.3,1) 420ms both">3</span>
+                      <span style="position:absolute;animation:yCount 1s cubic-bezier(.16,1,.3,1) 1420ms both">2</span>
+                      <span style="position:absolute;animation:yCountHold 1s cubic-bezier(.16,1,.3,1) 2420ms both">1</span>
+                    </div>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:32px;font-weight:700;color:#8FB3D6;animation:yFade 240ms ease 600ms both">Say it out loud. We'll wait.</div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Countdown · a hairline ring, three stacked numerals a second each. Cut on the frame the ring closes</div>
+        </div>
+
+        <!-- poll -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#DDE3D6;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#8B9184">two doorways · bright</span></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(11,35,64,0) 22%,rgba(11,35,64,.72) 52%,rgba(11,35,64,.93) 100%)"></div>
+              <sc-if value="{{ run.en }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;right:120px;top:230px;width:880px;color:#EAF4FF">
+                  <div style="display:flex;align-items:center;gap:12px;animation:yFade 200ms ease both">
+                    <div style="width:44px;height:3px;background:#FFE04D;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#FFE04D">You picked</span>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:68px;font-weight:800;letter-spacing:-.04em;margin-top:16px;animation:yUp 300ms cubic-bezier(.16,1,.3,1) 120ms both">Left door or right?</div>
+                  <div style="margin-top:40px;animation:yFade 220ms ease 300ms both">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:'Bricolage Grotesque',sans-serif;font-size:40px;font-weight:700"><span>Left · the bugs</span><span style="font-size:52px;font-weight:800;color:#FFE04D">68%</span></div>
+                    <div style="height:6px;background:rgba(234,244,255,.24);margin-top:14px;position:relative"><div style="position:absolute;inset:0;width:68%;background:#FFE04D;transform-origin:left;animation:yGrow 700ms cubic-bezier(.22,.61,.36,1) 420ms both"></div></div>
+                  </div>
+                  <div style="margin-top:32px;animation:yFade 220ms ease 400ms both">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:'Bricolage Grotesque',sans-serif;font-size:40px;font-weight:700;color:#7C9BBC"><span>Right · the rocks</span><span style="font-size:52px;font-weight:800">32%</span></div>
+                    <div style="height:6px;background:rgba(234,244,255,.24);margin-top:14px;position:relative"><div style="position:absolute;inset:0;width:32%;background:#7C9BBC;transform-origin:left;animation:yGrow 700ms cubic-bezier(.22,.61,.36,1) 560ms both"></div></div>
+                  </div>
+                  <div style="font-size:28px;color:#7C9BBC;margin-top:32px;animation:yFade 240ms ease 900ms both">From last week's poll. Comment yours and we'll follow it next time.</div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Poll · 6px rules, not pill bars. Losing bar in slate blue so yellow is the only accent on screen. Real numbers only</div>
+        </div>
+
+        <!-- vote / scoreboard -->
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">insect hall</span></div>
+              <sc-if value="{{ run.en }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:0;right:0;top:170px;display:flex;flex-direction:column;align-items:center;gap:22px">
+                  <div style="display:flex;align-items:center;gap:12px;animation:yFade 200ms ease both">
+                    <div style="width:44px;height:3px;background:#FFE04D;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#FFE04D">For a million bucks</span>
+                    <div style="width:44px;height:3px;background:#FFE04D;transform-origin:right;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:76px;font-weight:800;letter-spacing:-.04em;color:#EAF4FF;text-shadow:0 0 4px rgba(4,16,32,.95),0 4px 18px rgba(4,16,32,.9);animation:yUp 320ms cubic-bezier(.16,1,.3,1) 120ms both">Would you eat the cockroach?</div>
+                  <div style="display:flex;gap:28px;margin-top:16px">
+                    <div style="border:3px solid rgba(234,244,255,.4);padding:20px 44px;text-align:center;animation:yUp 300ms cubic-bezier(.16,1,.3,1) 300ms both">
+                      <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:34px;font-weight:700;color:#EAF4FF">Eat the cockroach</div>
+                      <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:76px;font-weight:800;color:#5F81A6;line-height:1.05">0</div>
+                    </div>
+                    <div style="border:3px solid #FFE04D;padding:20px 44px;text-align:center;animation:yUp 300ms cubic-bezier(.16,1,.3,1) 400ms both">
+                      <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:34px;font-weight:800;color:#FFE04D">Absolutely not</div>
+                      <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:76px;font-weight:800;color:#EAF4FF;line-height:1.05;animation:yTick 460ms cubic-bezier(.16,1,.3,1) 1000ms both">3</div>
+                    </div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Vote · the winning side takes the yellow outline; only the digit ticks when a count changes</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 4. TRANSITIONS ================= -->
+  <div style="background:#E3ECF6;padding:64px 64px 72px">
+    <div style="max-width:2180px;margin:0 auto">
+      <div style="border-bottom:1px solid #C6D6E6;padding-bottom:22px;margin-bottom:32px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96;margin-bottom:9px">Transitions</div>
+        <h2 style="font-family:'Newsreader',serif;font-size:40px;line-height:1.06;letter-spacing:-.02em;font-weight:600;margin:0">Four cuts, made of the same parts</h2>
+        <p style="font-size:15px;line-height:1.62;color:#4A6E96;margin:11px 0 0;max-width:88ch">A rule, a crop mark, a grid and a dimension bracket — the same four shapes the overlays are built from, which is why a cut never reads as a plugin. Demos loop; the real ones fire once.</p>
+      </div>
+
+      <div style="display:flex;gap:26px;flex-wrap:wrap">
+
+        <div style="flex:0 0 512px">
+          <div style="width:512px;height:288px;overflow:hidden;position:relative;border-radius:8px;background:#0B2340">
+            <div style="position:absolute;inset:0;background:#3D3620;display:flex;align-items:flex-start;justify-content:flex-start;padding:18px 22px"><span style="font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#8F8351">shot A</span></div>
+            <div style="position:absolute;inset:0;background:#0F3B44;display:flex;align-items:flex-end;justify-content:flex-end;padding:18px 22px;animation:yReveal 2.6s cubic-bezier(.22,.61,.36,1) infinite"><span style="font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#4C9BA6">shot B</span></div>
+            <div style="position:absolute;top:0;bottom:0;left:0;width:5px;background:#FFE04D;box-shadow:0 0 22px rgba(255,224,77,.85);animation:yRule 2.6s cubic-bezier(.22,.61,.36,1) infinite"></div>
+          </div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:16px;font-weight:800;margin-top:9px">Rule wipe · 480ms</div>
+          <div style="font-size:13px;line-height:1.55;color:#4A6E96;margin-top:3px">The house cut, ninety per cent of the time. It is the same hairline that underlines every speaker tag, so it never reads as an effect.</div>
+        </div>
+
+        <div style="flex:0 0 512px">
+          <div style="width:512px;height:288px;overflow:hidden;position:relative;border-radius:8px;background:#0B2340">
+            <div style="position:absolute;inset:0;background:#0F3B44;display:flex;align-items:flex-end;justify-content:flex-end;padding:18px 22px"><span style="font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#4C9BA6">shot B</span></div>
+            <div style="position:absolute;inset:0;background:#3D3620;display:flex;align-items:flex-start;justify-content:flex-start;padding:18px 22px;animation:yIris 2.6s cubic-bezier(.22,.61,.36,1) infinite"><span style="font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#8F8351">shot A</span></div>
+            <div style="position:absolute;inset:0;animation:yMark 2.6s cubic-bezier(.22,.61,.36,1) infinite">
+              <div style="position:absolute;left:36%;top:36%;width:26px;height:26px;border-left:3px solid #38E1F0;border-top:3px solid #38E1F0"></div>
+              <div style="position:absolute;right:36%;top:36%;width:26px;height:26px;border-right:3px solid #38E1F0;border-top:3px solid #38E1F0"></div>
+              <div style="position:absolute;left:36%;bottom:36%;width:26px;height:26px;border-left:3px solid #38E1F0;border-bottom:3px solid #38E1F0"></div>
+              <div style="position:absolute;right:36%;bottom:36%;width:26px;height:26px;border-right:3px solid #38E1F0;border-bottom:3px solid #38E1F0"></div>
+            </div>
+          </div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:16px;font-weight:800;margin-top:9px">Crop-mark iris · 620ms</div>
+          <div style="font-size:13px;line-height:1.55;color:#4A6E96;margin-top:3px">The logo's own corner marks close on the centre and open on the next shot. Once or twice a video, on a real chapter change.</div>
+        </div>
+
+        <div style="flex:0 0 512px">
+          <div style="width:512px;height:288px;overflow:hidden;position:relative;border-radius:8px;background:#0B2340">
+            <div style="position:absolute;inset:0;background:#3D3620;display:flex;align-items:flex-start;justify-content:flex-start;padding:18px 22px"><span style="font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#8F8351">shot A</span></div>
+            <div style="position:absolute;inset:0;background:#0F3B44;display:flex;align-items:flex-end;justify-content:flex-end;padding:18px 22px;animation:yColShow 2.6s steps(1,end) infinite"><span style="font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#4C9BA6">shot B</span></div>
+            <div style="position:absolute;inset:0;display:flex">
+              <div style="flex:1;background:rgba(56,225,240,.15);border-right:1px solid rgba(56,225,240,.55);transform-origin:bottom;animation:yColUp 2.6s cubic-bezier(.22,.61,.36,1) 0ms infinite"></div>
+              <div style="flex:1;background:rgba(56,225,240,.15);border-right:1px solid rgba(56,225,240,.55);transform-origin:bottom;animation:yColUp 2.6s cubic-bezier(.22,.61,.36,1) 60ms infinite"></div>
+              <div style="flex:1;background:rgba(56,225,240,.15);border-right:1px solid rgba(56,225,240,.55);transform-origin:bottom;animation:yColUp 2.6s cubic-bezier(.22,.61,.36,1) 120ms infinite"></div>
+              <div style="flex:1;background:rgba(56,225,240,.15);border-right:1px solid rgba(56,225,240,.55);transform-origin:bottom;animation:yColUp 2.6s cubic-bezier(.22,.61,.36,1) 180ms infinite"></div>
+              <div style="flex:1;background:rgba(56,225,240,.15);border-right:1px solid rgba(56,225,240,.55);transform-origin:bottom;animation:yColUp 2.6s cubic-bezier(.22,.61,.36,1) 240ms infinite"></div>
+              <div style="flex:1;background:rgba(56,225,240,.15);transform-origin:bottom;animation:yColUp 2.6s cubic-bezier(.22,.61,.36,1) 300ms infinite"></div>
+            </div>
+          </div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:16px;font-weight:800;margin-top:9px">Grid sweep · 540ms</div>
+          <div style="font-size:13px;line-height:1.55;color:#4A6E96;margin-top:3px">Six cyan columns rise 60ms apart and fall away on the new shot. The connective cut — between rooms, where you want continuity rather than a full stop.</div>
+        </div>
+
+        <div style="flex:0 0 512px">
+          <div style="width:512px;height:288px;overflow:hidden;position:relative;border-radius:8px;background:#0B2340">
+            <div style="position:absolute;inset:0;background:#3D3620;display:flex;align-items:flex-start;justify-content:flex-start;padding:18px 22px;animation:yPushOut 2.6s cubic-bezier(.22,.61,.36,1) infinite"><span style="font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#8F8351">shot A</span></div>
+            <div style="position:absolute;inset:0;background:#0F3B44;display:flex;align-items:flex-end;justify-content:flex-end;padding:18px 22px;animation:yPushIn 2.6s cubic-bezier(.22,.61,.36,1) infinite"><span style="font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#4C9BA6">shot B</span></div>
+            <div style="position:absolute;left:14%;right:14%;top:50%;height:20px;transform-origin:left;animation:yBracket 2.6s cubic-bezier(.22,.61,.36,1) infinite">
+              <div style="position:absolute;left:0;right:0;top:9px;height:3px;background:#FFE04D"></div>
+              <div style="position:absolute;left:0;top:0;width:3px;height:20px;background:#FFE04D"></div>
+              <div style="position:absolute;right:0;top:0;width:3px;height:20px;background:#FFE04D"></div>
+            </div>
+          </div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:16px;font-weight:800;margin-top:9px">Dimension push · 420ms</div>
+          <div style="font-size:13px;line-height:1.55;color:#4A6E96;margin-top:3px">A measuring bracket extends and the shots slide with it, as if the cut were being dimensioned. Fastest of the four; good for a rapid run of objects.</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 5. OUTRO ================= -->
+  <div style="padding:64px 64px 72px">
+    <div style="max-width:2180px;margin:0 auto">
+      <div style="border-bottom:1px solid #C6D6E6;padding-bottom:22px;margin-bottom:36px;display:flex;align-items:flex-end;justify-content:space-between;gap:36px">
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#4A6E96;margin-bottom:9px">Outro</div>
+          <h2 style="font-family:'Newsreader',serif;font-size:40px;line-height:1.06;letter-spacing:-.02em;font-weight:600;margin:0">Three beats, then the arch lights</h2>
+          <p style="font-size:15px;line-height:1.62;color:#4A6E96;margin:11px 0 0;max-width:88ch">Takeaway, next-video card, end plate. The end plate is the payoff for the whole identity: the arch draws, the light rises and the figure arrives at the threshold, which is the last thing on screen.</p>
+        </div>
+        <button onClick="{{ replay.out }}" style="flex:0 0 auto;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#0B2340;background:transparent;border:1px solid #A9C0D6;border-radius:6px;padding:11px 20px;cursor:pointer" style-hover="border-color:#0B2340">Replay outro</button>
+      </div>
+
+      <div style="display:flex;gap:32px;flex-wrap:wrap">
+
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">walking out, golden hour</span></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,35,64,0) 30%,rgba(11,35,64,.7) 72%,rgba(11,35,64,.94) 100%)"></div>
+              <sc-if value="{{ run.out }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:170px;right:170px;bottom:220px;text-align:center">
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:#38E1F0;animation:yFade 220ms ease both">The takeaway</div>
+                  <div style="font-family:'Newsreader',serif;font-size:82px;line-height:1.12;font-style:italic;letter-spacing:-.02em;color:#EAF4FF;margin-top:22px;text-shadow:0 4px 22px rgba(4,16,32,.9);animation:yUp 400ms cubic-bezier(.16,1,.3,1) 140ms both">Nine rooms, and the one we'll remember wasn't on the map.</div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Beat 1 · takeaway, 2.4s. Serif italic, no accent word — this line is the whole point, so nothing competes</div>
+        </div>
+
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative">
+              <div style="position:absolute;inset:0;background:#173456;display:flex;align-items:center;justify-content:center"><span style="font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#527398">next episode teaser clip</span></div>
+              <div style="position:absolute;inset:0;background:rgba(11,35,64,.72)"></div>
+              <sc-if value="{{ run.out }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:140px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:18px">
+                  <div style="display:flex;align-items:center;gap:14px;animation:yFade 220ms ease both">
+                    <div style="width:56px;height:3px;background:#FFE04D;transform-origin:left;animation:yGrow 260ms cubic-bezier(.22,.61,.36,1) both"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:#FFE04D">Next room</span>
+                  </div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:132px;line-height:1;font-weight:800;letter-spacing:-.055em;color:#EAF4FF;animation:yUp 400ms cubic-bezier(.16,1,.3,1) 160ms both">Tutankhamun</div>
+                  <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:36px;font-weight:600;color:#8FB3D6;animation:yFade 240ms ease 480ms both">The King Tut exhibit, and one thing nobody mentions</div>
+                  <div style="display:flex;align-items:center;gap:16px;margin-top:14px;animation:yFade 240ms ease 640ms both">
+                    <div style="border:3px solid #38E1F0;padding:12px 30px;font-family:'Bricolage Grotesque',sans-serif;font-size:30px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#38E1F0">Subscribe</div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:600;color:#8FB3D6">one room a week</span>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Beat 2 · next-video card, 3s. The subscribe box is an outline, never a filled button — same rule as everything else</div>
+        </div>
+
+        <div style="flex:0 0 700px">
+          <div style="width:700px;height:394px;overflow:hidden;position:relative;border-radius:10px;background:#0B2340">
+            <div style="width:1920px;height:1080px;transform:scale(.3646);transform-origin:top left;position:relative;background:#0B2340">
+              <sc-if value="{{ run.out }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px">
+                  <div style="position:relative;padding:26px">
+                    <div style="position:absolute;left:0;top:0;width:26px;height:26px;border-left:3px solid #38E1F0;border-top:3px solid #38E1F0;animation:yFade 240ms ease 900ms both"></div>
+                    <div style="position:absolute;right:0;top:0;width:26px;height:26px;border-right:3px solid #38E1F0;border-top:3px solid #38E1F0;animation:yFade 240ms ease 900ms both"></div>
+                    <div style="position:absolute;left:0;bottom:0;width:26px;height:26px;border-left:3px solid #38E1F0;border-bottom:3px solid #38E1F0;animation:yFade 240ms ease 900ms both"></div>
+                    <div style="position:absolute;right:0;bottom:0;width:26px;height:26px;border-right:3px solid #38E1F0;border-bottom:3px solid #38E1F0;animation:yFade 240ms ease 900ms both"></div>
+                    <div style="position:relative;width:200px;height:250px;box-sizing:border-box;border:4px solid #38E1F0;border-bottom:0;border-radius:100px 100px 0 0;overflow:hidden;transform-origin:bottom;animation:yPop 380ms cubic-bezier(.16,1,.3,1) both">
+    <div style="position:absolute;inset:0;background:#FFE04D;animation:yGrowY 460ms cubic-bezier(.16,1,.3,1) 300ms both;transform-origin:bottom"></div>
+    <div style="position:absolute;left:65px;top:28px;width:200px;height:250px;border-radius:100px 100px 0 0;background:#0B2340;animation:yFade 380ms ease 620ms both"></div>
+    <div style="position:absolute;left:33px;bottom:0;width:17px;height:50px;background:#0B2340;border-radius:7px 7px 0 0;animation:ySlide 520ms cubic-bezier(.16,1,.3,1) 860ms both"></div>
+    <div style="position:absolute;left:35px;bottom:50px;width:13px;height:13px;border-radius:999px;background:#0B2340;animation:ySlide 520ms cubic-bezier(.16,1,.3,1) 860ms both"></div>
+  </div>
+                  </div>
+                  <div style="font-family:'Newsreader',serif;font-size:84px;line-height:1;letter-spacing:-.03em;font-weight:600;color:#EAF4FF;animation:yFade 300ms ease 1000ms both">The Ninth Room</div>
+                  <div style="display:flex;align-items:center;gap:14px;animation:yFade 260ms ease 1200ms both">
+                    <div style="width:40px;height:2px;background:#38E1F0"></div>
+                    <span style="font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:800;letter-spacing:.26em;text-transform:uppercase;color:#38E1F0">Nine rooms. One you can't find.</span>
+                    <div style="width:40px;height:2px;background:#38E1F0"></div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#5F81A6;margin-top:7px">Beat 3 · end plate, 3.5s hold. The arch draws, light floods up the passage, then the figure walks to the threshold and stops</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 6. SPECS ================= -->
+  <div style="background:#0B2340;padding:64px 64px 88px;color:#EAF4FF">
+    <div style="max-width:2180px;margin:0 auto">
+      <div style="border-bottom:1px solid #2C5580;padding-bottom:22px;margin-bottom:34px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#38E1F0;margin-bottom:9px">Build spec</div>
+        <h2 style="font-family:'Newsreader',serif;font-size:40px;line-height:1.06;letter-spacing:-.02em;font-weight:600;margin:0">Everything an editor needs</h2>
+      </div>
+
+      <div style="display:flex;gap:56px;flex-wrap:wrap">
+        <div style="flex:0 0 520px">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:14px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#38E1F0;margin-bottom:16px">Colour roles</div>
+          <div style="font-size:15px;line-height:1.9;color:#8FB3D6">
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 96px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">0B2340</span><span>Base. Scrims, chapter washes, type on either accent.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 96px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">EAF4FF</span><span>All body and display type on video.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 96px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#FFE04D">FFE04D</span><span>The one thing to look at. Keywords, callouts, quiz answers, the ninth room.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 96px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#38E1F0">38E1F0</span><span>Verified. Speaker rules, eyebrows, "one of these is true", crop marks.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 96px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">7C9BBC</span><span>Secondary and losing values. Never an accent.</span></div>
+          </div>
+        </div>
+
+        <div style="flex:0 0 520px">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:14px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#38E1F0;margin-bottom:16px">Type</div>
+          <div style="font-size:15px;line-height:1.9;color:#8FB3D6">
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Bricolage 800</span><span>Everything on video. Display −.04em tracking.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Newsreader italic</span><span>Quotes, takeaways, species names, the wordmark. Nothing else.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Sizes</span><span>Hook 104 · chapter 150 · lower third 70 · caption 64 · keyword 86 · stat 230 · eyebrow 26–28 at .22em.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Shadow</span><span>Every chalk line: 0 0 4px rgba(4,16,32,.95) plus 0 4px 18px rgba(4,16,32,.9).</span></div>
+          </div>
+        </div>
+
+        <div style="flex:0 0 520px">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:14px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#38E1F0;margin-bottom:16px">Motion and safety</div>
+          <div style="font-size:15px;line-height:1.9;color:#8FB3D6">
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Easing</span><span>cubic-bezier(.16,1,.3,1) for reveals, (.22,.61,.36,1) for rules and bars.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Stagger</span><span>Caption words 100ms · card options 100ms · rooms 80ms.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Loops</span><span>Only two in the whole kit: the pause-frame pulse and nothing else. Everything is one-shot and seekable.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Insets</span><span>16:9 captions 150px from bottom, 120px sides. Vertical 320 bottom, 180 top, 64 sides.</span></div>
+            <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:0 0 150px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;color:#EAF4FF">Outlines</span><span>3px minimum so they survive compression. Never below.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid #2C5580;margin-top:40px;padding-top:26px;display:flex;gap:56px;flex-wrap:wrap">
+        <div style="max-width:56ch">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:14px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#FFE04D;margin-bottom:12px">The one rule that keeps it coherent</div>
+          <p style="font-size:15px;line-height:1.7;color:#8FB3D6;margin:0">No filled plates, and one yellow moment per frame. If two things are yellow, neither is the thing to look at. When bright footage threatens legibility the answer is always a gradient scrim, never a box — the box is what makes a kit look like a template.</p>
+        </div>
+        <div style="max-width:56ch">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:14px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:#FFE04D;margin-bottom:12px">What this replaces</div>
+          <p style="font-size:15px;line-height:1.7;color:#8FB3D6;margin:0">Midnight, and the earlier chip-and-outline kit built on it. Both are still in the project for reference but nothing new should be drawn in them. Say the word and I'll rewrite the Claude Code handoff package around this file.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const KEYS = ['ov','en','out'];
+
+class Component extends DCLogic {
+  state = { run: { ov: true, en: true, out: true } };
+
+  restart(keys) {
+    this.setState(s => ({ run: { ...s.run, ...keys.reduce((a,k)=>(a[k]=false,a), {}) } }));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      this.setState(s => ({ run: { ...s.run, ...keys.reduce((a,k)=>(a[k]=true,a), {}) } }));
+    }));
+  }
+
+  renderVals() {
+    return {
+      run: this.state.run,
+      replay: KEYS.reduce((a,k)=>(a[k]=()=>this.restart([k]), a), {}),
+      replayAll: () => this.restart(KEYS)
+    };
+  }
+}
+
+</script>
+</body>
+</html>

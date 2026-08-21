@@ -338,6 +338,39 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
 CARD_TYPES = ("hook_title", "section", "stat", "quote", "outro")
 CARD_ANIMATIONS = ("slide_up", "slide_down", "fade")
 
+# Copy fields the audience actually reads. Brand rules are checked on these.
+COPY_FIELDS = ("kicker", "text", "subtext", "stat", "attribution", "speaker",
+               "cta", "low", "high")
+
+
+# Engagement screens that are meaningless without their options.
+NEEDS_ROWS = {"quiz": "rows", "vote": "rows", "poll": "rows", "rank": "rows",
+              "scoreboard": "entries", "this_that": "sides"}
+
+
+def _brand_copy_errors(card: "dict[str, Any]", where: str) -> "list[str]":
+    """The hard rules from brand/voice-and-tone.md, enforced not just written.
+
+    **Emoji are allowed and encouraged anywhere** (Caleb, 2026-08-20) — they
+    are the channel's playfulness, and the renderer gives every one its own
+    drop-shadow so it sits on footage like the type around it. Nothing here
+    checks for them. `brand/visual-identity.md` notes that they read best in
+    the language lines rather than in wide-tracked structural caps, but that
+    is guidance for a writer, not a gate.
+
+    The exclamation rule stays: it comes from the design system's own voice
+    section and Caleb's correction was specifically about emoji.
+    """
+    out = []
+    for field in COPY_FIELDS:
+        val = card.get(field)
+        if not isinstance(val, str) or not val:
+            continue
+        if "!" in val:
+            out.append("%s: %s contains an exclamation mark — "
+                       "brand/voice-and-tone.md forbids them" % (where, field))
+    return out
+
 
 def validate_graphics_plan(plan: "dict[str, Any]",
                            edit_plan: "dict[str, Any] | None" = None) -> "list[str]":
@@ -377,6 +410,20 @@ def validate_graphics_plan(plan: "dict[str, Any]",
                           % (where, c.get("id"), c["duration"]))
         if c.get("animation", "slide_up") not in CARD_ANIMATIONS:
             errors.append("%s: animation '%s' not in %s" % (where, c.get("animation"), CARD_ANIMATIONS))
+
+        # kit_type must name a real screen. Previously unchecked, so a typo
+        # survived validation and only blew up mid-bake, minutes later.
+        kit = c.get("kit_type")
+        if kit is not None:
+            from .overlay_kit import RENDERERS
+            if kit not in RENDERERS:
+                errors.append("%s: kit_type '%s' is not a kit screen (%s)"
+                              % (where, kit, ", ".join(sorted(RENDERERS))))
+            elif kit in NEEDS_ROWS and not c.get(NEEDS_ROWS[kit]):
+                errors.append("%s: kit_type '%s' needs a non-empty '%s'"
+                              % (where, kit, NEEDS_ROWS[kit]))
+        errors.extend(_brand_copy_errors(c, where))
+
         ctype = c.get("type")
         if ctype == "stat":
             _req(errors, c, "stat", str, where)
