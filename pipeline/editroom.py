@@ -359,8 +359,17 @@ def _overlays_state(slug: str) -> "dict":
             placements = {}
     for it in items:
         it["placed"] = placements.get(it["id"])
+    placed_meta = None
+    if tc_path.exists():
+        try:
+            _tc = json.loads(tc_path.read_text())
+            placed_meta = {"project": _tc.get("project"),
+                           "timeline": _tc.get("timeline"),
+                           "synced_ts": _tc.get("synced_ts")}
+        except ValueError:
+            pass
 
-    return {"slug": slug, "orientation": orient,
+    return {"slug": slug, "orientation": orient, "placed_meta": placed_meta,
             # the live preview renders at the kit's design size — bakes and
             # exports use graphics.CANVAS (UHD) with the same layout at 2x
             "canvas": list(graphics.KIT_DESIGN[orient]),
@@ -968,6 +977,104 @@ def _save_idea_state(idea_id: str, status: str, notes: str) -> None:
 _PLAN_CHECKLIST_SOURCES = ("card", "brand", "custom")
 
 
+# --- timeline sync (the Overlays desk's "Sync from Resolve" button) --------
+
+def _sync_timeline_cards(slug: str) -> "dict":
+    """Dump the live Resolve timeline over the bridge and rewrite
+    work/<slug>/timeline_cards.json — the placements the Overlays desk
+    mirrors. Non-destructive on purpose: this refreshes WHERE cards sit in
+    the cut and which are in it; it never rewrites graphics_plan.json.
+
+    Needs Resolve running with the project open. ensure_bridge() auto-starts
+    the in-app bridge (one AppleScript menu click; Accessibility granted).
+
+    What breaks if this is wrong: the desk confidently shows a stale cut —
+    worse than showing none, which is why the sidecar carries project,
+    timeline and a timestamp the desk displays.
+    """
+    from . import resolve_api as ra
+    import re as _re, time as _time
+    ra.ensure_bridge()
+    # No escape sequences in Lua the Python layer could collapse: newline is
+    # string.char(10), fields join on "|" (the bridge-escaping incident).
+    lua = chr(10).join([
+        'local function S(v) if v == nil then return "-" end return tostring(v) end',
+        'local pm = resolve:GetProjectManager()',
+        'local proj = pm:GetCurrentProject()',
+        'if not proj then return error("no project open in Resolve") end',
+        'local tl = proj:GetCurrentTimeline()',
+        'if not tl then return error("no timeline open in Resolve") end',
+        'local out = {"PROJECT|" .. proj:GetName(), "TIMELINE|" .. tl:GetName(),',
+        '  "FPS|" .. S(tl:GetSetting("timelineFrameRate")),',
+        '  "STARTFRAME|" .. S(tl:GetStartFrame())}',
+        'for t = 1, tl:GetTrackCount("video") do',
+        '  for _, it in ipairs(tl:GetItemListInTrack("video", t) or {}) do',
+        '    local ok, mpi = pcall(function() return it:GetMediaPoolItem() end)',
+        '    local fp = "-"',
+        '    if ok and mpi then fp = S(mpi:GetClipProperty("File Path")) end',
+        '    out[#out+1] = "ITEM|V" .. t .. "|" .. S(it:GetStart()) .. "|" ..',
+        '      S(it:GetEnd()) .. "|" .. fp',
+        '  end',
+        'end',
+        'return table.concat(out, string.char(10))',
+    ])
+    raw = ra.send("timeline_sync", lua, timeout=180)
+
+    meta = {"project": "?", "timeline": "?", "fps": 24.0, "start": 0}
+    rows = []
+    for line in raw.splitlines():
+        parts = line.split("|")
+        if parts[0] == "PROJECT":
+            meta["project"] = parts[1]
+        elif parts[0] == "TIMELINE":
+            meta["timeline"] = parts[1]
+        elif parts[0] == "FPS":
+            try:
+                meta["fps"] = float(parts[1])
+            except ValueError:
+                pass
+        elif parts[0] == "STARTFRAME":
+            try:
+                meta["start"] = int(parts[1])
+            except ValueError:
+                pass
+        elif parts[0] == "ITEM" and len(parts) >= 5:
+            rows.append(parts)
+
+    # Map a referenced file to a card id: graphics/CARDxx directly; exports
+    # by version-stripped basename against the sidecar, so an item still on
+    # an older _vN resolves to its card rather than vanishing.
+    sidecar_path = work_path(slug) / "exports" / "overlays" / ".export_hashes.json"
+    sidecar = json.loads(sidecar_path.read_text()) if sidecar_path.exists() else {}
+    strip = lambda n: _re.sub(r"_v\d+(?=[.]mov$)", "", n)
+    by_base = {strip(e["file"]): cid for cid, e in sidecar.items()}
+
+    fps, start = meta["fps"] or 24.0, meta["start"]
+    cards = {}
+    for _tag, track, s_f, e_f, fp in rows:
+        base = fp.rsplit("/", 1)[-1]
+        cid = None
+        if "/graphics/" in fp and base.startswith("CARD"):
+            cid = base.split(".")[0]
+        elif "/exports/overlays/" in fp:
+            cid = by_base.get(strip(base))
+        if not cid:
+            continue
+        try:
+            s_i, e_i = int(s_f), int(e_f)
+        except ValueError:
+            continue
+        cards[cid] = {"record_s": round((s_i - start) / fps, 2),
+                      "duration_s": round((e_i - s_i) / fps, 2),
+                      "track": track}
+
+    out = {"project": meta["project"], "timeline": meta["timeline"],
+           "synced_ts": int(_time.time()), "cards": cards}
+    _write_json(work_path(slug) / "timeline_cards.json", out)
+    return {"ok": True, "project": meta["project"],
+            "timeline": meta["timeline"], "placed": len(cards)}
+
+
 def _plan_path(slug: str) -> Path:
     return work_path(slug) / "plan.json"
 
@@ -1497,6 +1604,9 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 log("[footage] %s cleared (%d files to .trash)"
                     % (body.get("slug"), result["removed"]))
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/timeline/sync":
+                tslug = self._slug_b(body)
+                self._send(200, _sync_timeline_cards(tslug))
             elif self.path == "/api/plan/save":
                 # `body` was already read at the top of _post — reading the
                 # socket again blocks forever on a drained stream.
