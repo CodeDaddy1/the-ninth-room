@@ -65,11 +65,16 @@ AMBER = YELLOW
 PHRASE_MAX_WORDS = 4
 PHRASE_MAX_CHARS = 26
 PHRASE_GAP_SEC = 0.9          # a pause this long always starts a new phrase
-# The design system's on-video ramp: caption 64px, keyword 86px at 1920 wide.
-PHRASE_FONT_SIZE = {"portrait": 76, "landscape": 64}
+# Caption size and seat are CALEB'S values, not the design system's
+# (2026-08-21: "captions smaller and a little bit lower"). The system's
+# on-video ramp said 64px at 150 from the bottom; the shipped look is 54px
+# at 105 — the spec values still govern every OTHER overlay. Portrait keeps
+# its 320 bottom inset: that one is the Shorts UI safe zone, a platform
+# constraint rather than a style choice, and lowering into it puts words
+# under YouTube's own chrome.
+PHRASE_FONT_SIZE = {"portrait": 66, "landscape": 54}
 KEYWORD_SCALE = 86 / 64.0     # the spoken word scales up, it does not get a chip
-# Fixed insets, and the design system forbids nudging them.
-BOTTOM_INSET = {"portrait": 320, "landscape": 150}
+BOTTOM_INSET = {"portrait": 320, "landscape": 105}
 WORD_GAP = 20                 # `gap:0 20px` on the caption row
 SIDE_INSET = {"portrait": 64, "landscape": 180}
 
@@ -88,7 +93,7 @@ EMOJI_SCALE = 1.22            # relative to the caption font size
 
 # Bump when anything in this module changes rendered pixels — it invalidates
 # every cached caption bake (see produce._beat_caption_clips).
-CAPTIONS_V = 5   # v5: band rendering + half-res derived shadows (audit P0-3)
+CAPTIONS_V = 6   # v6: smaller, lower captions (Caleb) — size/inset are not keyed
 _EMOJI_CACHE: "dict" = {}
 
 

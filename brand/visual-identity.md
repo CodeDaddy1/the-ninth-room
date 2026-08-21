@@ -125,7 +125,7 @@ Insets are fixed and never nudged.
 
 | | Landscape 1920×1080 | Vertical 1080×1920 |
 |---|---|---|
-| Caption from bottom | 150 | 320 |
+| Caption from bottom | 105 · smaller type (Caleb, 2026-08-21 — overrides the spec's 150/64px) | 320 (Shorts UI zone — platform constraint) |
 | Sides | 120 | 64 |
 | Top | — | 180 |
 | Watermark | 72 right / 64 top, and it never moves | 48 / 120 |
