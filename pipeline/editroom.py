@@ -346,6 +346,20 @@ def _overlays_state(slug: str) -> "dict":
                       "prebaked": bool(card.get("prebaked")),
                       "export": {"status": status, "file": f},
                       "card": card})
+    # Timeline placements, when a dump exists (work/<slug>/timeline_cards.json,
+    # written from a bridge dump of the live Resolve timeline). The desk uses
+    # it to show which cards are actually IN the cut and where — the plan
+    # alone cannot know what a hand edit kept.
+    tc_path = work_path(slug) / "timeline_cards.json"
+    placements = {}
+    if tc_path.exists():
+        try:
+            placements = json.loads(tc_path.read_text()).get("cards", {})
+        except ValueError:
+            placements = {}
+    for it in items:
+        it["placed"] = placements.get(it["id"])
+
     return {"slug": slug, "orientation": orient,
             # the live preview renders at the kit's design size — bakes and
             # exports use graphics.CANVAS (UHD) with the same layout at 2x

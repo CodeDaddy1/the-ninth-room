@@ -401,13 +401,19 @@ def validate_graphics_plan(plan: "dict[str, Any]",
                 errors.append("%s: missing numeric '%s'" % (where, key))
         if isinstance(c.get("duration"), (int, float)) and not 1.0 <= c["duration"] <= 15.0:
             errors.append("%s: duration %.1fs outside 1-15s" % (where, c["duration"]))
-        # Chapter turns must be readable: >= 2.5s (Caleb, 2026-08-19).
-        is_chapter = (c.get("kit_type") in ("transition", "chapter")
-                      or c.get("type") == "chapter") and not c.get("prebaked")
-        if (is_chapter and isinstance(c.get("duration"), (int, float))
-                and c["duration"] < 2.5):
-            errors.append("%s: chapter card '%s' holds %.1fs — minimum is 2.5s"
-                          % (where, c.get("id"), c["duration"]))
+        # Chapter turns must be readable: >= 2.5s (Caleb, 2026-08-19). A
+        # transition SWEEP gets a lower floor — it reveals and moves on
+        # rather than holding a title, and the SemiFinal timeline trims
+        # them to ~2.4s; syncing plan durations FROM the timeline must not
+        # fail validation against the timeline's own cut.
+        if not c.get("prebaked") and isinstance(c.get("duration"), (int, float)):
+            kit = c.get("kit_type")
+            if (kit == "chapter" or c.get("type") == "chapter") and c["duration"] < 2.5:
+                errors.append("%s: chapter card '%s' holds %.1fs — minimum is 2.5s"
+                              % (where, c.get("id"), c["duration"]))
+            elif kit == "transition" and c["duration"] < 2.0:
+                errors.append("%s: transition '%s' runs %.1fs — minimum is 2.0s"
+                              % (where, c.get("id"), c["duration"]))
         if c.get("animation", "slide_up") not in CARD_ANIMATIONS:
             errors.append("%s: animation '%s' not in %s" % (where, c.get("animation"), CARD_ANIMATIONS))
 
