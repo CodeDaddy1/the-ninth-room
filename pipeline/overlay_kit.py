@@ -195,6 +195,11 @@ def _emoji_spans(escaped: str) -> str:
 
 # Straight quotes are a document convention; the brand sets curly throughout.
 def _smart(text: str) -> str:
+    # Coerce first: a graphics_plan is JSON, so a count or a percentage may
+    # arrive as an int or float rather than a string ({"value": 3}). The
+    # schema accepts that, so a bare re.sub would raise TypeError mid-bake —
+    # after minutes of rendering, from a plan that validated clean.
+    text = text if isinstance(text, str) else str(text)
     out = re.sub(r"(^|[\s(\[])\"", "\\1\u201c", text)
     out = out.replace('"', "\u201d")
     out = re.sub(r"(\w)'(\w)", "\\1\u2019\\2", out)
@@ -474,9 +479,20 @@ def hook(card: "dict", F: "dict") -> str:
             lines = [" ".join(words[:cut]), " ".join(words[cut:])]
     size = _fit(lines[0] if lines else text,
                 104 if not F["portrait"] else 92, budget=F["inner"])
+    # Yellow belongs on the SECOND line by design — the eye should read the
+    # setup before the payoff word. But if the emphasis only occurs on the
+    # first line, marking nothing leaves the hook with no yellow at all,
+    # which is worse than breaking the preference. So: prefer a later line,
+    # fall back to whichever line actually contains the term.
+    emph = card.get("emphasis") or []
+    accent_on = None
+    for idx in list(range(1, len(lines))) + [0]:
+        if any(_e(w) and _e(w) in _e(lines[idx]) for w in emph):
+            accent_on = idx
+            break
     rows = []
     for i, line in enumerate(lines):
-        marked = emphasize(line, card.get("emphasis")) if i else _e(line)
+        marked = emphasize(line, emph) if i == accent_on else _e(line)
         rows.append('<div style="animation:yUp 340ms %s %dms both">%s</div>'
                     % (EASE_REVEAL, 120 + i * 120, marked))
     sub = ""
