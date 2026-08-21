@@ -770,6 +770,15 @@ def watermark(card: "dict", F: "dict") -> str:
 
 def _engagement_head(card: "dict", F: "dict", eyebrow_color: str,
                      default_eyebrow: str, top: int, q_size: int = 80) -> "tuple":
+    """The shared eyebrow + question column every engagement card opens with.
+
+    `top` is authored in 1920x1080 coordinates. In portrait it must never sit
+    above the vertical safe inset, or the eyebrow renders underneath YouTube's
+    Shorts chrome — the channel avatar and title sit in the top 180px, and a
+    card there is simply not readable. quiz/true_false (130), countdown (150)
+    and vote (170) all breached it before this clamp.
+    """
+    top = max(top, F["top"]) if F["portrait"] else top
     q = card.get("text", "")
     head = """
 <div style="position:absolute;left:%(side)dpx;right:%(side)dpx;top:%(top)dpx;display:flex;
@@ -897,9 +906,20 @@ def vote(card: "dict", F: "dict") -> str:
             return float(str(r.get("value", 0)))
         except (TypeError, ValueError):
             return 0.0
-    lead = max(range(len(rows)), key=lambda i: _val(rows[i])) if rows else -1
-    wins = [(i == lead and _val(r) > 0) or bool(r.get("highlight"))
-            for i, r in enumerate(rows[:4])]
+    # Exactly ONE winner, or none. The previous form OR-ed two independent
+    # signals, so a `highlight` that disagreed with the numeric lead crowned
+    # BOTH — two yellow outlines, which breaks the rule the whole identity
+    # rests on. An explicit highlight is authoritative (it is a human saying
+    # "this one"), and only the first is honoured; otherwise the numeric lead
+    # wins, and a table of all-zeros has no winner at all.
+    shown = rows[:4]
+    explicit = [i for i, r in enumerate(shown) if r.get("highlight")]
+    if explicit:
+        winner = explicit[0]
+    else:
+        lead = max(range(len(shown)), key=lambda i: _val(shown[i])) if shown else -1
+        winner = lead if lead >= 0 and _val(shown[lead]) > 0 else -1
+    wins = [i == winner for i in range(len(shown))]
     # Three different answers is not a contest. With no winner, slate would
     # make every value the dimmest thing on screen — so the values stay chalk
     # and the eyebrow keeps the frame's one yellow moment.
