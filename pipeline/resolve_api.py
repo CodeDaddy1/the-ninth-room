@@ -189,14 +189,38 @@ def lua_str(value: str) -> str:
 
 # --- Resolve operations the pipeline uses ---------------------------------
 
-def open_project(name: str) -> str:
-    return send("open_project", '''
+def open_project(name: str, legacy_name: "str | None" = None) -> str:
+    """Load a project by name, falling back to a legacy name before creating.
+
+    The rebrand renamed the channel but NOT the Resolve project on disk, which
+    still holds the shipped HMNS timeline and every media link in it. A plain
+    LoadProject(new_name) would miss it and CreateProject would then make a
+    second, EMPTY project — leaving the real one orphaned and looking like a
+    successful run.
+
+    So the order is: preferred name, then legacy name, and only create if
+    neither exists. That works whether or not Caleb ever renames the project
+    inside Resolve, and it converges on the new name on a fresh machine.
+
+    What breaks if this is wrong: a produce run renders an empty timeline and
+    reports success, while the real project sits untouched under the old name.
+    """
+    if not legacy_name or legacy_name == name:
+        return send("open_project", '''
 local pm = resolve:GetProjectManager()
 local proj = pm:LoadProject(%s)
 if not proj then proj = pm:CreateProject(%s) end
 if not proj then return error("could not load or create project") end
 return proj:GetName()
 ''' % (lua_str(name), lua_str(name)))
+    return send("open_project", '''
+local pm = resolve:GetProjectManager()
+local proj = pm:LoadProject(%s)
+if not proj then proj = pm:LoadProject(%s) end
+if not proj then proj = pm:CreateProject(%s) end
+if not proj then return error("could not load or create project") end
+return proj:GetName()
+''' % (lua_str(name), lua_str(legacy_name), lua_str(name)))
 
 
 def import_timeline(fcpxml_path: Path, timeline_name: str) -> str:

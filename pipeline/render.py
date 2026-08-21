@@ -15,12 +15,16 @@ from pathlib import Path
 from . import resolve_api as ra
 from .ingest import work_path, analysis_dir, IngestError
 
-# The DaVinci Resolve project name. DELIBERATELY NOT RENAMED in the 2026-08-20
-# Ninth Room rebrand: this string is what `open_project` looks up, and the
-# existing project holds the shipped HMNS timeline plus every media link in it.
-# Renaming it here would silently create a SECOND, empty project and orphan the
-# real one. If it is ever renamed, rename it inside Resolve first, then here.
-PROJECT_NAME = "Curated Curiosities"
+# The DaVinci Resolve project name. `open_project` tries PROJECT_NAME first,
+# then LEGACY_PROJECT_NAME, and only creates a project if neither exists — so
+# this rename is safe whether or not the project has been renamed inside
+# Resolve. The legacy project still holds the shipped HMNS timeline and every
+# media link in it; without the fallback, LoadProject would miss it and
+# CreateProject would make a second, EMPTY project while the real one sat
+# orphaned. Once the project is renamed in Resolve's project manager, the
+# legacy name can be dropped.
+PROJECT_NAME = "The Ninth Room"
+LEGACY_PROJECT_NAME = "Curated Curiosities"
 DURATION_TOLERANCE_SEC = 0.75
 
 
@@ -63,7 +67,7 @@ def render_timeline(slug: str, fcpxml: Path, log=print) -> Path:
     """Import a generated FCPXML, then render it. Kept for assets Resolve's
     importer links correctly; the DJI/HEVC path uses render_current instead."""
     ra.ensure_bridge()
-    ra.open_project(PROJECT_NAME)
+    ra.open_project(PROJECT_NAME, LEGACY_PROJECT_NAME)
     # Timeline names must be unique per import or Resolve silently numbers
     # them; a timestamp suffix keeps reruns unambiguous.
     tl_name = "%s_%s" % (slug, time.strftime("%H%M%S"))
