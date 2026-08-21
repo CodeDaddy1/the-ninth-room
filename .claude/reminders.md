@@ -8,7 +8,7 @@ console settings, recordings, decisions). Check items off when done.
 - [ ] **Grant Accessibility permission** to the terminal app hosting Claude
   Code (System Settings ▸ Privacy & Security ▸ Accessibility). Until then,
   every Resolve session needs one manual click: Workspace ▸ Scripts ▸
-  Curated Bridge. Required for true zero-touch `/produce` runs (Phase 7).
+  Ninth Room Bridge. Required for true zero-touch `/produce` runs (Phase 7).
 - [ ] **Record real test footage** for pipeline verification: 3–5 takes of the
   same ~30s piece to camera (include at least one flub/restart on purpose)
   plus a few b-roll clips. Drop into `work/<test-slug>/footage/`.
@@ -41,7 +41,7 @@ console settings, recordings, decisions). Check items off when done.
 
 ## Done
 
-- [x] 2026-08-18 — Started the Curated Bridge once so Phase 0 could verify
+- [x] 2026-08-18 — Started the Ninth Room Bridge once so Phase 0 could verify
   the in-app scripting route.
 - [x] 2026-08-20 — **Brand POV signed off.** v1's "voice on, face off" is
   retired; `brand/brand-brief.md` now locks **on camera** (Caleb, Alma and

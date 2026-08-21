@@ -3,7 +3,7 @@
 Why a bridge at all: the free edition of Resolve refuses every external
 scripting transport (verified 2026-08-18 — see docs/resolve-findings.md).
 Scripts started from INSIDE Resolve get full API access, so a small Lua script
-("Curated Bridge", in Resolve's Workspace > Scripts menu) loops forever,
+("Ninth Room Bridge", in Resolve's Workspace > Scripts menu) loops forever,
 executing Lua command files we drop into work/_bridge/inbox/ and writing each
 result to work/_bridge/outbox/<name>.result as "OK\n<value>" or
 "ERROR\n<message>".
@@ -23,7 +23,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SPOOL = PROJECT_ROOT / "work" / "_bridge"
-BRIDGE_SOURCE = Path(__file__).resolve().parent / "bridge" / "Curated Bridge.lua"
+BRIDGE_SOURCE = Path(__file__).resolve().parent / "bridge" / "Ninth Room Bridge.lua"
 BRIDGE_INSTALL_DIR = (
     Path.home()
     / "Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility"
@@ -77,7 +77,7 @@ def launch_resolve() -> None:
 
 
 def click_bridge_menu() -> "tuple[bool, str]":
-    """Start the bridge by clicking Workspace > Scripts > Curated Bridge.
+    """Start the bridge by clicking Workspace > Scripts > Ninth Room Bridge.
 
     Needs Accessibility permission for the host app (System Settings >
     Privacy & Security > Accessibility). Returns (ok, message) instead of
@@ -87,7 +87,7 @@ def click_bridge_menu() -> "tuple[bool, str]":
         'tell application "DaVinci Resolve" to activate\n'
         "delay 2\n"
         'tell application "System Events" to tell process "Resolve" to '
-        'click menu item "Curated Bridge" of menu 1 of menu item "Scripts" '
+        'click menu item "Ninth Room Bridge" of menu 1 of menu item "Scripts" '
         'of menu 1 of menu bar item "Workspace" of menu bar 1'
     )
     proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
@@ -136,7 +136,7 @@ def ensure_bridge(boot_timeout: float = 180.0) -> None:
             return
         time.sleep(2)
     hint = (
-        "Start it manually in Resolve: Workspace > Scripts > Curated Bridge. "
+        "Start it manually in Resolve: Workspace > Scripts > Ninth Room Bridge. "
         "For zero-click runs, grant Accessibility permission to this terminal "
         "app (System Settings > Privacy & Security > Accessibility)."
     )

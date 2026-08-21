@@ -32,6 +32,7 @@ source of truth — this repo holds a copy in `brand/design-system/`.
   Ninth Room changed the name, the identity, and the format (one room a week,
   family on camera). The old brand is kept for reference in
   `brand/_retired-curated-curiosities/`.
-- The **directory name is legacy.** It stays `curated-curiosities` because
-  moving it would break the Resolve bridge path and relink every media
-  reference in the shipped HMNS timeline.
+- The repo lives at `~/Projects/the-ninth-room`. A **symlink at the old
+  `~/Projects/curated-curiosities` path is intentional** — Resolve stores
+  absolute media paths and the shipped HMNS timeline still uses them.
+  Removing the symlink takes that timeline offline.

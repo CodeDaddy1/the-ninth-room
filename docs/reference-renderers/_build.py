@@ -3,12 +3,12 @@ Pillow renders text to PNGs (this ffmpeg has no drawtext); ffmpeg composites.
 Re-runnable. Run with: /usr/bin/python3 work/houston-no-zoning/_build.py
 """
 import sys, os, glob, subprocess
-sys.path.insert(0, '~/Projects/curated-curiosities')
+sys.path.insert(0, '~/Projects/the-ninth-room')
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from worker import assemble, config
 
-WORK = '~/Projects/curated-curiosities/work/houston-no-zoning'
+WORK = '~/Projects/the-ninth-room/work/houston-no-zoning'
 ASSETS = WORK + '/assets/houston-has-no-zoning-laws'
 TMP = WORK + '/tmp'
 W, H, FPS = 1080, 1920, config.DEFAULT_FPS

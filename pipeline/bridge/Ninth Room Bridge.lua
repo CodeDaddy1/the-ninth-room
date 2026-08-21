@@ -7,7 +7,7 @@ from outside the app). Scripts started from INSIDE Resolve get full API access,
 so this script is the pipeline's only door into Resolve.
 
 How it works: run it once per Resolve session from Workspace > Scripts >
-Curated Bridge. It loops forever, executing Lua command files the external
+Ninth Room Bridge. It loops forever, executing Lua command files the external
 pipeline drops into work/_bridge/inbox/ (in filename order), and writes each
 command's result to work/_bridge/outbox/<name>.result ("OK\n<value>" or
 "ERROR\n<message>"). Executed commands move to done/. A heartbeat timestamp is
@@ -20,7 +20,7 @@ edit, but nothing ever reaches a Resolve timeline or the render queue.
 --]]
 
 local HOME = os.getenv("HOME")
-local SPOOL = HOME .. "/Projects/curated-curiosities/work/_bridge"
+local SPOOL = HOME .. "/Projects/the-ninth-room/work/_bridge"
 os.execute('mkdir -p "' .. SPOOL .. '/inbox" "' .. SPOOL .. '/outbox" "' .. SPOOL .. '/done"')
 
 resolve = resolve or Resolve()
@@ -66,7 +66,7 @@ local function read_file(path)
 end
 
 write_file(SPOOL .. "/bridge.alive", tostring(os.time()))
-print("[curated-bridge] up — spool: " .. SPOOL .. " owner: " .. OWNER)
+print("[ninth-room-bridge] up — spool: " .. SPOOL .. " owner: " .. OWNER)
 
 local ticks = 0
 while true do
@@ -77,7 +77,7 @@ while true do
     break
   end
   if read_file(SPOOL .. "/bridge.owner") ~= OWNER then
-    print("[curated-bridge] newer bridge took over — exiting")
+    print("[ninth-room-bridge] newer bridge took over — exiting")
     return
   end
   ticks = ticks + 1
@@ -101,7 +101,7 @@ while true do
     end
     write_file(SPOOL .. "/outbox/" .. name .. ".result", out)
     os.rename(path, SPOOL .. "/done/" .. name)
-    print("[curated-bridge] ran " .. name)
+    print("[ninth-room-bridge] ran " .. name)
   end
 
   write_file(SPOOL .. "/bridge.alive", tostring(os.time()))
@@ -109,4 +109,4 @@ while true do
 end
 
 write_file(SPOOL .. "/bridge.alive", "stopped")
-print("[curated-bridge] stopped")
+print("[ninth-room-bridge] stopped")

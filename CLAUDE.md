@@ -3,10 +3,11 @@
 This is the master context file. Read it first. It tells you what the channel
 is, what the program does, and the rules every agent follows.
 
-> **Repo name note.** The directory is still `~/Projects/curated-curiosities`
-> because moving it would break the Resolve bridge path and relink every
-> media reference in the shipped HMNS timeline. The *channel* is The Ninth
-> Room; the folder name is legacy and means nothing.
+> **Repo path note.** The directory is `~/Projects/the-ninth-room`. A
+> compatibility **symlink** at the old `~/Projects/curated-curiosities` path
+> is deliberate and must stay: DaVinci Resolve stores absolute media paths,
+> and the shipped HMNS timeline still points at the old location. Deleting
+> the symlink takes that timeline offline until every clip is relinked.
 
 ## The channel in one line
 
