@@ -110,8 +110,12 @@ def rebake_beat_caption(slug: str, beat_id: str, log=print) -> "dict":
     mov = cap_dir / ("%s.mov" % beat_id)
     baked = False
     if hashes.get(beat_id) != key or not mov.exists():
+        # Per-beat scratch: frames are named cap_NNN.png with no beat prefix,
+        # so two concurrent bakes sharing one tmp dir overwrite each other's
+        # frames mid-encode (Edit Room desk + produce, or a parallel rebake).
         captions_mod.bake_caption_clip(rel, dur, mov, w, h,
-                                       tl_map["orientation"], cap_dir / "tmp")
+                                       tl_map["orientation"],
+                                       cap_dir / "tmp" / beat_id)
         hashes[beat_id] = key
         hash_path.write_text(json.dumps(hashes, indent=1))
         baked = True
