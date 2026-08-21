@@ -1272,11 +1272,18 @@ def stamp(card: "dict", F: "dict") -> str:
     return """
 <div style="position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;
             justify-content:center">
-  <div style="border:%(s)dpx solid %(yellow)s;padding:22px 52px;transform:rotate(-7deg);
+  <!-- The tilt lives on a WRAPPER: yPop's fill-mode writes `transform` on
+       its own element every frame, so a static rotate on the SAME element
+       is erased at the final frame and the stamp lands square. The old
+       Midnight kit documented exactly this trap; it got reintroduced here
+       and shipped four square stamps before the e2e test caught it. -->
+  <div style="transform:rotate(-7deg)">
+  <div style="border:%(s)dpx solid %(yellow)s;padding:22px 52px;
               animation:yPop 380ms %(ease)s both">
     <div style="font-family:%(display)s;font-size:%(size)dpx;font-weight:800;
                 letter-spacing:.14em;text-transform:uppercase;color:%(yellow)s;
                 text-shadow:%(shadow)s">%(text)s</div>
+  </div>
   </div>
 </div>""" % {"s": STROKE_CALLOUT, "yellow": YELLOW, "ease": EASE_REVEAL,
              "display": FONT_DISPLAY,
