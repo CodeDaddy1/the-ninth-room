@@ -1470,7 +1470,12 @@ border-radius:9px;padding:3px}
 border-radius:7px;border:0;background:transparent;color:var(--muted);
 cursor:pointer;font-family:Gabarito,sans-serif}
 .tabs button.on{background:var(--panel2);color:var(--text)}
-.tabs .tsep{width:1px;background:var(--hair);margin:4px 2px}
+.navbar{display:flex;align-items:center;gap:12px;padding:7px 20px;
+background:var(--ink);border-bottom:1px solid var(--hair);flex:none}
+.navbar .grp{font-family:Gabarito,sans-serif;font-size:10.5px;
+letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.navbar .chgrp{margin-left:auto;display:flex;gap:10px;align-items:center;
+border-left:1px solid var(--hair);padding-left:16px}
 .icard{background:var(--panel);border:1px solid var(--hair);border-radius:12px;
 padding:16px 18px;display:flex;flex-direction:column;gap:7px}
 .icard h3{font-family:Gabarito,sans-serif;font-size:16px}
@@ -1659,20 +1664,25 @@ background:rgba(232,163,61,.08)}
 #capmsg.busy{color:var(--rework)}
 </style></head><body>
 <header><h1>Edit Room</h1>
-<div class="proj"><select id="projSel"></select>
-<button id="projNew" title="new project">＋</button></div>
-<nav class="tabs"><button id="tabStory">Story</button>
-<button id="tabShots" class="on">Shots</button>
-<button id="tabOv">Overlays</button>
-<button id="tabCap">Captions</button>
-<button id="tabAssets">Assets</button>
-<span class="tsep"></span>
-<button id="tabIdeas">Ideas</button></nav>
 <div class="tally"><span class="ok">approved <b id="tA">0</b></span>
 <span class="fl">flagged <b id="tF">0</b></span>
 <span>left <b id="tL">0</b></span></div>
 <div class="save"><span id="saveState">All changes saved</span>
 <button id="saveBtn">Save</button></div></header>
+<nav class="navbar">
+<span class="grp">Project</span>
+<div class="proj"><select id="projSel"></select>
+<button id="projNew" title="new project">＋</button></div>
+<div class="tabs">
+<button id="tabFoot">Footage</button>
+<button id="tabAssets">Assets</button>
+<button id="tabStory">Story</button>
+<button id="tabShots" class="on">Shots</button>
+<button id="tabOv">Overlays</button>
+<button id="tabCap">Captions</button></div>
+<div class="chgrp"><span class="grp">Channel</span>
+<div class="tabs"><button id="tabIdeas">Ideas</button></div></div>
+</nav>
 <div class="bar"><i id="prog" style="width:0"></i></div>
 <div class="phasebar" id="phasebar"></div>
 <div class="wrap" id="wrapShots"><aside id="side"></aside>
@@ -1687,6 +1697,8 @@ background:rgba(232,163,61,.08)}
 <section class="stage"><div class="focus" id="assetsfocus">loading…</div></section></div>
 <div class="wrap" id="wrapIdeas" style="display:none;grid-template-columns:1fr">
 <section class="stage"><div class="focus" id="ideasfocus">loading…</div></section></div>
+<div class="wrap" id="wrapFoot" style="display:none;grid-template-columns:1fr">
+<section class="stage"><div class="focus" id="footfocus">loading…</div></section></div>
 <script>
 let SLUG='__INITIAL__'||localStorage.getItem('editroom.project')||'';
 let PROJECTS=[], S=null, order=[], rows={}, idx=0, dirty={}, timers={};
@@ -1760,6 +1772,8 @@ async function switchProject(s){
   const cur=document.querySelector('.tabs .on').id;
   if(cur==='tabOv')bootOv();else if(cur==='tabCap')bootCap();
   else if(cur==='tabStory')bootStory();
+  else if(cur==='tabAssets')bootAssets();
+  else if(cur==='tabFoot')renderSetup();
 }
 document.getElementById('projSel').onchange=e=>switchProject(e.target.value);
 document.getElementById('projNew').onclick=async()=>{
@@ -1787,7 +1801,13 @@ async function boot(){
   order=[];
   for(const ch of S.chapters)for(const b of ch.beats){b.chapter=ch.title;order.push(b);}
   buildSide();
-  if(!order.length){renderSetup();counts();return;}
+  if(!order.length){
+    const p=proj()||{next:''};
+    document.getElementById('focus').innerHTML=
+      '<div class="done">No cut to review yet.<div style="font-size:13.5px;'+
+      'color:var(--muted);margin-top:8px">'+esc(p.next)+'</div></div>';
+    counts();return;
+  }
   const remembered=localStorage.getItem(ls());
   let start=order.findIndex(b=>b.id===remembered);
   if(start<0)start=order.findIndex(needsReview);
@@ -1798,7 +1818,7 @@ async function boot(){
 
 function renderSetup(){
   const p=proj()||{footage:0,next:''};
-  document.getElementById('focus').innerHTML=
+  document.getElementById('footfocus').innerHTML=
     '<div class="setup" id="dropzone"><b>'+esc(SLUG)+' — drop footage here</b>'+
     'Drag clips and photos (or whole folders) anywhere onto this box.<br>'+
     'Photos become 6-second b-roll clips automatically.'+
@@ -2004,17 +2024,18 @@ function patchRow(b){
 function select(i,first){
   if(!first)flushNote(cur().id);
   idx=i;localStorage.setItem(ls(),cur().id);
-  renderFocus();
+  renderFocus(!first);  // autoplay only on user navigation, never on load
   for(const id in rows)rows[id].classList.toggle('cur',id===cur().id);
   rows[cur().id].scrollIntoView({block:'nearest'});
 }
 
-function renderFocus(){
+function renderFocus(autoplay){
   const b=cur(), f=document.getElementById('focus');
   const st=b.review.status||'';
   const pos=idx+1, T=order.length;
   const vid=b.proxy
-    ?'<video id="vid" controls autoplay playsinline src="/media/'+SLUG+'/proxies/'+b.proxy+'"></video>'
+    ?'<video id="vid" controls '+(autoplay?'autoplay ':'')+
+     'playsinline src="/media/'+SLUG+'/proxies/'+b.proxy+'"></video>'
     :'<div class="noproxy">no proxy yet — run:<br>pipeline.cli proxy '+SLUG+' --beat '+b.id+'</div>';
   const nd=b.review.needs||[];
   const needsRow='<div class="needs"><span>this shot needs:</span>'+
@@ -2199,25 +2220,27 @@ const FIELD_HINTS={emphasis:'comma-separated exact phrases to turn amber',
   emojis:'emoji separated by spaces, e.g. 🦕 😱'};
 
 function tab(which){
-  const wraps={shots:'wrapShots',ov:'wrapOv',cap:'wrapCap',story:'wrapStory',
-               assets:'wrapAssets',ideas:'wrapIdeas'};
-  const tabs={shots:'tabShots',ov:'tabOv',cap:'tabCap',story:'tabStory',
-              assets:'tabAssets',ideas:'tabIdeas'};
-  const single={story:1,assets:1,ideas:1};
+  const wraps={foot:'wrapFoot',shots:'wrapShots',ov:'wrapOv',cap:'wrapCap',
+               story:'wrapStory',assets:'wrapAssets',ideas:'wrapIdeas'};
+  const tabs={foot:'tabFoot',shots:'tabShots',ov:'tabOv',cap:'tabCap',
+              story:'tabStory',assets:'tabAssets',ideas:'tabIdeas'};
+  const single={foot:1,story:1,assets:1,ideas:1};
   for(const k in wraps){
     const el=document.getElementById(wraps[k]);
     el.style.display=(k===which)?(single[k]?'grid':''):'none';
     document.getElementById(tabs[k]).classList.toggle('on',k===which);
   }
-  const HASH={ov:'#overlays',cap:'#captions',story:'#story',
+  const HASH={foot:'#footage',ov:'#overlays',cap:'#captions',story:'#story',
               assets:'#assets',ideas:'#ideas'};
   history.replaceState(null,'',HASH[which]||'#');
+  if(which==='foot')renderSetup();
   if(which==='ov'&&!OV)bootOv();
   if(which==='cap'&&!CAP)bootCap();
   if(which==='story'&&!STY)bootStory();
   if(which==='assets'&&!AST)bootAssets();
   if(which==='ideas'&&!IDE)bootIdeas();
 }
+document.getElementById('tabFoot').onclick=()=>tab('foot');
 document.getElementById('tabShots').onclick=()=>tab('shots');
 document.getElementById('tabOv').onclick=()=>tab('ov');
 document.getElementById('tabCap').onclick=()=>tab('cap');
@@ -2842,6 +2865,7 @@ function renderIdeas(){
   else if(location.hash==='#story')tab('story');
   else if(location.hash==='#assets')tab('assets');
   else if(location.hash==='#ideas')tab('ideas');
+  else if(location.hash==='#footage')tab('foot');
 })();
 </script></body></html>
 """
