@@ -66,6 +66,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # One bake at a time: animate.py already saturates the performance cores per
 # card, and two overlapping Chrome fleets would just thrash.
 _BAKE_LOCK = threading.Lock()
+# review.json is load->mutate->replace from several threads (state GETs
+# normalize, /api/review POSTs save); one lock serializes them all
+_REVIEW_LOCK = threading.Lock()
 
 
 def _state(slug: str) -> "dict":
@@ -132,8 +135,15 @@ def _close_review_round(entry: "dict") -> bool:
     the "fix landed" signal (decision 3 of the 2026-08-22 plan interview).
     Approving with a fresh note must NOT archive it: that is the
     "approve-with-instruction" flow (BT16 pattern) and the note stays live
-    until the fixer answers it. Returns True when something was archived.
+    until the fixer answers it. A FLAGGED beat never closes either — flagged
+    means the conversation is still open (Caleb's instruction awaits a fixer,
+    or a fixer's refusal awaits Caleb; shot-fixer.md sets flagged+fixer_note
+    for impossible fixes) — archiving it strands the live instruction, which
+    is exactly what happened to BT07/BT78 in the first migration run.
+    Returns True when something was archived.
     """
+    if entry.get("status") == "flagged":
+        return False
     if not (entry.get("fixer_note") or "").strip():
         return False
     import time
@@ -150,6 +160,11 @@ def _close_review_round(entry: "dict") -> bool:
 
 
 def _normalize_review(slug: str) -> "dict":
+    with _REVIEW_LOCK:
+        return _normalize_review_locked(slug)
+
+
+def _normalize_review_locked(slug: str) -> "dict":
     """Load review.json, close any rounds whose fix has landed, persist if
     anything moved. Idempotent; called wherever review state is served so a
     fixer run's replies archive themselves on the next desk load."""
@@ -169,6 +184,11 @@ def _normalize_review(slug: str) -> "dict":
 
 
 def _archive_resolved_reviews(slug: str) -> int:
+    with _REVIEW_LOCK:
+        return _archive_resolved_reviews_locked(slug)
+
+
+def _archive_resolved_reviews_locked(slug: str) -> int:
     """One-time sweep (decision 4): notes on approved/reworked beats whose
     fixer never replied still archive — they predate the lifecycle and are
     exactly the stale instructions cluttering the desk. Flagged beats keep
@@ -202,6 +222,11 @@ def _archive_resolved_reviews(slug: str) -> int:
 
 
 def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
+    with _REVIEW_LOCK:
+        _save_review_locked(slug, beat_id, payload)
+
+
+def _save_review_locked(slug: str, beat_id: str, payload: "dict") -> None:
     work = work_path(slug)
     path = work / "review.json"
     data = json.loads(path.read_text()) if path.exists() else {}
@@ -1766,6 +1791,9 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/overlay/delete":
                 result = _delete_overlay(self._slug_b(body), body["id"])
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/review/archive_resolved":
+                n = _archive_resolved_reviews(self._slug_b(body))
+                self._send(200, {"ok": True, "closed": n})
             elif self.path == "/api/overlay/duplicate":
                 card = _duplicate_overlay(self._slug_b(body), body["id"])
                 self._send(200, {"ok": True, "card": card})
