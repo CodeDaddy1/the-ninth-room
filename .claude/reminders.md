@@ -116,10 +116,9 @@ console settings, recordings, decisions). Check items off when done.
 - Keep Resolve open when asked during P3 conform and P5 render checks.
 - After P2 ships: prune Epidemic pulls you don't like from brand/sfx/;
   manifest.json tracks what's licensed.
-- **Epidemic key rejected (2026-08-22).** `epidemic_live_…` (47 chars) gets
-  401 Unauthorized from partner-content-api.epidemicsound.com on the
-  documented /v0/tracks endpoint, both Bearer and X-Api-Key. In the
-  Developer Portal (developers.epidemicsound.com → Authentication settings
-  → API keys) check the key is active / re-copy it, then re-run:
-  `/usr/bin/python3 scripts/epidemic_probe.py`. The P2 Epidemic tab is
-  built and will light up once the probe passes.
+- **Epidemic key RESOLVED (2026-08-22).** It is a subscriber key and works
+  against the account MCP service (not the partner REST API) — search,
+  preview, and pull all live in the desk. One future errand: keys expire
+  ONE YEAR after creation; when pulls start failing with 401, mint a new
+  key at epidemicsound.com/account/api-keys, paste into `.env`, re-run
+  `scripts/epidemic_probe.py`.

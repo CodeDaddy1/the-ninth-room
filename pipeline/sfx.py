@@ -120,6 +120,18 @@ def _library_locked() -> "dict":
 
 
 # --- Epidemic Sound -------------------------------------------------------
+# Caleb's key is a SUBSCRIBER key (epidemicsound.com/account/api-keys), which
+# authenticates the account MCP service - NOT the partner REST API (that one
+# 401s subscriber keys; discovered 2026-08-22). The MCP server is Apollo
+# (GraphQL as tools) at /a/mcp-service/mcp: initialize once per process,
+# then tools/call SearchSoundEffects / SearchRecordings / DownloadSoundEffect
+# / DownloadRecording. Search hits carry a low-quality preview mp3 URL, so
+# the desk can audition BEFORE pulling.
+
+EP_MCP = "https://www.epidemicsound.com/a/mcp-service/mcp"
+_MCP_LOCK = threading.Lock()
+_mcp_session = {"id": None}
+
 
 def _ep_key() -> str:
     env = PROJECT_ROOT / ".env"
@@ -134,35 +146,112 @@ def _ep_key() -> str:
     raise SfxError("no Epidemic key in .env (EPIDEMIC_API_KEY)")
 
 
-def _ep_call(path: str) -> "dict":
-    req = urllib.request.Request(EP_BASE + path, headers={
-        "Authorization": "Bearer " + _ep_key(),
-        "Accept": "application/json",
-        "x-partner-user-id": "ninth-room-studio"})
+def _mcp_post(payload: "dict", session: "str | None") -> "tuple":
+    """One JSON-RPC POST; returns (parsed data line or None, session id)."""
+    headers = {"Authorization": "Bearer " + _ep_key(),
+               "Content-Type": "application/json",
+               "Accept": "application/json, text/event-stream"}
+    if session:
+        headers["mcp-session-id"] = session
+    req = urllib.request.Request(EP_MCP, json.dumps(payload).encode(), headers)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.loads(r.read().decode())
+        with urllib.request.urlopen(req, timeout=60) as r:
+            sid = r.headers.get("mcp-session-id") or session
+            body = r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         if e.code == 401:
-            raise SfxError(
-                "Epidemic rejected the key (401) — check it in the "
-                "Developer Portal, then re-run scripts/epidemic_probe.py")
-        raise SfxError("Epidemic HTTP %d on %s" % (e.code, path.split("?")[0]))
+            raise SfxError("Epidemic rejected the key (401) - check "
+                           "epidemicsound.com/account/api-keys (keys expire "
+                           "after one year)")
+        raise SfxError("Epidemic MCP HTTP %d" % e.code)
+    data = None
+    for line in body.splitlines():
+        if line.startswith("data: {"):
+            data = json.loads(line[6:])
+    if data is None and body.strip().startswith("{"):
+        data = json.loads(body)
+    return data, sid
+
+
+def _mcp_call(tool: str, arguments: "dict") -> "dict":
+    """tools/call with session management; returns the GraphQL data dict."""
+    with _MCP_LOCK:
+        if not _mcp_session["id"]:
+            d, sid = _mcp_post({"jsonrpc": "2.0", "id": 1,
+                                "method": "initialize",
+                                "params": {"protocolVersion": "2025-03-26",
+                                           "capabilities": {},
+                                           "clientInfo": {"name": "ninth-room-studio",
+                                                          "version": "1.0"}}}, None)
+            if not sid:
+                raise SfxError("Epidemic MCP gave no session")
+            _mcp_session["id"] = sid
+            _mcp_post({"jsonrpc": "2.0",
+                       "method": "notifications/initialized"}, sid)
+        session = _mcp_session["id"]
+    d, _ = _mcp_post({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                      "params": {"name": tool, "arguments": arguments}},
+                     session)
+    if d is None:
+        # session likely expired server-side: re-init once and retry
+        with _MCP_LOCK:
+            _mcp_session["id"] = None
+        return _mcp_call(tool, arguments)
+    if "error" in d:
+        raise SfxError("Epidemic MCP: %s" % d["error"].get("message", d["error"]))
+    content = (d.get("result") or {}).get("content") or []
+    if not content:
+        raise SfxError("Epidemic MCP returned no content")
+    body = json.loads(content[0].get("text") or "{}")
+    if body.get("errors"):
+        raise SfxError("Epidemic: %s" % body["errors"][0].get("message"))
+    return body.get("data") or {}
 
 
 def ep_search(term: str, kind: str = "sfx", limit: int = 20) -> "list":
-    """Search Epidemic; returns [{id, title, length, kind}]."""
-    q = urllib.parse.urlencode({"term": term, "limit": limit,
-                                "sort": "best-match", "order": "desc"})
+    """Search Epidemic; returns [{id, title, length, kind, preview}]."""
+    out = []
     if kind == "music":
-        r = _ep_call("/tracks/search?" + q)
-        rows = r.get("tracks") or r.get("results") or []
+        data = _mcp_call("SearchRecordings",
+                         {"query": {"term": term}, "first": int(limit)})
+        for n in (data.get("recordings") or {}).get("nodes") or []:
+            r = n.get("recording") or {}
+            credits = r.get("credits") or []
+            artist = ""
+            if credits:
+                artist = (credits[0].get("artist") or {}).get("name", "")
+            af = r.get("audioFile") or {}
+            out.append({"id": r.get("id"),
+                        "title": (r.get("title", "") +
+                                  (" - " + artist if artist else "")),
+                        "length": (af.get("durationInMilliseconds") or 0) / 1000.0,
+                        "kind": "music", "preview": af.get("lqmp3Url")})
     else:
-        r = _ep_call("/sound-effects/search?" + q)
-        rows = (r.get("soundEffects") or r.get("tracks")
-                or r.get("results") or [])
-    return [{"id": t.get("id"), "title": t.get("title", ""),
-             "length": t.get("length", 0), "kind": kind} for t in rows]
+        data = _mcp_call("SearchSoundEffects",
+                         {"query": {"term": term}, "first": int(limit)})
+        for n in (data.get("soundEffects") or {}).get("nodes") or []:
+            r = n.get("soundEffect") or {}
+            af = r.get("audioFile") or {}
+            out.append({"id": r.get("id"), "title": r.get("title", ""),
+                        "length": (af.get("durationInMilliseconds") or 0) / 1000.0,
+                        "kind": "sfx", "preview": af.get("lqmp3Url")})
+    return out
+
+
+def _find_asset_url(obj):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in ("assetUrl", "url", "downloadUrl") and isinstance(v, str):
+                return v
+            r = _find_asset_url(v)
+            if r:
+                return r
+    if isinstance(obj, list):
+        for it in obj:
+            r = _find_asset_url(it)
+            if r:
+                return r
+    return None
 
 
 def _safe_name(title: str) -> str:
@@ -178,19 +267,20 @@ def ep_pull(kind: str, item_id: str, title: str, category: str) -> "dict":
 
 def _ep_pull_locked(kind, item_id, title, category):
     if kind == "music":
-        r = _ep_call("/tracks/%s/download?format=mp3&quality=high"
-                     % urllib.parse.quote(str(item_id)))
+        data = _mcp_call("DownloadRecording",
+                         {"id": str(item_id),
+                          "options": {"fileType": "MP3", "stemType": "FULL"}})
     else:
-        r = _ep_call("/sound-effects/%s/download"
-                     % urllib.parse.quote(str(item_id)))
-    url = r.get("url") or r.get("downloadUrl")
+        data = _mcp_call("DownloadSoundEffect",
+                         {"id": str(item_id), "options": {"fileType": "MP3"}})
+    url = _find_asset_url(data)
     if not url:
         raise SfxError("Epidemic returned no download url")
     cat = re.sub(r"[^a-z0-9_-]+", "-", (category or kind).lower()) or kind
     rel = os.path.join(cat, _safe_name(title) + ".mp3")
     dest = SFX_DIR / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(url, timeout=120) as f:
+    with urllib.request.urlopen(url, timeout=180) as f:
         blob = f.read()
     tmp = dest.with_suffix(".tmp")
     tmp.write_bytes(blob)
