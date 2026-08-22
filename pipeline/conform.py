@@ -113,6 +113,15 @@ def _stale_cards(slug):
     return out
 
 
+def _stem(name):
+    """BT56_stamp_x_v5.mov -> stamp_x — the family that survives BOTH a
+    version bump and a re-home (the beat prefix changes when a card moves
+    beats, and the old clip in Resolve wears the old beat's name)."""
+    import re
+    n = re.sub(r"(_v\d+)?\.mov$", "", name)
+    return re.sub(r"^(BT\d+|custom)_", "", n)
+
+
 def _pair_key(o):
     p = o["payload"]
     if o["op"].startswith("sfx_"):
@@ -246,6 +255,16 @@ return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(proj:GetSetting(
         st["ops"].append(entry)
         _write_status(slug, st)
         try:
+            if op in ("card_place", "card_replace"):
+                all_cards = {c["id"] for c, _s in editroom._all_overlays(slug)}
+                if payload.get("card_id") not in all_cards:
+                    # the card was deleted after this op queued (the BT80
+                    # test-card cleanup) — a ghost op must clear, not
+                    # re-queue as a failure forever
+                    entry["result"] = "skipped"
+                    entry["note"] = "card deleted — op dropped"
+                    _write_status(slug, st)
+                    continue
             if op == "card_place" and payload.get("card_id") in placed:
                 # placed by hand (and synced) since the export queued this —
                 # a second copy on V3 would be worse than a swap
@@ -283,6 +302,7 @@ return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(proj:GetSetting(
                                   "end return ts end)()")
                 out = resolve_api.send("conform-op%d" % i, """
 local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
+local mp = resolve:GetProjectManager():GetCurrentProject():GetMediaPool()
 for _, t in ipairs(%(tracks)s) do
   for _, it in ipairs(tl:GetItemListInTrack('video', t) or {}) do
     if it:GetStart() <= %(f)d and it:GetEnd() > %(f)d then
@@ -297,9 +317,38 @@ for _, t in ipairs(%(tracks)s) do
     end
   end
 end
-return 'ERR|no card item at frame %(f)d'
-""" % {"tracks": track_expr, "f": target_frame + 1,
-       "path": _lua_safe(exports_dir + "/" + payload["file"])}, timeout=120)
+-- not at its position: the card was re-homed. Find its clip ANYWHERE by the
+-- version-stripped name family and MOVE it here; nowhere at all -> insert.
+local stem = '%(stem)s'
+for t = 1, tl:GetTrackCount('video') do
+  for _, it in ipairs(tl:GetItemListInTrack('video', t) or {}) do
+    local mpi = it:GetMediaPoolItem()
+    if mpi ~= nil then
+      local fp = mpi:GetClipProperty('File Path') or ''
+      if string.find(fp, '/exports/overlays/', 1, true) and string.find(fp, stem, 1, true) then
+        local dur = it:GetEnd() - it:GetStart()
+        tl:DeleteClips({it})
+        -- swap the media on the SAME pool item, then re-place it: no
+        -- import ambiguity, and every other timeline use follows too
+        mpi:ReplaceClip('%(path)s')
+        local placed2 = mp:AppendToTimeline({{mediaPoolItem = mpi, startFrame = 0, endFrame = dur - 1, trackIndex = t, recordFrame = %(f0)d}})
+        if placed2 == nil or #placed2 == 0 then return 'ERR|move: reinsert failed' end
+        return 'OK|moved from V' .. tostring(t) .. ' to frame %(f0)d'
+      end
+    end
+  end
+end
+local imported = mp:ImportMedia({'%(path)s'})
+if imported == nil or #imported == 0 then return 'ERR|insert: import failed' end
+local placed3 = mp:AppendToTimeline({{mediaPoolItem = imported[1], startFrame = 0, endFrame = %(durf)d, trackIndex = 3, recordFrame = %(f0)d}})
+if placed3 == nil or #placed3 == 0 then return 'ERR|insert failed' end
+return 'OK|inserted at frame %(f0)d on V3'
+""" % {"tracks": track_expr, "f": target_frame + 1, "f0": target_frame,
+       "stem": _lua_safe(_stem(payload["file"])),
+       "durf": max(1, int(round(float(
+           ({c["id"]: c for c, _s in editroom._all_overlays(slug)}
+            .get(payload["card_id"], {}).get("duration", 3))) * fps)) - 1),
+       "path": _lua_safe(exports_dir + "/" + payload["file"])}, timeout=180)
             elif op in ("card_place", "sfx_place", "broll_attach"):
                 if op == "card_place":
                     cid = payload["card_id"]
