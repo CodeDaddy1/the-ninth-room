@@ -700,6 +700,40 @@ def callout(card: "dict", F: "dict") -> str:
              "text": _e(card.get("text", ""))}
 
 
+def _door_counts(card: "dict", default_total: int = 9,
+                 default_active: int = 3) -> "tuple":
+    try:
+        active = int(card.get("active", default_active))
+    except (TypeError, ValueError):
+        active = default_active
+    try:
+        total = int(card.get("chapters") or default_total)
+    except (TypeError, ValueError):
+        total = default_total
+    total = max(1, min(12, total))
+    return max(0, min(total, active)), total
+
+
+def _door_row(card: "dict", default_total: int = 9,
+              default_active: int = 3) -> str:
+    """The arch-door meter row: one small door per chapter, lit to `active`.
+    Shared by the chapter card and the stop transitions — the doors are how
+    the viewer knows which stop this is (Caleb, 2026-08-23)."""
+    active, total = _door_counts(card, default_total, default_active)
+    rooms = []
+    for i in range(total):
+        if i < active:
+            rooms.append('<div style="width:20px;height:25px;background:%s;'
+                         'border-radius:10px 10px 0 0;'
+                         'animation:yDot 200ms ease %dms both"></div>'
+                         % (YELLOW, 160 + i * 80))
+        else:
+            rooms.append('<div style="width:20px;height:25px;border:2px solid %s;'
+                         'border-radius:10px 10px 0 0;'
+                         'box-sizing:border-box"></div>' % HAIRLINE)
+    return '<div style="display:flex;gap:7px">%s</div>' % "".join(rooms)
+
+
 def chapter(card: "dict", F: "dict") -> str:
     """6 · Chapter card — the door meter doubles as the chapter marker.
 
@@ -721,29 +755,10 @@ def chapter(card: "dict", F: "dict") -> str:
     size = _fit(text, 150 if not F["portrait"] else 110, lines=2,
                 budget=F["inner"], fscale=_fscale(card))
     # `or 3` would turn an explicit active=0 (a cold open — nothing done yet)
-    # into 3 lit doors. Only substitute the default when the key is ABSENT.
-    try:
-        active = int(card.get("active", 3))
-    except (TypeError, ValueError):
-        active = 3
-    try:
-        total = int(card.get("chapters") or 9)
-    except (TypeError, ValueError):
-        total = 9
-    total = max(1, min(12, total))
-    active = max(0, min(total, active))
+    # into 3 lit doors — the helpers substitute defaults only when ABSENT.
     # 20px wide, 25px tall keeps the 8:10 mark ratio; radius 10 = half width.
-    rooms = []
-    for i in range(total):
-        if i < active:
-            rooms.append('<div style="width:20px;height:25px;background:%s;'
-                         'border-radius:10px 10px 0 0;'
-                         'animation:yDot 200ms ease %dms both"></div>'
-                         % (YELLOW, 160 + i * 80))
-        else:
-            rooms.append('<div style="width:20px;height:25px;border:2px solid %s;'
-                         'border-radius:10px 10px 0 0;'
-                         'box-sizing:border-box"></div>' % HAIRLINE)
+    active, total = _door_counts(card)
+    rooms_html = _door_row(card)
     sub = ""
     if card.get("subtext"):
         sub = ('<div style="font-family:%s;font-size:34px;font-weight:600;color:%s;'
@@ -753,7 +768,7 @@ def chapter(card: "dict", F: "dict") -> str:
 <div style="position:absolute;left:%(left)dpx;top:0;bottom:0;right:%(side)dpx;display:flex;
             flex-direction:column;justify-content:center;gap:20px">
   <div style="display:flex;align-items:center;gap:20px;animation:yFade 240ms ease both">
-    <div style="display:flex;gap:7px">%(rooms)s</div>
+    %(rooms)s
     <span style="font-family:%(display)s;font-size:26px;font-weight:800;letter-spacing:.24em;
                  text-transform:uppercase;color:%(cyan)s">%(kicker)s</span>
   </div>
@@ -762,7 +777,7 @@ def chapter(card: "dict", F: "dict") -> str:
               animation:yGrow 320ms %(easerule)s 520ms both"></div>
   %(sub)s
 </div>""" % {"wash": _wash(WASH_CHAPTER), "left": F["chapter_left"],
-             "side": F["side"], "rooms": "".join(rooms), "display": FONT_DISPLAY,
+             "side": F["side"], "rooms": rooms_html, "display": FONT_DISPLAY,
              "cyan": CYAN,
              "kicker": _caps(card.get("kicker")
                              or "Chapter %d of %d" % (max(active, 1), total)),
@@ -1208,13 +1223,17 @@ def transition(card: "dict", F: "dict") -> str:
     style = card.get("style", "rule")
     title = card.get("text", "")
     label = ""
+    doors = ""
+    if card.get("chapters"):
+        # the stop transitions carry the meter: which door are we on
+        doors = _door_row(card, default_active=0)
     if title:
         label = """
 <div style="position:absolute;left:%(left)dpx;top:0;bottom:0;display:flex;flex-direction:column;
             justify-content:center;gap:16px;animation:yColShow 540ms linear both">
-  %(eyebrow)s
+  %(doors)s%(eyebrow)s
   <div style="%(display)s">%(title)s</div>
-</div>""" % {"left": F["chapter_left"],
+</div>""" % {"left": F["chapter_left"], "doors": doors,
              "eyebrow": _eyebrow(card.get("kicker") or "Next", CYAN, 0, 26,
                                  track=".24em"),
              "display": _display(_fit(title, 120, lines=2, budget=F["inner"],
