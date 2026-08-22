@@ -69,6 +69,12 @@ _BAKE_LOCK = threading.Lock()
 # review.json is load->mutate->replace from several threads (state GETs
 # normalize, /api/review POSTs save); one lock serializes them all
 _REVIEW_LOCK = threading.Lock()
+# graphics_plan.json has three writers (_new_overlay's beat path,
+# _save_overlay, _delete_overlay) all staging to the same .tmp; and the
+# conform ledger is appended from sfx places (no lock) and card exports
+# (under _BAKE_LOCK) - each file gets one lock, same reasoning as review
+_PLAN_LOCK = threading.Lock()
+_CONFORM_LOCK = threading.Lock()
 
 
 def _state(slug: str) -> "dict":
@@ -225,13 +231,14 @@ def _conform_append(slug: str, op: str, beat_id: str, payload: "dict") -> None:
     """Every direct edit lands here until 'Conform to Resolve (n)' pushes the
     batch (plan decision 10). P3 builds the executor; the ledger starts now
     so P2 edits are already queued when it arrives."""
-    path = work_path(slug) / "pending_conform.json"
-    data = json.loads(path.read_text()) if path.exists() else {"ops": []}
-    data["ops"].append({"op": op, "beat_id": beat_id, "payload": payload,
-                        "ts": int(time.time())})
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2))
-    os.replace(tmp, path)
+    with _CONFORM_LOCK:
+        path = work_path(slug) / "pending_conform.json"
+        data = json.loads(path.read_text()) if path.exists() else {"ops": []}
+        data["ops"].append({"op": op, "beat_id": beat_id, "payload": payload,
+                            "ts": int(time.time())})
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, path)
 
 
 def _conform_pending(slug: str) -> "list":
@@ -253,7 +260,7 @@ def _sfx_place(slug: str, beat_id: str, file: str, at_ms: int,
                         else float(gain_db))
     proxy_mod.build(slug, only_beats=[beat_id], log=log)
     _conform_append(slug, "sfx_place", beat_id, cue)
-    _save_review(slug, beat_id, {"status": "edited"})
+    _mark_edited(slug, beat_id)
     return cue
 
 
@@ -263,8 +270,16 @@ def _sfx_remove(slug: str, cue_id: str, log=print) -> "dict":
     gone = sfx_mod.remove(slug, cue_id)
     proxy_mod.build(slug, only_beats=[gone["beat_id"]], log=log)
     _conform_append(slug, "sfx_remove", gone["beat_id"], gone)
-    _save_review(slug, gone["beat_id"], {"status": "edited"})
+    _mark_edited(slug, gone["beat_id"])
     return gone
+
+
+def _mark_edited(slug: str, beat_id: str) -> None:
+    # Back into the queue as edited (decision 05) - unless the beat is
+    # FLAGGED, which is already at the top and must not be demoted (the
+    # export path carries the same guard).
+    if _normalize_review(slug).get(beat_id, {}).get("status") != "flagged":
+        _save_review(slug, beat_id, {"status": "edited"})
 
 
 def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
@@ -616,6 +631,11 @@ def _merge_edits(card: "dict", updates: "dict") -> "dict":
 
 
 def _save_overlay(slug: str, card_id: str, updates: "dict") -> "dict":
+    with _PLAN_LOCK:
+        return _save_overlay_locked(slug, card_id, updates)
+
+
+def _save_overlay_locked(slug, card_id, updates):
     """Persist edits; a timeline card re-validates the WHOLE plan (the 2.5s
     chapter rule etc. gate edits exactly like they gate the pipeline)."""
     from . import schemas
@@ -658,29 +678,45 @@ def _new_overlay(slug: str, kit_type: str, beat_id: "str | None" = None,
     if kit_type not in _KIT_TEMPLATES:
         raise IngestError("unknown kit type '%s'" % kit_type)
     if beat_id:
-        # Review-desk creation: a PLAN card, because only plan cards are
-        # composited into the beat's proxy — a custom would preview true in
-        # the editor and then vanish from the review truth.
-        gp_path = work_path(slug) / "graphics_plan.json"
-        if not gp_path.exists():
-            raise IngestError("no graphics plan to add a beat card to")
-        plan = json.loads(gp_path.read_text())
-        taken = {c["id"] for c in plan["cards"]}
-        n = 1
-        while "CARD%02d" % n in taken:
-            n += 1
-        role = ("meme" if kit_type.startswith("meme_")
-                else _KIT_ROLE.get(kit_type, "section"))
-        card = {"id": "CARD%02d" % n, "type": role, "kit_type": kit_type,
-                "beat_id": beat_id, "at": float(at),
-                "duration": 2.5 if kit_type in ("chapter", "transition") else 3.0,
-                "animation": "slide_up"}
-        card.update(json.loads(json.dumps(_KIT_TEMPLATES[kit_type])))
-        plan["cards"].append(card)
-        tmp = gp_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
-        os.replace(tmp, gp_path)
-        return card
+        with _PLAN_LOCK:
+            # Review-desk creation: a PLAN card, because only plan cards are
+            # composited into the beat's proxy — a custom would preview true in
+            # the editor and then vanish from the review truth.
+            gp_path = work_path(slug) / "graphics_plan.json"
+            if not gp_path.exists():
+                raise IngestError("no graphics plan to add a beat card to")
+            plan = json.loads(gp_path.read_text())
+            taken = {c["id"] for c in plan["cards"]}
+            n = 1
+            while "CARD%02d" % n in taken:
+                n += 1
+            role = ("meme" if kit_type.startswith("meme_")
+                    else _KIT_ROLE.get(kit_type, "section"))
+            card = {"id": "CARD%02d" % n, "type": role, "kit_type": kit_type,
+                    "beat_id": beat_id, "at": float(at),
+                    "duration": 2.5 if kit_type in ("chapter", "transition") else 3.0,
+                    "animation": "slide_up"}
+            card.update(json.loads(json.dumps(_KIT_TEMPLATES[kit_type])))
+            # The validator requires copy fields by ROLE (stat needs stat+text,
+            # text roles need text) that several templates legitimately lack.
+            # Fill neutral defaults, then validate the WHOLE plan before
+            # writing: a rejected card must never reach the file, or every
+            # later save/export of ANY card 400s until it is deleted (P2
+            # review finding 9 - eight kits poisoned the plan this way).
+            if role == "stat":
+                card.setdefault("stat", "0")
+            if role in ("stat", "hook_title", "section", "outro", "quote"):
+                card.setdefault("text", "")
+            plan["cards"].append(card)
+            from . import schemas
+            errs = [e for e in schemas.validate_graphics_plan(plan)
+                    if card["id"] in e]
+            if errs:
+                raise IngestError("cannot add %s here: %s" % (kit_type, errs[0]))
+            tmp = gp_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+            os.replace(tmp, gp_path)
+            return card
     custom = _load_custom(slug)
     taken = {c["id"] for c, _ in _all_overlays(slug)}
     n = 1
@@ -695,6 +731,11 @@ def _new_overlay(slug: str, kit_type: str, beat_id: "str | None" = None,
 
 
 def _delete_overlay(slug: str, card_id: str) -> "dict":
+    with _PLAN_LOCK:
+        return _delete_overlay_locked(slug, card_id)
+
+
+def _delete_overlay_locked(slug, card_id):
     """Delete a custom draft, or remove a plan card from graphics_plan.json.
 
     Plan cards were undeletable from the desk ("belongs to the edit plan"),
@@ -1803,7 +1844,7 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     rel = os.path.join(urllib.parse.unquote(parts[4]),
                                        os.path.basename(urllib.parse.unquote(parts[5])))
                     sp = (sfx_mod.SFX_DIR / rel).resolve()
-                    if str(sp).startswith(str(sfx_mod.SFX_DIR.resolve())) \
+                    if str(sp).startswith(str(sfx_mod.SFX_DIR.resolve()) + os.sep) \
                             and sp.is_file() \
                             and sp.suffix.lower() in sfx_mod.AUDIO_EXT:
                         ctype = {".mp3": "audio/mpeg", ".wav": "audio/wav",
