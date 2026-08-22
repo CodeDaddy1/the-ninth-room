@@ -118,6 +118,60 @@ def _run_reproxy(slug, log, set_pct):
     set_pct(100)
 
 
+FIXER_PROMPT = (
+    "Run the fixer round for %(slug)s. Read .claude/agents/shot-fixer.md and "
+    "act as that agent: work/%(slug)s/review.json holds the flagged beats — "
+    "the note on each is the instruction. Make the smallest change that "
+    "satisfies each note, re-proxy only the beats you touched, set each "
+    "fixed beat's status to 'reworked' with a one-line fixer_note, and obey "
+    "every hard rule in the agent doc. Do NOT run conforms, renders, or "
+    "touch DaVinci Resolve — the desk's Conform button handles the "
+    "timeline. The engine is running on :8765; leave it alone.")
+
+
+def _run_fixer(slug, log, set_pct):
+    """Dispatch the shot-fixer as a HEADLESS Claude Code session (the same
+    agent Caleb used to prompt by hand — same subscription, one button).
+    Runs in its own process, so the engine's file locks do not cover it:
+    the desk should not place sounds/b-roll on the flagged beats while it
+    works, same as during a manual fixer round."""
+    import subprocess
+    review_path = work_path(slug) / "review.json"
+    def flagged():
+        if not review_path.exists():
+            return []
+        d = json.loads(review_path.read_text())
+        return [k for k, e in d.items() if e.get("status") == "flagged"]
+    before = flagged()
+    if not before:
+        raise RuntimeError("no flagged beats — nothing to send")
+    log("[fixer] dispatching %d flagged beat(s): %s"
+        % (len(before), " ".join(before)))
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p",
+         FIXER_PROMPT % {"slug": slug},
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("fixer session exited %d — see the log" % rc)
+    after = flagged()
+    fixed = [b for b in before if b not in after]
+    log("[fixer] done: %d fixed -> re-review, %d still flagged"
+        % (len(fixed), len(after)))
+    if not fixed:
+        raise RuntimeError("fixer finished but no beat left flagged status "
+                           "changed — read the log")
+    set_pct(100)
+
+
 def _run_render(slug, log, set_pct):
     from . import deliver
     deliver.render_master(slug, log=log, set_pct=set_pct)
@@ -129,6 +183,7 @@ KINDS = {
     "assemble": ("Assemble — timeline + proxies", _run_assemble),
     "reproxy": ("Re-proxy changed beats", _run_reproxy),
     "render": ("Render master — Resolve render queue", _run_render),
+    "fixer": ("Fixer round — flagged beats to re-review", _run_fixer),
 }
 
 
@@ -157,6 +212,14 @@ def start(kind: str, slug: str) -> "dict":
         from . import conform as conform_mod
         if conform_mod.status(slug).get("state") == "running":
             raise JobError("a conform is running — render after it")
+    if kind == "fixer":
+        rv = work_path(slug) / "review.json"
+        n = 0
+        if rv.exists():
+            n = sum(1 for e in json.loads(rv.read_text()).values()
+                    if e.get("status") == "flagged")
+        if not n:
+            raise JobError("no flagged beats to send")
     with _LOCK:
         for j in _jobs.values():
             if (j["kind"] == kind and j["slug"] == slug
