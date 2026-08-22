@@ -153,7 +153,11 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
     if not footage.is_dir():
         raise IngestError("no footage dir: %s" % footage)
     files = sorted(p for p in footage.iterdir()
-                   if p.suffix.lower() in VIDEO_EXT + AUDIO_EXT and not p.name.startswith("."))
+                   if p.suffix.lower() in VIDEO_EXT + AUDIO_EXT
+                   and not p.name.startswith(".")
+                   # an upload in flight lives under _tmp. until its rename —
+                   # ingest once transcribed a half-uploaded clip (2026-08-23)
+                   and not p.name.startswith("_tmp."))
     if not files:
         raise IngestError("no media files in %s" % footage)
 
