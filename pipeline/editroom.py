@@ -1081,7 +1081,10 @@ def _project_row(slug: str) -> "dict":
         review = json.loads((work / "review.json").read_text())
     n_appr = sum(1 for e in review.values() if e.get("status") == "approved")
     n_flag = sum(1 for e in review.values() if e.get("status") == "flagged")
-    n_needs = sum(1 for e in review.values() if e.get("needs"))
+    # reworked + edited both mean "back in Caleb's queue for a re-look";
+    # the retired needs tags no longer drive anything (round-2 audit A3)
+    n_queue = sum(1 for e in review.values()
+                  if e.get("status") in ("flagged", "reworked", "edited"))
 
     if not footage:
         phase, nxt = "footage", ("Drop clips and photos anywhere on this "
@@ -1108,12 +1111,13 @@ def _project_row(slug: str) -> "dict":
                                   '— timeline and review proxies in '
                                   'story order.' % slug)
     elif prox and (n_appr + n_flag) < prox:
-        phase, nxt = "review", ("Review the shots — approve or flag "
-                                "each, and mark b-roll / SFX / card needs.")
-    elif n_flag or n_needs:
-        phase, nxt = "review", ('%d flag(s) and %d shot(s) with needs. Tell '
-                                'Claude: “run the fixer on %s”.'
-                                % (n_flag, n_needs, slug))
+        phase, nxt = "review", ("Work the review queue — approve what "
+                                "ships; the broll / sfx / cards buttons "
+                                "edit the beat directly.")
+    elif n_queue:
+        phase, nxt = "review", ("%d beat(s) in the queue. Approve them, "
+                                "then Conform to Resolve pushes every "
+                                "queued edit and stale card." % n_queue)
     elif not masters:
         phase, nxt = "master", ('Every shot approved. Tell Claude: '
                                 '“produce the master for %s”.' % slug)
@@ -1139,7 +1143,7 @@ def _project_row(slug: str) -> "dict":
             "master": masters[-1].name if masters else None,
             "progress": progress,
             "review": {"approved": n_appr, "flagged": n_flag,
-                       "needs": n_needs}}
+                       "queue": n_queue}}
 
 
 def _projects_state() -> "dict":
@@ -1967,8 +1971,10 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     self._send(400, {"error": "bad slug"})
                     return
                 from . import conform as conform_mod
+                stale_ids = conform_mod._stale_cards(cslug)
                 self._send(200, {"ops": _conform_pending(cslug),
-                                 "stale": len(conform_mod._stale_cards(cslug))})
+                                 "stale": len(stale_ids),
+                                 "stale_ids": stale_ids})
             elif self.path.startswith("/media/"):
                 parts = self.path.split("?")[0].split("/")
                 # /media/<slug>/sfxlib/<category>/<file> — the sound library

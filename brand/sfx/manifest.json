@@ -8,6 +8,150 @@
       "license": "Epidemic Sound subscription",
       "pulled_ts": 1787417116,
       "length": 1.64
+    },
+    "transitions/swooshes-whoosh-short-low-dry-01.mp3": {
+      "title": "Swooshes, Whoosh, Short, Low, Dry 01",
+      "source": "epidemic",
+      "source_id": "460b3ae4-040a-4bf7-ab61-e1ee25986f5b",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421137,
+      "length": 1.53
+    },
+    "transitions/designed-whoosh-soft-airy.mp3": {
+      "title": "Designed, Whoosh, Soft Airy",
+      "source": "epidemic",
+      "source_id": "073cf199-3d1b-4a67-9128-a5abd13870ff",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421139,
+      "length": 0.9
+    },
+    "pops/cartoon-pop-squeeze-04.mp3": {
+      "title": "Cartoon, Pop, Squeeze 04",
+      "source": "epidemic",
+      "source_id": "2c8bca91-1d4e-47cf-a5be-f8152231f1ef",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421140,
+      "length": 0.39
+    },
+    "pops/cartoon-pop-mouth-finger.mp3": {
+      "title": "Cartoon, Pop, Mouth, Finger",
+      "source": "epidemic",
+      "source_id": "e46407b9-b805-4673-ae8f-f6b01c00ac04",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421142,
+      "length": 0.4
+    },
+    "pops/cartoon-musical-comical-launch-slide.mp3": {
+      "title": "Cartoon, Musical, Comical, Launch, Slide",
+      "source": "epidemic",
+      "source_id": "1515dbf7-b1a1-4320-9053-3bd3d0f53008",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421144,
+      "length": 1.22
+    },
+    "ui/user-interface-click-ui-buttons-glassy-touch.mp3": {
+      "title": "User Interface, Click, UI Buttons, Glassy, Touch",
+      "source": "epidemic",
+      "source_id": "45c94b43-2fb0-4970-98db-cc0fe6ea3678",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421145,
+      "length": 0.18
+    },
+    "dings/bells-handbell-small-reception-desk-bell-single-ring.mp3": {
+      "title": "Bells, Handbell, Small, Reception Desk Bell, Single Ring",
+      "source": "epidemic",
+      "source_id": "dbfce0fc-ba2e-4344-968a-1e9f20523ac3",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421147,
+      "length": 1.84
+    },
+    "stamps/office-supplies-rubber-stamp-document-01.mp3": {
+      "title": "Office Supplies, Rubber Stamp, Document 01",
+      "source": "epidemic",
+      "source_id": "d530c5b9-3047-42fe-a06a-7c479d637b60",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421149,
+      "length": 0.21
+    },
+    "stamps/paper-impact-paper-sheet-thick-hits-with-hand-02.mp3": {
+      "title": "Paper, Impact, Paper Sheet, Thick, Hits With Hand 02",
+      "source": "epidemic",
+      "source_id": "830b5041-faab-4152-a3b6-6dc49c1535f5",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421150,
+      "length": 1.56
+    },
+    "comedy/communications-phonograph-vinyl-record-scratch-07.mp3": {
+      "title": "Communications, Phonograph, Vinyl, Record Scratch 07",
+      "source": "epidemic",
+      "source_id": "28714639-e16a-41ee-b926-a99d05906365",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421152,
+      "length": 0.5
+    },
+    "comedy/designed-bass-dive-bass-drop-deep-sub-50hz.mp3": {
+      "title": "Designed, Bass Dive, Bass Drop, Deep Sub, 50Hz",
+      "source": "epidemic",
+      "source_id": "91b28e95-2a6b-4233-86fa-f1715f23ab75",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421153,
+      "length": 3.61
+    },
+    "comedy/food-drink-glassware-single-glass-clink.mp3": {
+      "title": "Food & Drink, Glassware, Single Glass Clink",
+      "source": "epidemic",
+      "source_id": "4b3cd12d-5995-4b3a-a3f3-fda845c40cec",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421155,
+      "length": 0.58
+    },
+    "ambience/ambience-forest-forest-summer-high-pitched-birds.mp3": {
+      "title": "Ambience, Forest, Forest Summer High Pitched Birds",
+      "source": "epidemic",
+      "source_id": "40a977ac-4ad3-4354-93b9-03145339a4dd",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421157,
+      "length": 88.0
+    },
+    "ambience/water-waterfall-close-small-waterfall-loop.mp3": {
+      "title": "Water, Waterfall, Close, Small Waterfall, Loop",
+      "source": "epidemic",
+      "source_id": "4da50f33-5a7a-4781-bb69-d6e18868d0b5",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421159,
+      "length": 17.33
+    },
+    "risers/designed-riser-hard-scifi-sub-04.mp3": {
+      "title": "Designed, Riser, Hard, Scifi, Sub 04",
+      "source": "epidemic",
+      "source_id": "12612fe6-959c-4381-af18-4a7672b04833",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421160,
+      "length": 1.81
+    },
+    "risers/designed-rumble-bass-hit.mp3": {
+      "title": "Designed, Rumble, Bass Hit",
+      "source": "epidemic",
+      "source_id": "e4fbcd25-b76c-4f5a-b599-2d130163c415",
+      "kind": "sfx",
+      "license": "Epidemic Sound subscription",
+      "pulled_ts": 1787421162,
+      "length": 3.24
     }
   }
 }

@@ -12,7 +12,9 @@ beat, or trigger work outside the flagged set, you have broken the contract.
 ## Input
 
 `work/<slug>/review.json`: `{beat_id: {status, note, ts}}`. You act on
-`status == "flagged"`. The note is the instruction — it may be about the
+`status == "flagged"`. The old `needs` routing tags are retired — Caleb
+places b-roll, sfx, and cards himself with the desk's direct tools; what
+reaches you is the note. The note is the instruction — it may be about the
 trim ("starts too early"), a cut ("the flub at the start is still there"),
 b-roll ("wrong clip, show the placard instead"), a card ("stat number wrong",
 "move it later"), captions ("typo", "don't caption the mumble"), or pacing
