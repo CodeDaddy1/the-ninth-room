@@ -664,6 +664,42 @@ def _overlays_state(slug: str) -> "dict":
             placements = {}
     for it in items:
         it["placed"] = placements.get(it["id"])
+    # Clip context for the editor preview: which proxy plays under this card,
+    # and how far in. A plan card knows its beat; a custom card is located by
+    # its PLACED record position (OV03 has no beat_id but sits at a known
+    # time). With this, "does the scrim read over THIS footage" is answered
+    # in the editor, before approving — not after a bake (Caleb, 2026-08-22).
+    tm_path = work_path(slug) / "analysis" / "timeline_map.json"
+    beats = []
+    if tm_path.exists():
+        try:
+            beats = json.loads(tm_path.read_text())["beats"]
+        except (ValueError, KeyError):
+            beats = []
+    pdir = work_path(slug) / "proxies"
+    proxy_by_beat = {}
+    if pdir.is_dir():
+        for f in pdir.glob("BT*.mp4"):
+            proxy_by_beat[f.name.split(".")[0]] = "%s?v=%d" % (f.name,
+                                                               f.stat().st_mtime)
+    by_id = {b["id"]: b for b in beats}
+    for it in items:
+        ctx = None
+        card = it["card"]
+        bid = card.get("beat_id")
+        if bid and bid in by_id:
+            ctx = {"proxy": proxy_by_beat.get(bid),
+                   "offset": float(card.get("at", 0) or 0)}
+        elif it.get("placed"):
+            rec = it["placed"].get("record_s")
+            for b in beats:
+                if rec is not None and b["record_s"] <= rec < b["record_e"]:
+                    ctx = {"proxy": proxy_by_beat.get(b["id"]),
+                           "offset": round(rec - b["record_s"], 2)}
+                    break
+        if ctx and not ctx["proxy"]:
+            ctx = None
+        it["context"] = ctx
     placed_meta = None
     if tc_path.exists():
         try:
