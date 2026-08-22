@@ -787,6 +787,11 @@ def _merge_edits(card: "dict", updates: "dict") -> "dict":
                 out[k] = [] if isinstance(out[k], list) else ""
         else:
             out[k] = v
+    # a zero offset means "no nudge" — storing it re-keys the bake against
+    # the absent-key original forever (P7 gate finding 4)
+    for fld in ("offset_x", "offset_y"):
+        if out.get(fld) in (0, 0.0):
+            out.pop(fld, None)
     return out
 
 
@@ -1251,9 +1256,12 @@ def _start_project_from_idea(idea_id: str) -> "dict":
     slug = slug or ("idea-%s" % idea_id)
     if work_path(slug).exists():
         raise IngestError("project '%s' already exists" % slug)
+    if (work_path(slug).parent / "_archive" / slug).exists():
+        raise IngestError("'%s' exists in the archive — restore it instead"
+                          % slug)
     work_path(slug).mkdir(parents=True)
     (work_path(slug) / "footage").mkdir()
-    plan = {"place": idea.get("title", ""), "date": "",
+    plan = {"place": idea.get("title", ""), "visit_date": "",
             "chapters": [],
             "ninth_room_candidates": [],
             "checklist": [],
@@ -1261,6 +1269,10 @@ def _start_project_from_idea(idea_id: str) -> "dict":
                 idea.get("title", ""), idea.get("angle", ""),
                 idea.get("why_now", ""))}
     _write_json(_plan_path(slug), plan)
+    try:
+        _save_idea_state(idea_id, "develop", "started as project '%s'" % slug)
+    except Exception:
+        pass  # the project exists either way; the verdict is bookkeeping
     return {"slug": slug}
 
 
@@ -2309,7 +2321,15 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 _archive_project(self._slug_b(body))
                 self._send(200, {"ok": True})
             elif self.path == "/api/project/restore":
-                _restore_project(self._slug_b(body))
+                rslug = str(body.get("slug", ""))
+                # _slug_b validates against LIVE projects — the archived one
+                # is by definition not there (P7 gate finding 2: restore was
+                # a one-way door). Regex-check only; _restore_project's own
+                # is_dir gate does the rest.
+                if not _SLUG_RE.match(rslug):
+                    self._send(400, {"error": "bad slug"})
+                    return
+                _restore_project(rslug)
                 self._send(200, {"ok": True})
             elif self.path == "/api/idea/start":
                 r = _start_project_from_idea(str(body.get("id", "")))
