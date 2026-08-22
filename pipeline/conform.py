@@ -60,9 +60,17 @@ def _write_status(slug, st):
 
 def status(slug: str) -> "dict":
     p = _status_path(slug)
-    if p.exists():
-        return json.loads(p.read_text())
-    return {"state": "idle"}
+    if not p.exists():
+        return {"state": "idle"}
+    st = json.loads(p.read_text())
+    # an engine restart kills the conform thread but not its status file —
+    # a ghost "running" would block re-runs forever (same guard jobs.py
+    # carries; bitten live 2026-08-23)
+    if st.get("state") == "running" and not _running.get(slug):
+        st.update({"state": "failed",
+                   "error": "engine restarted mid-conform — run it again"})
+        _write_status(slug, st)
+    return st
 
 
 def start(slug: str) -> None:
@@ -240,22 +248,51 @@ return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(proj:GetSetting(
                 cid = payload["card_id"]
                 info = placed.get(cid)
                 if not info:
-                    raise RuntimeError("card %s not in the timeline sync" % cid)
-                track_idx = int(str(info.get("track", "V3")).lstrip("V") or 3)
+                    # the sync maps clips by export basename; a re-homed or
+                    # renamed card's old-named clip drops out of the sync
+                    # (2026-08-23: three re-homed cards). Fall back to the
+                    # card's KNOWN position — after ReplaceClip the next
+                    # sync re-learns the new name, so this self-heals.
+                    card = {c["id"]: c for c, _s in
+                            editroom._all_overlays(slug)}.get(cid, {})
+                    if card.get("beat_id") and card["beat_id"] in beat_start:
+                        info = {"record_s": beat_start[card["beat_id"]]
+                                + float(card.get("at", 0)),
+                                "track": None}
+                    else:
+                        raise RuntimeError(
+                            "card %s not in the timeline sync and has no "
+                            "beat position to fall back to" % cid)
+                track_idx = (int(str(info["track"]).lstrip("V") or 3)
+                             if info.get("track") else None)
                 target_frame = frame(info["record_s"])
+                if track_idx is not None:
+                    track_expr = "{%d}" % track_idx
+                else:
+                    # position fallback: probe every video track, but only
+                    # accept an item whose media is one of OURS (a card
+                    # export or a kit bake) — never replace footage
+                    track_expr = ("(function() local ts = {} for t = 1, "
+                                  "tl:GetTrackCount('video') do ts[#ts+1] = t "
+                                  "end return ts end)()")
                 out = resolve_api.send("conform-op%d" % i, """
 local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
-local items = tl:GetItemListInTrack('video', %(track)d) or {}
-for _, it in ipairs(items) do
-  if it:GetStart() <= %(f)d and it:GetEnd() > %(f)d then
-    local mpi = it:GetMediaPoolItem()
-    if mpi == nil then return 'ERR|item has no pool clip' end
-    local ok = mpi:ReplaceClip('%(path)s')
-    return 'OK|replaced=' .. tostring(ok)
+for _, t in ipairs(%(tracks)s) do
+  for _, it in ipairs(tl:GetItemListInTrack('video', t) or {}) do
+    if it:GetStart() <= %(f)d and it:GetEnd() > %(f)d then
+      local mpi = it:GetMediaPoolItem()
+      if mpi ~= nil then
+        local fp = mpi:GetClipProperty('File Path') or ''
+        if string.find(fp, '/exports/overlays/', 1, true) or string.find(fp, '/graphics/', 1, true) then
+          local ok = mpi:ReplaceClip('%(path)s')
+          return 'OK|replaced=' .. tostring(ok) .. ' on V' .. tostring(t)
+        end
+      end
+    end
   end
 end
-return 'ERR|no item at frame %(f)d on V%(track)d'
-""" % {"track": track_idx, "f": target_frame + 1,
+return 'ERR|no card item at frame %(f)d'
+""" % {"tracks": track_expr, "f": target_frame + 1,
        "path": _lua_safe(exports_dir + "/" + payload["file"])}, timeout=120)
             elif op in ("card_place", "sfx_place", "broll_attach"):
                 if op == "card_place":

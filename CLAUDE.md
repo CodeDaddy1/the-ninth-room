@@ -61,30 +61,29 @@ lists, card ideas, ninth-room candidates, derived checklist). The engine
 validates it in `_validate_plan` and stamps identity; the story-designer
 may read it for intent when present.
 
-The inline-HTML UI served by `editroom.py` itself is **frozen legacy** —
-kept working, gets no new features; new surfaces go in the Studio.
+The inline-HTML UI `editroom.py` once served is **gone** (P5): the engine
+is API + bridge only, and every surface lives in the Studio.
 
-## The Edit Room production hub
+## The engine and the agent hand-offs
 
-`/usr/bin/python3 -m pipeline.cli editroom` serves every project at
-http://127.0.0.1:8765 — a project picker, phase strip, and four desks
-(Story / Shots / Overlays / Captions). Caleb starts a project and drops raw
-clips/photos straight onto the page (photos become 6s b-roll clips); the
-phase strip tells him what to tell Claude next. The agents run HERE in the
-Claude session and read what the hub writes:
+`/usr/bin/python3 -m pipeline.cli editroom` serves the ENGINE at
+http://127.0.0.1:8765 — API + media only; the inline Edit Room UI was
+retired in P5 (2026-08-23) and the root now points at the Studio. The
+mechanical stages (ingest, assemble, re-proxy, conform, master render) run
+as engine JOBS from the Studio's buttons. The agents run in the Claude
+session for the creative stages and read what the desks write:
 
 - **Story loop**: "pitch stories for <slug>" → story-designer writes
-  `stories.json` (3 directions) → Caleb approves/redirects on the Story tab
-  (`story_feedback.json`) → "write the edit plan for <slug>" once approved.
-- **Assemble**: "assemble <slug>" = build-timeline + assets + proxies so the
-  Shots desk can review the cut in story order.
-- **Shot needs**: review.json entries may carry `"needs": ["broll","sfx",
-  "cards"]` — route them in the fixer round: broll → story/b-roll pass,
-  sfx → sound-designer, cards → graphics-director.
-- **Ideas (channel-level)**: "scout ideas" → the scout agent writes
-  `work/_scout/ideas.json`; Caleb saves/develops/dismisses on the Ideas tab.
-- **Assets**: Caleb files requests on the Assets tab; "source assets for
-  <slug>" → the asset-sourcer downloads licensed stock with a manifest.
+  `stories.json` (3 directions) → Caleb approves/redirects on the Story
+  desk (`story_feedback.json`) → "write the edit plan for <slug>" once
+  approved.
+- **Fixer round**: flagged beats in the Review queue carry Caleb's notes;
+  "run the fixer on <slug>" acts on them surgically. The old needs tags
+  are retired — b-roll, sfx, and cards are the desk's own direct tools.
+- **Ideas (channel-level)**: "scout ideas" → `work/_scout/ideas.json`;
+  Caleb saves/develops/dismisses on the Ideas desk.
+- **Assets**: the request flow's API survives for the P7 decision; its
+  only UI died with the Edit Room.
 
 ## The agent team
 

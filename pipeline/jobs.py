@@ -118,10 +118,17 @@ def _run_reproxy(slug, log, set_pct):
     set_pct(100)
 
 
+def _run_render(slug, log, set_pct):
+    from . import deliver
+    deliver.render_master(slug, log=log, set_pct=set_pct)
+    set_pct(100)
+
+
 KINDS = {
     "ingest": ("Ingest — transcribe, takes, b-roll", _run_ingest),
     "assemble": ("Assemble — timeline + proxies", _run_assemble),
     "reproxy": ("Re-proxy changed beats", _run_reproxy),
+    "render": ("Render master — Resolve render queue", _run_render),
 }
 
 
