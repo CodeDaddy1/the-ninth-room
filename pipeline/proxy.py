@@ -53,7 +53,9 @@ def _load(slug: str) -> "tuple":
     if gp_path.exists():
         for c in json.loads(gp_path.read_text())["cards"]:
             cards_by_beat.setdefault(c["beat_id"], []).append(c)
-    return tl, catalog, caps, cards_by_beat
+    from . import sfx as sfx_mod
+    cues_by_beat = sfx_mod.cues_by_beat(slug)
+    return tl, catalog, caps, cards_by_beat, cues_by_beat
 
 
 def _relative_beat(beat: "dict") -> "dict":
@@ -81,11 +83,23 @@ def _relative_beat(beat: "dict") -> "dict":
     return b
 
 
-def beat_spec(beat: "dict", caption_text: str, cards: "list") -> "dict":
-    """Everything that shapes this beat's pixels — the cache key."""
+def beat_spec(beat: "dict", caption_text: str, cards: "list",
+              cues: "list | None" = None) -> "dict":
+    """Everything that shapes this beat's pixels (and now sound) — the
+    cache key. Sound cues join only when present: an empty "sfx" key on
+    every beat would re-key all 82 cueless proxies for no change."""
     from . import timeline as tl_mod
     from . import captions as captions_mod
     from . import animate as animate_mod
+    spec = _spec_body(beat, caption_text, cards, tl_mod, captions_mod,
+                      animate_mod)
+    if cues:
+        spec["sfx"] = [{"file": c["file"], "at_ms": c["at_ms"],
+                        "gain_db": c["gain_db"]} for c in cues]
+    return spec
+
+
+def _spec_body(beat, caption_text, cards, tl_mod, captions_mod, animate_mod):
     return {
         "beat": _relative_beat(beat), "caption": caption_text,
         "cards": [{k: c.get(k) for k in ("id", "type", "kit_type", "at", "duration",
@@ -106,7 +120,8 @@ def beat_spec(beat: "dict", caption_text: str, cards: "list") -> "dict":
 
 
 def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
-                cards: "list", out_path: Path, log=print) -> Path:
+                cards: "list", out_path: Path, cues: "list | None" = None,
+                log=print) -> Path:
     work = work_path(slug)
     src = catalog[beat["file"]]["path"]
     rec0 = beat["record_s"]
@@ -198,8 +213,27 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
                   % (cur, min(10 + 7 * len(txt), W - 16), "bdg"))
         cur = "bdg"
 
+    # --- sound cues: mixed UNDER the voice (decision 06 — proxies carry the
+    # whole truth). adelay places each cue beat-relative; amix with
+    # normalize=0 keeps the voice at unity instead of dividing by n.
+    aout = "aud"
+    if cues:
+        from . import sfx as sfx_mod
+        mix_ins = []
+        for c in cues:
+            inputs += ["-i", str(sfx_mod.SFX_DIR / c["file"])]
+            lbl = "sc%d" % len(mix_ins)
+            fc.append("[%d:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+                      "volume=%.1fdB,adelay=%d:all=1[%s]"
+                      % (idx, float(c["gain_db"]), max(0, int(c["at_ms"])), lbl))
+            mix_ins.append(lbl)
+            idx += 1
+        fc.append("[aud]%samix=inputs=%d:duration=first:normalize=0[amix]"
+                  % ("".join("[%s]" % l for l in mix_ins), len(mix_ins) + 1))
+        aout = "amix"
+
     cmd = (["ffmpeg", "-y", "-loglevel", "error"] + inputs +
-           ["-filter_complex", ";".join(fc), "-map", "[%s]" % cur, "-map", "[aud]",
+           ["-filter_complex", ";".join(fc), "-map", "[%s]" % cur, "-map", "[%s]" % aout,
             "-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF),
             "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(tmp_path)])
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -213,7 +247,7 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
 
 def build(slug: str, only_beats: "list | None" = None, log=print) -> "dict":
     """Render proxies for all (or named) beats. Returns {beat_id: proxy path}."""
-    tl, catalog, caps, cards_by_beat = _load(slug)
+    tl, catalog, caps, cards_by_beat, cues_by_beat = _load(slug)
     proxy_dir = work_path(slug) / "proxies"
     proxy_dir.mkdir(exist_ok=True)
     for orphan in proxy_dir.glob("_tmp.*.mp4"):  # leftovers from a crashed run
@@ -224,13 +258,15 @@ def build(slug: str, only_beats: "list | None" = None, log=print) -> "dict":
         if only_beats and bid not in only_beats:
             continue
         cards = cards_by_beat.get(bid, [])
-        spec = beat_spec(beat, caps.get(bid, ""), cards)
+        cues = cues_by_beat.get(bid, [])
+        spec = beat_spec(beat, caps.get(bid, ""), cards, cues)
         h = _hash_spec(spec)
         out = proxy_dir / ("%s.%s.mp4" % (bid, h))
         if not out.exists():
             for stale in proxy_dir.glob("%s.*.mp4" % bid):
                 stale.unlink()
-            render_beat(slug, beat, catalog, caps.get(bid, ""), cards, out, log=log)
+            render_beat(slug, beat, catalog, caps.get(bid, ""), cards, out,
+                        cues=cues, log=log)
             fresh += 1
             log("[proxy] %s rendered (%.1fs)" % (bid, beat["record_e"] - beat["record_s"]))
         result[bid] = str(out)

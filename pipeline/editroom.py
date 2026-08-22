@@ -221,6 +221,52 @@ def _archive_resolved_reviews_locked(slug: str) -> int:
     return n
 
 
+def _conform_append(slug: str, op: str, beat_id: str, payload: "dict") -> None:
+    """Every direct edit lands here until 'Conform to Resolve (n)' pushes the
+    batch (plan decision 10). P3 builds the executor; the ledger starts now
+    so P2 edits are already queued when it arrives."""
+    path = work_path(slug) / "pending_conform.json"
+    data = json.loads(path.read_text()) if path.exists() else {"ops": []}
+    data["ops"].append({"op": op, "beat_id": beat_id, "payload": payload,
+                        "ts": int(time.time())})
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    os.replace(tmp, path)
+
+
+def _conform_pending(slug: str) -> "list":
+    path = work_path(slug) / "pending_conform.json"
+    if path.exists():
+        return json.loads(path.read_text()).get("ops", [])
+    return []
+
+
+def _sfx_place(slug: str, beat_id: str, file: str, at_ms: int,
+               gain_db: "float | None", log=print) -> "dict":
+    """Place a sound and make the proxy tell the truth about it: the cue is
+    written, the beat re-renders WITH the mix, the edit queues for conform,
+    and the beat goes back into Caleb's queue as 'edited' (decision 05)."""
+    from . import sfx as sfx_mod
+    from . import proxy as proxy_mod
+    cue = sfx_mod.place(slug, beat_id, file, at_ms,
+                        sfx_mod.DEFAULT_GAIN_DB if gain_db is None
+                        else float(gain_db))
+    proxy_mod.build(slug, only_beats=[beat_id], log=log)
+    _conform_append(slug, "sfx_place", beat_id, cue)
+    _save_review(slug, beat_id, {"status": "edited"})
+    return cue
+
+
+def _sfx_remove(slug: str, cue_id: str, log=print) -> "dict":
+    from . import sfx as sfx_mod
+    from . import proxy as proxy_mod
+    gone = sfx_mod.remove(slug, cue_id)
+    proxy_mod.build(slug, only_beats=[gone["beat_id"]], log=log)
+    _conform_append(slug, "sfx_remove", gone["beat_id"], gone)
+    _save_review(slug, gone["beat_id"], {"status": "edited"})
+    return gone
+
+
 def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
     with _REVIEW_LOCK:
         _save_review_locked(slug, beat_id, payload)
@@ -601,9 +647,40 @@ def _save_overlay(slug: str, card_id: str, updates: "dict") -> "dict":
     raise IngestError("no overlay '%s'" % card_id)
 
 
-def _new_overlay(slug: str, kit_type: str) -> "dict":
+_KIT_ROLE = {"hook": "hook_title", "payoff": "quote", "reaction": "quote",
+             "outro": "outro", "takeaway": "outro", "next_room": "outro",
+             "stat": "stat", "vote": "stat", "scoreboard": "stat",
+             "quiz": "stat", "poll": "stat", "true_false": "stat"}
+
+
+def _new_overlay(slug: str, kit_type: str, beat_id: "str | None" = None,
+                 at: float = 0.0) -> "dict":
     if kit_type not in _KIT_TEMPLATES:
         raise IngestError("unknown kit type '%s'" % kit_type)
+    if beat_id:
+        # Review-desk creation: a PLAN card, because only plan cards are
+        # composited into the beat's proxy — a custom would preview true in
+        # the editor and then vanish from the review truth.
+        gp_path = work_path(slug) / "graphics_plan.json"
+        if not gp_path.exists():
+            raise IngestError("no graphics plan to add a beat card to")
+        plan = json.loads(gp_path.read_text())
+        taken = {c["id"] for c in plan["cards"]}
+        n = 1
+        while "CARD%02d" % n in taken:
+            n += 1
+        role = ("meme" if kit_type.startswith("meme_")
+                else _KIT_ROLE.get(kit_type, "section"))
+        card = {"id": "CARD%02d" % n, "type": role, "kit_type": kit_type,
+                "beat_id": beat_id, "at": float(at),
+                "duration": 2.5 if kit_type in ("chapter", "transition") else 3.0,
+                "animation": "slide_up"}
+        card.update(json.loads(json.dumps(_KIT_TEMPLATES[kit_type])))
+        plan["cards"].append(card)
+        tmp = gp_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+        os.replace(tmp, gp_path)
+        return card
     custom = _load_custom(slug)
     taken = {c["id"] for c, _ in _all_overlays(slug)}
     n = 1
@@ -766,9 +843,30 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
                 rv = work / "review.json"
                 if rv.exists():
                     data = json.loads(rv.read_text())
-                    if data.get(bid, {}).get("status") == "approved":
+                    st = data.get(bid, {}).get("status")
+                    if st == "approved":
                         _save_review(slug, bid, {"status": "reworked"})
                         result["review_reset"] = True
+                    elif st != "flagged":
+                        # a changed card puts the beat back in the queue as
+                        # "edited — check the result" (decision 05); a
+                        # flagged beat is already at the top and stays put
+                        _save_review(slug, bid, {"status": "edited"})
+            # queue the Resolve-side work (decision 10): a card already on
+            # the timeline needs its clip swapped to the new _vN file; a new
+            # card needs placing. P3's conform executes these.
+            tc_path = work / "timeline_cards.json"
+            placed_ids = []
+            if tc_path.exists():
+                try:
+                    placed_ids = json.loads(tc_path.read_text()).get("cards", [])
+                except ValueError:
+                    pass
+            _conform_append(slug,
+                            "card_replace" if card_id in placed_ids
+                            else "card_place",
+                            card.get("beat_id") or "",
+                            {"card_id": card_id, "file": name})
         return result
 
 
@@ -1612,7 +1710,7 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             self.end_headers()
             self.wfile.write(data)
 
-        def _send_video(self, p: Path):
+        def _send_video(self, p: Path, ctype: str = "video/mp4"):
             size = p.stat().st_size
             start, end, partial = 0, size - 1, False
             rng = self.headers.get("Range", "")
@@ -1642,7 +1740,7 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             if partial:
                 self.send_header("Content-Range",
                                  "bytes %d-%d/%d" % (start, end, size))
-            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Cache-Control", "no-store")
@@ -1681,8 +1779,40 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, _plan_state(self._slug_q()))
             elif self.path.startswith("/api/assets"):
                 self._send(200, _assets_state(self._slug_q()))
+            elif self.path.startswith("/api/sfx/library"):
+                from . import sfx as sfx_mod
+                qs = self._qs()
+                lib = sfx_mod.library()
+                lslug = qs.get("slug", [""])[0]
+                if lslug and _valid_slug(lslug):
+                    lib["cues"] = sfx_mod.cues(lslug)
+                self._send(200, lib)
+            elif self.path.startswith("/api/conform/pending"):
+                qs = self._qs()
+                cslug = qs.get("slug", [""])[0]
+                if not _valid_slug(cslug):
+                    self._send(400, {"error": "bad slug"})
+                    return
+                self._send(200, {"ops": _conform_pending(cslug)})
             elif self.path.startswith("/media/"):
                 parts = self.path.split("?")[0].split("/")
+                # /media/<slug>/sfxlib/<category>/<file> — the sound library
+                # is global (brand/sfx), slug kept for the rewrite's shape
+                if len(parts) == 6 and parts[3] == "sfxlib":
+                    from . import sfx as sfx_mod
+                    rel = os.path.join(urllib.parse.unquote(parts[4]),
+                                       os.path.basename(urllib.parse.unquote(parts[5])))
+                    sp = (sfx_mod.SFX_DIR / rel).resolve()
+                    if str(sp).startswith(str(sfx_mod.SFX_DIR.resolve())) \
+                            and sp.is_file() \
+                            and sp.suffix.lower() in sfx_mod.AUDIO_EXT:
+                        ctype = {".mp3": "audio/mpeg", ".wav": "audio/wav",
+                                 ".m4a": "audio/mp4", ".aac": "audio/aac",
+                                 ".ogg": "audio/ogg", ".flac": "audio/flac"}[sp.suffix.lower()]
+                        self._send_video(sp, ctype)
+                        return
+                    self._send(404, {"error": "not found"})
+                    return
                 # /media/<slug>/<proxies|exports>/<name>
                 if len(parts) != 5 or not _valid_slug(parts[2]):
                     self._send(404, {"error": "not found"})
@@ -1786,11 +1916,47 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, {"ok": True, "card": card})
             elif self.path == "/api/overlay/new":
                 card = _new_overlay(self._slug_b(body),
-                                    body.get("kit_type", "lower_third"))
+                                    body.get("kit_type", "lower_third"),
+                                    beat_id=body.get("beat_id"),
+                                    at=float(body.get("at", 0.0)))
                 self._send(200, {"ok": True, "card": card})
             elif self.path == "/api/overlay/delete":
                 result = _delete_overlay(self._slug_b(body), body["id"])
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/sfx/search":
+                from . import sfx as sfx_mod
+                try:
+                    rows = sfx_mod.ep_search(body.get("term", ""),
+                                             body.get("kind", "sfx"),
+                                             int(body.get("limit", 20)))
+                    self._send(200, {"ok": True, "results": rows})
+                except sfx_mod.SfxError as e:
+                    self._send(400, {"error": str(e)})
+            elif self.path == "/api/sfx/pull":
+                from . import sfx as sfx_mod
+                try:
+                    r = sfx_mod.ep_pull(body.get("kind", "sfx"),
+                                        str(body["id"]), body.get("title", ""),
+                                        body.get("category", ""))
+                    self._send(200, dict(r, ok=True))
+                except sfx_mod.SfxError as e:
+                    self._send(400, {"error": str(e)})
+            elif self.path == "/api/sfx/place":
+                from . import sfx as sfx_mod
+                try:
+                    cue = _sfx_place(self._slug_b(body), body["beat_id"],
+                                     body["file"], int(body.get("at_ms", 0)),
+                                     body.get("gain_db"), log=log)
+                    self._send(200, {"ok": True, "cue": cue})
+                except sfx_mod.SfxError as e:
+                    self._send(400, {"error": str(e)})
+            elif self.path == "/api/sfx/remove":
+                from . import sfx as sfx_mod
+                try:
+                    gone = _sfx_remove(self._slug_b(body), body["cue_id"], log=log)
+                    self._send(200, {"ok": True, "removed": gone})
+                except sfx_mod.SfxError as e:
+                    self._send(400, {"error": str(e)})
             elif self.path == "/api/review/archive_resolved":
                 n = _archive_resolved_reviews(self._slug_b(body))
                 self._send(200, {"ok": True, "closed": n})
