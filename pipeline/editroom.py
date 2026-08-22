@@ -89,9 +89,7 @@ def _state(slug: str) -> "dict":
             cards_by_beat.setdefault(c["beat_id"], []).append(
                 {"id": c["id"], "kit": c.get("kit_type", c.get("type")),
                  "copy": c.get("text") or c.get("stat") or c.get("kicker") or ""})
-    review = {}
-    if (work / "review.json").exists():
-        review = json.loads((work / "review.json").read_text())
+    review = _normalize_review(slug)
     proxies = {}
     pdir = work / "proxies"
     if pdir.is_dir():
@@ -127,6 +125,82 @@ def _state(slug: str) -> "dict":
             "counts": {"total": total, "approved": approved, "flagged": flagged}}
 
 
+def _close_review_round(entry: "dict") -> bool:
+    """Archive the current note/needs/fixer_note into the entry's history.
+
+    A round CLOSES when the fixer has replied (fixer_note present) — that is
+    the "fix landed" signal (decision 3 of the 2026-08-22 plan interview).
+    Approving with a fresh note must NOT archive it: that is the
+    "approve-with-instruction" flow (BT16 pattern) and the note stays live
+    until the fixer answers it. Returns True when something was archived.
+    """
+    if not (entry.get("fixer_note") or "").strip():
+        return False
+    import time
+    hist = entry.setdefault("history", [])
+    hist.append({"round": len(hist) + 1,
+                 "note": entry.get("note", ""),
+                 "needs": entry.get("needs", []),
+                 "fixer_note": entry["fixer_note"],
+                 "resolved_ts": int(time.time())})
+    entry["note"] = ""
+    entry.pop("needs", None)
+    entry.pop("fixer_note", None)
+    return True
+
+
+def _normalize_review(slug: str) -> "dict":
+    """Load review.json, close any rounds whose fix has landed, persist if
+    anything moved. Idempotent; called wherever review state is served so a
+    fixer run's replies archive themselves on the next desk load."""
+    path = work_path(slug) / "review.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text())
+    changed = False
+    for entry in data.values():
+        if isinstance(entry, dict) and _close_review_round(entry):
+            changed = True
+    if changed:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, path)
+    return data
+
+
+def _archive_resolved_reviews(slug: str) -> int:
+    """One-time sweep (decision 4): notes on approved/reworked beats whose
+    fixer never replied still archive — they predate the lifecycle and are
+    exactly the stale instructions cluttering the desk. Flagged beats keep
+    their notes. Returns how many rounds were closed."""
+    path = work_path(slug) / "review.json"
+    if not path.exists():
+        return 0
+    import time
+    data = json.loads(path.read_text())
+    n = 0
+    for entry in data.values():
+        if not isinstance(entry, dict):
+            continue
+        if _close_review_round(entry):
+            n += 1
+        elif entry.get("status") in ("approved", "reworked")                 and (entry.get("note") or "").strip():
+            hist = entry.setdefault("history", [])
+            hist.append({"round": len(hist) + 1,
+                         "note": entry["note"],
+                         "needs": entry.get("needs", []),
+                         "fixer_note": "",
+                         "resolved_ts": int(time.time())})
+            entry["note"] = ""
+            entry.pop("needs", None)
+            n += 1
+    if n:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, path)
+    return n
+
+
 def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
     work = work_path(slug)
     path = work / "review.json"
@@ -134,7 +208,7 @@ def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
     entry = data.get(beat_id, {})
     # a note-only autosave sends status:null — that must never erase a
     # decision already on file
-    if payload.get("status") in ("approved", "flagged", "reworked"):
+    if payload.get("status") in ("approved", "flagged", "reworked", "edited"):
         entry["status"] = payload["status"]
     if "note" in payload:
         entry["note"] = payload["note"]
@@ -1398,9 +1472,7 @@ def _captions_state(slug: str) -> "dict":
     if (work / "captions.json").exists():
         caps = {c["beat_id"]: c for c in
                 json.loads((work / "captions.json").read_text()).get("beats", [])}
-    review = {}
-    if (work / "review.json").exists():
-        review = json.loads((work / "review.json").read_text())
+    review = _normalize_review(slug)
     proxies = {}
     pdir = work / "proxies"
     if pdir.is_dir():

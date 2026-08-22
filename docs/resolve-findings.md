@@ -93,3 +93,14 @@ Projects `CURATED_SPIKE`, and inside it timelines `spike_append`,
   LUT" cannot be built literally. `pipeline/color.py` achieves it
   mathematically instead: it inverts the LUT's measured gray response and
   back-solves the CDL so the post-LUT image lands on the standard targets.
+
+## Render queue via bridge (S2 spike, 2026-08-22)
+
+The FREE edition's render queue is fully scriptable through the in-app
+bridge: `SetRenderSettings{SelectAllFrames=false, MarkIn/MarkOut, TargetDir,
+CustomName}` → `AddRenderJob()` (returns a job id) → `StartRendering(id)`
+(async, returns immediately) → poll `GetRenderJobStatus(id)`
+(`JobStatus`/`CompletionPercentage`, "Rendering" → "Complete") →
+`DeleteRenderJob(id)`. A 48-frame probe of hmns_210023 rendered to mp4 in
+~5s with no watermark. StartRendering flips Resolve to the Deliver page —
+harmless, but don't drive it while Caleb is mid-edit.
