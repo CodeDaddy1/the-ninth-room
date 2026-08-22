@@ -1760,24 +1760,38 @@ def emoji_pop(card: "dict", F: "dict") -> str:
     items = card.get("emojis") or ([{"char": card.get("text", "")}]
                                    if card.get("text") else [])
     n = max(1, len(items))
-    out = []
+    norm = []
     for i, item in enumerate(items):
-        char = item.get("char", "") if isinstance(item, dict) else str(item)
-        if not char:
-            continue
-        fx = item.get("x") if isinstance(item, dict) else None
-        fy = item.get("y") if isinstance(item, dict) else None
-        x = float(fx) if fx is not None else (i + 1) / float(n + 1)
-        y = float(fy) if fy is not None else (0.42 + (0.08 if i % 2 else -0.08))
-        size = int(item.get("size", 260) if isinstance(item, dict) else 260)
+        d = item if isinstance(item, dict) else {"char": str(item)}
+        if d.get("char"):
+            norm.append(d)
+    # Two layouts. Explicit x/y on ANY item = the scattered burst, absolute
+    # positions. Without them the items are a PHRASE (parrot = butterfly) and
+    # the old alternating-height fan read as crooked — so the default is one
+    # centered row, everything on a shared centerline. Plain text glyphs like
+    # "=" take chalk; a black glyph on navy was near-invisible (OV03).
+    scattered = any("x" in d or "y" in d for d in norm)
+    out = []
+    for i, d in enumerate(norm):
+        char = d["char"]
+        size = int(d.get("size", 260))
         if F["portrait"]:
             size = int(size * 0.85)
-        out.append('<div style="position:absolute;left:%.2f%%;top:%.2f%%;'
-                   'transform:translate(-50%%,-50%%);font-size:%dpx;line-height:1;'
-                   'filter:%s;animation:yPop 380ms %s %dms both">%s</div>'
-                   % (x * 100, y * 100, size, EMOJI_SHADOW, EASE_REVEAL,
-                      i * 100, html.escape(char)))
-    return '<div style="position:absolute;inset:0">%s</div>' % "".join(out)
+        style = ('font-size:%dpx;line-height:1;color:%s;filter:%s;'
+                 'animation:yPop 380ms %s %dms both'
+                 % (size, CHALK, EMOJI_SHADOW, EASE_REVEAL, i * 100))
+        if scattered:
+            x = float(d.get("x", (i + 1) / float(n + 1)))
+            y = float(d.get("y", 0.42 + (0.08 if i % 2 else -0.08)))
+            out.append('<div style="position:absolute;left:%.2f%%;top:%.2f%%;'
+                       'transform:translate(-50%%,-50%%);%s">%s</div>'
+                       % (x * 100, y * 100, style, html.escape(char)))
+        else:
+            out.append('<div style="%s">%s</div>' % (style, html.escape(char)))
+    if scattered:
+        return '<div style="position:absolute;inset:0">%s</div>' % "".join(out)
+    return ('<div style="position:absolute;inset:0;display:flex;align-items:center;'
+            'justify-content:center;gap:56px">%s</div>' % "".join(out))
 
 
 def compare(card: "dict", F: "dict") -> str:

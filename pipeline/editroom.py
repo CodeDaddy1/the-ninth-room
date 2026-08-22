@@ -518,19 +518,68 @@ def _new_overlay(slug: str, kit_type: str) -> "dict":
     return card
 
 
-def _delete_overlay(slug: str, card_id: str) -> None:
-    """Custom overlays only — timeline cards belong to the edit plan."""
+def _delete_overlay(slug: str, card_id: str) -> "dict":
+    """Delete a custom draft, or remove a plan card from graphics_plan.json.
+
+    Plan cards were undeletable from the desk ("belongs to the edit plan"),
+    which left no way to kill a card short of editing JSON by hand (Caleb,
+    2026-08-21). A removed plan card is appended to graphics_plan_removed.json
+    so the decision is reversible by hand; NOTHING here touches Resolve — a
+    clip already placed on the timeline stays there until it is removed in
+    Resolve or the next conform, and the caller is told which case it got.
+    """
     custom = _load_custom(slug)
     keep = [c for c in custom["overlays"] if c["id"] != card_id]
-    if len(keep) == len(custom["overlays"]):
-        raise IngestError("'%s' is not a custom overlay" % card_id)
-    custom["overlays"] = keep
-    _write_json(_custom_path(slug), custom)
+    if len(keep) != len(custom["overlays"]):
+        custom["overlays"] = keep
+        _write_json(_custom_path(slug), custom)
+        source = "custom"
+    else:
+        gp_path = work_path(slug) / "graphics_plan.json"
+        plan = json.loads(gp_path.read_text()) if gp_path.exists() else None
+        cards = (plan or {}).get("cards", [])
+        keep = [c for c in cards if c.get("id") != card_id]
+        if plan is None or len(keep) == len(cards):
+            raise IngestError("no overlay '%s' in this project" % card_id)
+        gone = [c for c in cards if c.get("id") == card_id]
+        plan["cards"] = keep
+        _write_json(gp_path, plan)
+        rm_path = work_path(slug) / "graphics_plan_removed.json"
+        removed = json.loads(rm_path.read_text()) if rm_path.exists() else {}
+        removed.setdefault("removed_from_plan", []).extend(
+            dict(c, removed_ts=int(time.time())) for c in gone)
+        _write_json(rm_path, removed)
+        source = "plan"
     exp = _export_state(slug)
     exp.pop(card_id, None)
     # exported files stay on disk — Resolve may reference them (immutability
     # rule above); Caleb trashes unwanted versions from Finder himself
     _write_json(_exports_dir(slug) / ".export_hashes.json", exp)
+    return {"source": source}
+
+
+def _duplicate_overlay(slug: str, card_id: str) -> "dict":
+    """Copy any card — plan or custom — into a new custom DRAFT.
+
+    This is the replacement workflow: duplicate the card you want to redo,
+    edit the draft until the preview is right, export it, and swap it in.
+    The copy keeps beat_id so its export still names itself by the beat, and
+    remembers what it replaces so the desk can say so.
+    """
+    cards = {c["id"]: c for c, _src in _all_overlays(slug)}
+    if card_id not in cards:
+        raise IngestError("no overlay '%s' in this project" % card_id)
+    custom = _load_custom(slug)
+    taken = set(cards)
+    n = 1
+    while "OV%02d" % n in taken:
+        n += 1
+    card = json.loads(json.dumps(cards[card_id]))
+    card["id"] = "OV%02d" % n
+    card["replaces"] = card_id
+    custom["overlays"].append(card)
+    _write_json(_custom_path(slug), custom)
+    return card
 
 
 def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
@@ -1643,8 +1692,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                     body.get("kit_type", "lower_third"))
                 self._send(200, {"ok": True, "card": card})
             elif self.path == "/api/overlay/delete":
-                _delete_overlay(self._slug_b(body), body["id"])
-                self._send(200, {"ok": True})
+                result = _delete_overlay(self._slug_b(body), body["id"])
+                self._send(200, dict(result, ok=True))
+            elif self.path == "/api/overlay/duplicate":
+                card = _duplicate_overlay(self._slug_b(body), body["id"])
+                self._send(200, {"ok": True, "card": card})
             elif self.path == "/api/overlay/export":
                 result = _export_overlay(self._slug_b(body), body["id"],
                                          log=log)
