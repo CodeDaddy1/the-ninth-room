@@ -167,6 +167,11 @@ def send(label: str, lua: str, timeout: float = 120.0) -> str:
     _seq[0] += 1
     name = "%06d_%s.lua" % (_seq[0], label)
     result = SPOOL / "outbox" / (name + ".result")
+    # _seq seeds from time%%100000 and wraps — a leftover result file from a
+    # previous day could satisfy a NEW command instantly (P5 review F11).
+    # The result must not exist before its command is spooled.
+    if result.exists():
+        result.unlink()
     (SPOOL / "inbox").mkdir(parents=True, exist_ok=True)
     (SPOOL / "inbox" / name).write_text(lua)
     deadline = time.time() + timeout

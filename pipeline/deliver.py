@@ -19,6 +19,13 @@ def checklist(slug: str) -> "dict":
     from . import conform as conform_mod, editroom, proxy as proxy_mod
     work = work_path(slug)
     rows = []
+    if not (work / "analysis" / "timeline_map.json").exists():
+        # a fresh project 500'd here (P5 review F4) — say where it stands
+        return {"slug": slug, "ready": False, "masters": [],
+                "rows": [{"id": "assembled", "label": "Timeline assembled",
+                          "ok": False,
+                          "detail": "not assembled yet — ingest, story, "
+                                    "then Assemble", "fix": "/studio"}]}
 
     stale = conform_mod._stale_cards(slug)
     pend = editroom._conform_pending(slug)
@@ -35,10 +42,12 @@ def checklist(slug: str) -> "dict":
     review = editroom._normalize_review(slug)
     open_beats = [k for k, e in review.items()
                   if e.get("status") in ("flagged", "reworked", "edited")]
+    n_reviewed = sum(1 for e in review.values() if e.get("status"))
     rows.append({"id": "review", "label": "Review queue empty",
                  "ok": not open_beats,
                  "detail": ("%d beats open" % len(open_beats)) if open_beats
-                 else "every shot approved",
+                 else ("every shot approved" if n_reviewed
+                       else "nothing reviewed yet"),
                  "fix": "/studio/review/%s" % slug})
 
     caps_missing = []
@@ -79,8 +88,10 @@ def checklist(slug: str) -> "dict":
                  "fix": None})
 
     masters = []
-    for f in sorted(glob.glob(str(work / "deliverables" / "*.mp4")),
-                    key=os.path.getmtime, reverse=True)[:8]:
+    vids = []
+    for ext in ("*.mp4", "*.mov", "*.mxf", "*.m4v"):
+        vids += glob.glob(str(work / "deliverables" / ext))
+    for f in sorted(vids, key=os.path.getmtime, reverse=True)[:8]:
         try:
             dur = float(subprocess.run(
                 ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
@@ -102,12 +113,14 @@ def render_master(slug: str, log=print, set_pct=lambda p: None) -> str:
     the whole timeline. Needs the synced project/timeline names — the same
     requirement conform has."""
     from . import resolve_api
+    from .conform import _lua_safe
     work = work_path(slug)
     tc_path = work / "timeline_cards.json"
     if not tc_path.exists():
         raise RuntimeError("no timeline sync on file — Sync from Resolve first")
     tc = json.loads(tc_path.read_text())
-    proj_name, tl_name = tc.get("project"), tc.get("timeline")
+    proj_name = _lua_safe(tc.get("project"))
+    tl_name = _lua_safe(tc.get("timeline"))
     out_dir = work / "deliverables"
     out_dir.mkdir(exist_ok=True)
     name = "%s_master_%s" % (slug, time.strftime("%m%d_%H%M"))
@@ -126,11 +139,18 @@ if tl == nil or tl:GetName() ~= '%(tl)s' then
   end
 end
 if tl == nil or tl:GetName() ~= '%(tl)s' then return 'ERR|timeline %(tl)s not found' end
-proj:SetRenderSettings({ SelectAllFrames = true,
+-- The S2 spike and a verification render PERSISTED a 48/72-frame
+-- MarkIn/MarkOut into this project (P5 review F6). Belt and braces: set
+-- SelectAllFrames AND an explicit full-timeline range, and refuse to
+-- queue if Resolve rejects the settings.
+local ok = proj:SetRenderSettings({ SelectAllFrames = true,
+  MarkIn = tl:GetStartFrame(), MarkOut = tl:GetEndFrame() - 1,
   TargetDir = '%(dir)s', CustomName = '%(name)s' })
+if ok == false then return 'ERR|SetRenderSettings rejected' end
 local job = proj:AddRenderJob()
 if job == nil then return 'ERR|AddRenderJob failed' end
-proj:StartRendering(job)
+local started = proj:StartRendering(job)
+if started == false then return 'ERR|StartRendering refused' end
 return 'JOB|' .. job
 """ % {"proj": proj_name, "tl": tl_name, "dir": str(out_dir), "name": name},
         timeout=180)
@@ -138,7 +158,11 @@ return 'JOB|' .. job
         raise RuntimeError(out[4:])
     job = out.split("|")[1]
     log("[deliver] render job %s started" % job)
+    deadline = time.time() + 3 * 3600
+    nil_polls = 0
     while True:
+        if time.time() > deadline:
+            raise RuntimeError("render exceeded 3 hours — gave up polling")
         st = resolve_api.send("deliver-poll", """
 local proj = resolve:GetProjectManager():GetCurrentProject()
 local s = proj:GetRenderJobStatus('%s')
@@ -146,6 +170,17 @@ if s == nil then return 'nil|0' end
 return tostring(s.JobStatus) .. '|' .. tostring(s.CompletionPercentage or 0)
 """ % job, timeout=60)
         state, _, pct = st.partition("|")
+        if state == "nil":
+            # job status unavailable: the project changed under the poll or
+            # the job vanished — twelve strikes and it is a failure, not a
+            # wedged-forever worker (P5 review F8)
+            nil_polls += 1
+            if nil_polls >= 12:
+                raise RuntimeError("render job lost its status — did the "
+                                   "current project change mid-render?")
+            time.sleep(5)
+            continue
+        nil_polls = 0
         try:
             set_pct(max(5, min(99, int(float(pct or 0)))))
         except ValueError:

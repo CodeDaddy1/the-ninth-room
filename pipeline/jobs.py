@@ -153,6 +153,10 @@ def start(kind: str, slug: str) -> "dict":
         raise JobError("unknown job kind '%s'" % kind)
     if not (work_path(slug)).is_dir():
         raise JobError("no project '%s'" % slug)
+    if kind == "render":
+        from . import conform as conform_mod
+        if conform_mod.status(slug).get("state") == "running":
+            raise JobError("a conform is running — render after it")
     with _LOCK:
         for j in _jobs.values():
             if (j["kind"] == kind and j["slug"] == slug

@@ -1,48 +1,12 @@
-"""The Edit Room — a local review UI for grading the cut shot by shot.
+"""The Ninth Room ENGINE — API + media server on 127.0.0.1:8765.
 
-`/usr/bin/python3 -m pipeline.cli editroom <slug>` starts a localhost server
-and prints the URL. The page is a review desk: a sidebar lists every shot
-with its status dot, the main pane plays ONE shot at a time — approve or
-flag it and the desk auto-advances to the next unreviewed shot, so a full
-pass never requires scrolling a wall of cards. Decisions land in
-work/<slug>/review.json, which the shot-fixer agent consumes: it patches
-exactly the flagged beats, re-proxies them, and resets their status to
-"reworked" for re-review. Approved beats are never touched.
-
-Saving: every decision POSTs immediately; notes autosave ~1s after typing
-stops and flush on blur/navigate/close (sendBeacon). The header shows the
-live save state plus a Save button that flushes anything pending — the
-button is reassurance, the autosave is the mechanism.
-
-Serving video correctly matters: the proxy endpoint honors HTTP Range
-requests (206) — browsers require ranges to seek, and Safari refuses to
-play without them — and sends Cache-Control: no-store so a proxy fetched
-mid-render (the BT103 incident) can never stick in the browser cache.
-
-The Overlays desk (second tab, or /#overlays) edits cards with a LIVE
-animated preview — the kit is pure CSS, so an <iframe srcdoc> plays the real
-animation while you type, no bake needed to look. "Approve & Export" bakes
-the ProRes 4444 alpha .mov (cached when unchanged) into
-work/<slug>/exports/overlays/ under a human-readable name
-(BT04_transition_the-cockrell-butterfly-center.mov) for manual import onto a
-Resolve timeline, with Download and Reveal-in-Finder buttons. Exports are
-IMMUTABLE: a changed card gets a fresh _v2/_v3 filename and older versions
-are never touched — replacing or deleting media an NLE has imported is what
-makes clips flicker "Media Offline". Editing a
-timeline card writes graphics_plan.json through the schema validator (the
-2.5s chapter rule gates the form exactly like it gates the pipeline), and
-exporting one re-proxies its beat so the Shots desk keeps showing what will
-ship — flipping an approved beat back to re-review only when the pixels
-actually changed. Custom overlays (not on the timeline) live in
-overlays_custom.json and never touch the produce pipeline.
-
-Everything is local and $0: stdlib http.server, no build step, no cloud.
-The page is written fresh on every start, so UI changes ship by restarting.
-
-What breaks if this is wrong: review decisions get lost (the one file that
-matters is review.json — it is written atomically via replace) or the page
-shows stale proxies (the state endpoint re-reads the proxy dir every call,
-so a re-render shows up on refresh).
+The Studio (~/Projects/the-ninth-room-studio) is the one UI; the inline
+Edit Room page this module once served was retired in P5 (2026-08-23) and
+the root now answers with a pointer. What remains: the /api surface the
+desks and agents share, /media with Range support, the review lifecycle,
+the overlay/sound/b-roll direct-edit verbs, the conform ledger, and the
+job queue. review.json is written atomically and guarded by _REVIEW_LOCK;
+graphics_plan by _PLAN_LOCK; the conform ledger by _CONFORM_LOCK.
 """
 from __future__ import annotations
 

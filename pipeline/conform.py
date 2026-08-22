@@ -74,7 +74,13 @@ def status(slug: str) -> "dict":
 
 
 def start(slug: str) -> None:
-    """Kick off a conform in a background thread; one per slug at a time."""
+    """Kick off a conform in a background thread; one per slug at a time.
+    Refused while a render job runs — conform ops would edit the very
+    timeline Resolve is rendering (P5 review F10)."""
+    from . import jobs as jobs_mod
+    if any(j["kind"] == "render" and j["state"] in ("queued", "running")
+           for j in jobs_mod.jobs()):
+        raise ConformBusy("a master render is running — conform after it")
     with _RUN_LOCK:
         if _running.get(slug):
             raise ConformBusy("a conform is already running for %s" % slug)
