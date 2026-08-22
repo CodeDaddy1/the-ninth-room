@@ -436,6 +436,11 @@ def validate_graphics_plan(plan: "dict[str, Any]",
         # Sizing multipliers: numeric and sane, or named. The renderer also
         # clamps, but a plan carrying "font_scale": "big" should fail HERE,
         # not render silently at 1.0.
+        if "scrim" in c:
+            v = c["scrim"]
+            if not isinstance(v, (int, float)) or not 0 <= v <= 100:
+                errors.append("%s: scrim must be a number between 0 and 100"
+                              % where)
         for fld in ("font_scale", "card_scale"):
             if fld in c:
                 v = c[fld]

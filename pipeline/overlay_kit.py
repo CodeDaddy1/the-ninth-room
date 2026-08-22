@@ -1964,6 +1964,50 @@ RENDERERS = {
 }
 
 
+# The brand's own answer to bright footage: "a gradient scrim or the chalk
+# double-shadow — never a box." The shadow alone lost the fight against the
+# HMNS poster wall (Caleb, 2026-08-22), so full-frame screens now carry a
+# navy GRADIENT scrim behind their content — strongest where the type sits,
+# fading to nothing at the edges, faded in fast so it never pops late.
+# Per-card `scrim` (0-100) overrides the family default; 0 removes it.
+# Corner/pointer screens (stamp, callout, watermark), the transitions and
+# chapter sweeps (own treatments), glass (is one), and the meme pack (own
+# washes) stay scrim-free.
+SCRIM_CENTER = {"quiz", "true_false", "prediction", "countdown", "scale",
+                "poll", "vote", "this_that", "rank", "spot_it",
+                "caption_this", "streak", "verdict", "scoreboard",
+                "hook", "hook_title", "stat", "payoff", "quote",
+                "reaction", "outro", "end_plate", "takeaway", "next_room",
+                "emoji", "compare"}
+SCRIM_BAND = {"lower_third", "section", "caption_plate"}
+
+
+def _scrim_html(kind: "str", card: "dict", h: int) -> str:
+    try:
+        pct = float(card.get("scrim")) if card.get("scrim") is not None else None
+    except (TypeError, ValueError):
+        pct = None
+    if kind in SCRIM_CENTER:
+        a = (pct if pct is not None else 45.0) / 100.0
+        if a <= 0:
+            return ""
+        cy = 42 if h > 1200 else 38  # portrait content sits a touch lower
+        return ('<div style="position:absolute;inset:0;background:'
+                'radial-gradient(ellipse 78%% 62%% at 50%% %(cy)d%%,'
+                'rgba(11,35,64,%(a).2f),rgba(11,35,64,%(half).2f) 58%%,'
+                'rgba(11,35,64,0) 100%%);animation:yFade 240ms ease both">'
+                '</div>' % {"cy": cy, "a": a, "half": a * 0.45})
+    if kind in SCRIM_BAND:
+        a = (pct if pct is not None else 40.0) / 100.0
+        if a <= 0:
+            return ""
+        return ('<div style="position:absolute;left:0;right:0;bottom:0;'
+                'height:46%%;background:linear-gradient(to top,'
+                'rgba(11,35,64,%(a).2f) 30%%,rgba(11,35,64,0) 100%%);'
+                'animation:yFade 240ms ease both"></div>' % {"a": a})
+    return ""
+
+
 def overlay_html(card: "dict", w: int = 1920, h: int = 1080) -> str:
     """A full transparent page containing one overlay, ready to screenshot.
 
@@ -1986,6 +2030,9 @@ def overlay_html(card: "dict", w: int = 1920, h: int = 1080) -> str:
         # overflow:hidden.
         body = '<div style="zoom:%g;width:%dpx;height:%dpx;position:relative">%s</div>' % (
             cs, w, h, body)
+    # scrim sits OUTSIDE the card_scale zoom — it must cover the frame
+    # edge-to-edge no matter how the card itself is scaled
+    body = _scrim_html(kind, card, h) + body
     return """<!doctype html><html><head><meta charset="utf-8">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}

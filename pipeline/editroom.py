@@ -443,7 +443,9 @@ _EDITABLE = ("kicker", "text", "subtext", "subtext_italic", "emphasis",
              # per-card sizing (Overlays desk sliders)
              "font_scale", "card_scale",
              # meme pack subjects
-             "emoji", "emoji2", "image")
+             "emoji", "emoji2", "image",
+             # legibility scrim strength (0-100; 0 removes it)
+             "scrim")
 
 # Starter copy for a freshly created overlay, per kit screen. Keys must be
 # names overlay_kit.RENDERERS knows (the big emoji screen is "emoji").
