@@ -203,6 +203,18 @@ return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(proj:GetSetting(
 """ % {"proj": _lua_safe(meta_project), "tl": _lua_safe(meta_timeline)}, timeout=180)
     if prelude.startswith("ERR|"):
         raise RuntimeError(prelude[4:])
+    # RE-SYNC before trusting any placed position: card_replace probes the
+    # timeline at the SYNCED record_s, and a sync from yesterday targets
+    # wherever clips used to be (round-2 audit — the file was 21.6h old on
+    # the first real run's eve). The right project/timeline is current now,
+    # so this reads the truth of this minute.
+    st["stage"] = "sync"
+    _write_status(slug, st)
+    editroom._sync_timeline_cards(slug)
+    tc = json.loads(tc_path.read_text())
+    placed = tc.get("cards", {})
+    st["stage"] = "push"
+    _write_status(slug, st)
     _, tl_start_s, fps_s, _n_audio = prelude.split("|")
     tl_start = int(float(tl_start_s))
     # the REAL timeline rate (23.976 on hmns) — a hardcoded 24 drifted
