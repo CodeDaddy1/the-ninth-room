@@ -73,10 +73,13 @@ mechanical stages (ingest, assemble, re-proxy, conform, master render) run
 as engine JOBS from the Studio's buttons. The agents run in the Claude
 session for the creative stages and read what the desks write:
 
-- **Story loop**: "pitch stories for <slug>" → story-designer writes
-  `stories.json` (3 directions) → Caleb approves/redirects on the Story
-  desk (`story_feedback.json`) → "write the edit plan for <slug>" once
-  approved.
+- **Story loop**: the Story desk's Pitch button (or "pitch stories for
+  <slug>" in a session) → story-designer writes `stories.json` (3
+  directions) → Caleb approves/redirects on the Story desk
+  (`story_feedback.json`) → "write the edit plan for <slug>" once
+  approved. The button dispatches the same agent headless (jobs.py
+  `story` kind, fixer pattern); it refuses before ingest and after the
+  plan locks.
 - **Fixer round**: flagged beats in the Review queue carry Caleb's notes;
   "run the fixer on <slug>" acts on them surgically. The old needs tags
   are retired — b-roll, sfx, and cards are the desk's own direct tools.

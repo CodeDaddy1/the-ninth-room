@@ -172,6 +172,51 @@ def _run_fixer(slug, log, set_pct):
     set_pct(100)
 
 
+STORY_PROMPT = (
+    "Pitch stories for %(slug)s. Read .claude/agents/story-designer.md and "
+    "act as that agent: read work/%(slug)s/analysis/ (take transcripts and "
+    "the b-roll catalog) and the brand docs, and write "
+    "work/%(slug)s/stories.json with three distinct directions. If "
+    "work/%(slug)s/story_feedback.json has rounds, the LATEST round's notes "
+    "direct this round — honor them. Do NOT write edit_plan.json (that "
+    "needs an approving round on the Story desk), do NOT run conforms or "
+    "renders, and do NOT touch DaVinci Resolve. The engine is running on "
+    ":8765; leave it alone.")
+
+
+def _run_story(slug, log, set_pct):
+    """Dispatch the story-designer as a headless Claude Code session — the
+    same agent Caleb used to prompt by hand, now the desk's Pitch button.
+    Same pattern as the fixer: the proof of work is the artifact changing,
+    not the exit code."""
+    import subprocess
+    stories_path = work_path(slug) / "stories.json"
+    before = stories_path.stat().st_mtime if stories_path.exists() else None
+    log("[story] dispatching the story designer%s"
+        % (" — fresh round over existing pitches" if before else ""))
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p",
+         STORY_PROMPT % {"slug": slug},
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("story session exited %d — see the log" % rc)
+    after = stories_path.stat().st_mtime if stories_path.exists() else None
+    if after is None or after == before:
+        raise RuntimeError("session finished but stories.json did not "
+                           "change — read the log")
+    log("[story] pitches written — pick a direction on the Story desk")
+    set_pct(100)
+
+
 def _run_render(slug, log, set_pct):
     from . import deliver
     deliver.render_master(slug, log=log, set_pct=set_pct)
@@ -184,6 +229,7 @@ KINDS = {
     "reproxy": ("Re-proxy changed beats", _run_reproxy),
     "render": ("Render master — Resolve render queue", _run_render),
     "fixer": ("Fixer round — flagged beats to re-review", _run_fixer),
+    "story": ("Story pitches — three directions", _run_story),
 }
 
 
@@ -212,6 +258,11 @@ def start(kind: str, slug: str) -> "dict":
         from . import conform as conform_mod
         if conform_mod.status(slug).get("state") == "running":
             raise JobError("a conform is running — render after it")
+    if kind == "story":
+        if not (work_path(slug) / "analysis" / "catalog.json").exists():
+            raise JobError("ingest first — the designer needs transcripts")
+        if (work_path(slug) / "edit_plan.json").exists():
+            raise JobError("story is locked — an edit plan already exists")
     if kind == "fixer":
         rv = work_path(slug) / "review.json"
         n = 0
