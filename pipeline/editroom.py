@@ -338,8 +338,11 @@ def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
 
 
 def _broll_detach(slug: str, beat_id: str, clip_id: str, at: float,
-                  log=print) -> "dict":
-    """Remove one placed cover (matched by clip + beat-relative start)."""
+                  record_s: "float | None" = None, log=print) -> "dict":
+    """Remove one placed cover. The drawer passes the row's EXACT record_s
+    (state rounds beat starts to one decimal, so a beat-relative `at`
+    computed client-side can be off by up to 0.05 — exactly the old
+    tolerance; P3 review finding 17 measured BT63 failing on it)."""
     with _EDITPLAN_LOCK:
         work = work_path(slug)
         tm_path = work / "analysis" / "timeline_map.json"
@@ -348,10 +351,12 @@ def _broll_detach(slug: str, beat_id: str, clip_id: str, at: float,
         if beat_id not in beats:
             raise IngestError("beat '%s' not in the timeline" % beat_id)
         beat = beats[beat_id]
-        rec = round(beat["record_s"] + float(at), 3)
+        rec = (round(float(record_s), 3) if record_s is not None
+               else round(beat["record_s"] + float(at), 3))
+        tol = 0.02 if record_s is not None else 0.06
         gone = None
         for br in list(beat.get("broll", [])):
-            if br.get("clip_id") == clip_id and abs(br["record_s"] - rec) < 0.05:
+            if br.get("clip_id") == clip_id and abs(br["record_s"] - rec) < tol:
                 beat["broll"].remove(br)
                 gone = br
                 break
@@ -361,8 +366,9 @@ def _broll_detach(slug: str, beat_id: str, clip_id: str, at: float,
         plan = json.loads(ep_path.read_text())
         for b in plan["beats"]:
             if b["id"] == beat_id:
+                rel = round(gone["record_s"] - beat["record_s"], 3)
                 for br in list(b.get("broll", [])):
-                    if br.get("clip_id") == clip_id and abs(float(br.get("at", -1)) - float(at)) < 0.05:
+                    if br.get("clip_id") == clip_id and abs(float(br.get("at", -1)) - rel) < 0.06:
                         b["broll"].remove(br)
                         break
                 break
@@ -872,11 +878,14 @@ def _delete_overlay_locked(slug, card_id):
             dict(c, removed_ts=int(time.time())) for c in gone)
         _write_json(rm_path, removed)
         source = "plan"
-    exp = _export_state(slug)
-    exp.pop(card_id, None)
-    # exported files stay on disk — Resolve may reference them (immutability
-    # rule above); Caleb trashes unwanted versions from Finder himself
-    _write_json(_exports_dir(slug) / ".export_hashes.json", exp)
+    with _BAKE_LOCK:
+        # same lock as _export_overlay's sidecar writes — two different
+        # locks on one read-modify-write file is no lock at all (finding 6)
+        exp = _export_state(slug)
+        exp.pop(card_id, None)
+        # exported files stay on disk — Resolve may reference them
+        # (immutability rule above); Caleb trashes unwanted versions himself
+        _write_json(_exports_dir(slug) / ".export_hashes.json", exp)
     return {"source": source}
 
 
@@ -998,21 +1007,24 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
                         # "edited — check the result" (decision 05); a
                         # flagged beat is already at the top and stays put
                         _save_review(slug, bid, {"status": "edited"})
-            # queue the Resolve-side work (decision 10): a card already on
-            # the timeline needs its clip swapped to the new _vN file; a new
-            # card needs placing. P3's conform executes these.
-            tc_path = work / "timeline_cards.json"
-            placed_ids = []
-            if tc_path.exists():
-                try:
-                    placed_ids = json.loads(tc_path.read_text()).get("cards", [])
-                except ValueError:
-                    pass
-            _conform_append(slug,
-                            "card_replace" if card_id in placed_ids
-                            else "card_place",
-                            card.get("beat_id") or "",
-                            {"card_id": card_id, "file": name})
+        # queue the Resolve-side work (decision 10) for EVERY fresh export —
+        # custom cards (OV01-04) and prebaked ones are placed in the live
+        # timeline too, and gating this on source=='plan' let their edits
+        # silently never reach Resolve (P3 review finding 3). A new card
+        # with no beat can't be auto-placed; its op fails with a clear
+        # place-it-by-hand reason instead of vanishing.
+        tc_path = work / "timeline_cards.json"
+        placed_ids = []
+        if tc_path.exists():
+            try:
+                placed_ids = json.loads(tc_path.read_text()).get("cards", [])
+            except ValueError:
+                pass
+        _conform_append(slug,
+                        "card_replace" if card_id in placed_ids
+                        else "card_place",
+                        card.get("beat_id") or "",
+                        {"card_id": card_id, "file": name})
         return result
 
 
@@ -2127,8 +2139,10 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                       float(body.get("src_s", 0)), log=log)
                 self._send(200, {"ok": True, "placed": entry})
             elif self.path == "/api/broll/remove":
+                rs = body.get("record_s")
                 gone = _broll_detach(self._slug_b(body), body["beat_id"],
                                      body["clip_id"], float(body.get("at", 0)),
+                                     record_s=(float(rs) if rs is not None else None),
                                      log=log)
                 self._send(200, {"ok": True, "removed": gone})
             elif self.path == "/api/conform/start":

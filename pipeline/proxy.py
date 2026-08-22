@@ -245,7 +245,18 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
     return out_path
 
 
+_BUILD_LOCK = __import__("threading").Lock()
+
+
 def build(slug: str, only_beats: "list | None" = None, log=print) -> "dict":
+    # One build at a time: build() sweeps ALL _tmp orphans on entry, so a
+    # desk-triggered build during a long conform deleted the conform's
+    # in-flight ffmpeg temp (P3 review finding 4)
+    with _BUILD_LOCK:
+        return _build_locked(slug, only_beats, log)
+
+
+def _build_locked(slug, only_beats=None, log=print):
     """Render proxies for all (or named) beats. Returns {beat_id: proxy path}."""
     tl, catalog, caps, cards_by_beat, cues_by_beat = _load(slug)
     proxy_dir = work_path(slug) / "proxies"

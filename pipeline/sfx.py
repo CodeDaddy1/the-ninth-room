@@ -309,8 +309,13 @@ def cues(slug: str) -> "list":
 
 def _cues_save(slug: str, rows: "list") -> None:
     p = _cues_path(slug)
+    # preserve the never-recycle id counter across removals
+    nxt = 1
+    if p.exists():
+        nxt = int(json.loads(p.read_text()).get("next", 1))
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"cues": rows}, indent=2, ensure_ascii=False))
+    tmp.write_text(json.dumps({"cues": rows, "next": nxt},
+                              indent=2, ensure_ascii=False))
     os.replace(tmp, p)
 
 
@@ -325,15 +330,21 @@ def _place_locked(slug, beat_id, file, at_ms, gain_db):
     src = SFX_DIR / file
     if not (src.is_file() and src.suffix.lower() in AUDIO_EXT):
         raise SfxError("'%s' is not a library sound" % file)
-    rows = cues(slug)
-    n = 1
-    taken = {c["id"] for c in rows}
-    while "SC%03d" % n in taken:
-        n += 1
+    p = _cues_path(slug)
+    data = json.loads(p.read_text()) if p.exists() else {"cues": []}
+    rows = data.get("cues", [])
+    # ids NEVER recycle: conform cancels place/remove pairs by cue id, and
+    # a reused id pairs a new placement with an old removal (P3 review
+    # finding 5) — the counter survives deletions
+    n = max([int(data.get("next", 1))] +
+            [int(c["id"][2:]) + 1 for c in rows if c["id"].startswith("SC")])
     cue = {"id": "SC%03d" % n, "beat_id": beat_id, "file": file,
            "at_ms": int(at_ms), "gain_db": float(gain_db)}
     rows.append(cue)
-    _cues_save(slug, rows)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"cues": rows, "next": n + 1},
+                              indent=2, ensure_ascii=False))
+    os.replace(tmp, p)
     return cue
 
 

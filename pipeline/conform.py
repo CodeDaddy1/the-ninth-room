@@ -28,9 +28,19 @@ import time
 
 from .ingest import work_path
 
-FPS = 24
 _RUN_LOCK = threading.Lock()
 _running = {}
+
+
+def _lua_safe(text):
+    """Strings are %-interpolated into single-quoted Lua and the bridge
+    forbids backslash escapes — a quote or newline cannot be escaped, only
+    refused (finding 11: an apostrophe in a renamed project would turn
+    every op into a Lua syntax error)."""
+    t = str(text)
+    if "'" in t or "\n" in t or "\\" in t:
+        raise RuntimeError("name not usable over the bridge (quote/backslash): %r" % t)
+    return t
 
 
 class ConformBusy(Exception):
@@ -93,7 +103,8 @@ def _pair_key(o):
     p = o["payload"]
     if o["op"].startswith("sfx_"):
         return ("sfx", p.get("id"))
-    return ("broll", p.get("file"), round(float(p.get("record_s", -1)), 2))
+    return ("broll", p.get("file"), round(float(p.get("record_s", -1)), 2),
+            round(float(p.get("src_s", 0)), 2), round(float(p.get("duration", 0)), 2))
 
 
 def _collapse_ops(ops):
@@ -141,16 +152,20 @@ def _run(slug):
     stale = _stale_cards(slug)
     st["export_total"] = len(stale)
     _write_status(slug, st)
+    st["export_failures"] = []
     for cid in stale:
-        editroom._export_overlay(slug, cid, log=lambda *a: None)
+        try:
+            editroom._export_overlay(slug, cid, log=lambda *a: None)
+        except Exception as e:
+            st["export_failures"].append({"card": cid, "error": str(e)[:200]})
         st["exported"] += 1
         _write_status(slug, st)
 
     # --- stage 2: the ledger via the bridge ------------------------------
     st["stage"] = "push"
     _write_status(slug, st)
-    ops = editroom._conform_pending(slug)
-    ops = _collapse_ops(ops)
+    raw_ops = editroom._conform_pending(slug)
+    ops = _collapse_ops(raw_ops)
     if not ops:
         st.update({"state": "done", "stage": "done"})
         _write_status(slug, st)
@@ -184,18 +199,20 @@ if tl == nil or tl:GetName() ~= '%(tl)s' then
   end
 end
 if tl == nil or tl:GetName() ~= '%(tl)s' then return 'ERR|timeline %(tl)s not found' end
-return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(tl:GetTrackCount('audio'))
-""" % {"proj": meta_project, "tl": meta_timeline}, timeout=180)
+return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(proj:GetSetting('timelineFrameRate')) .. '|' .. tostring(tl:GetTrackCount('audio'))
+""" % {"proj": _lua_safe(meta_project), "tl": _lua_safe(meta_timeline)}, timeout=180)
     if prelude.startswith("ERR|"):
         raise RuntimeError(prelude[4:])
-    _, tl_start_s, _n_audio = prelude.split("|")
+    _, tl_start_s, fps_s, _n_audio = prelude.split("|")
     tl_start = int(float(tl_start_s))
+    # the REAL timeline rate (23.976 on hmns) — a hardcoded 24 drifted
+    # placements ~18 frames by the episode's end (P3 review finding 1)
+    fps = float(fps_s) or 24.0
     sfx_track = [None]  # created lazily on first sfx_place
 
     def frame(sec):
-        return tl_start + int(round(float(sec) * FPS))
+        return tl_start + int(round(float(sec) * fps))
 
-    done_ids = []
     for i, o in enumerate(ops):
         op, payload, bid = o["op"], o["payload"], o.get("beat_id", "")
         entry = {"op": op, "beat_id": bid, "result": "pending",
@@ -203,6 +220,10 @@ return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(tl:GetTrackCount
         st["ops"].append(entry)
         _write_status(slug, st)
         try:
+            if op == "card_place" and payload.get("card_id") in placed:
+                # placed by hand (and synced) since the export queued this —
+                # a second copy on V3 would be worse than a swap
+                op = "card_replace"
             if op == "card_replace":
                 cid = payload["card_id"]
                 info = placed.get(cid)
@@ -223,7 +244,7 @@ for _, it in ipairs(items) do
 end
 return 'ERR|no item at frame %(f)d on V%(track)d'
 """ % {"track": track_idx, "f": target_frame + 1,
-       "path": exports_dir + "/" + payload["file"]}, timeout=120)
+       "path": _lua_safe(exports_dir + "/" + payload["file"])}, timeout=120)
             elif op in ("card_place", "sfx_place", "broll_attach"):
                 if op == "card_place":
                     cid = payload["card_id"]
@@ -231,24 +252,25 @@ return 'ERR|no item at frame %(f)d on V%(track)d'
                     if not card.get("beat_id"):
                         raise RuntimeError("card %s has no beat — place it in Resolve by hand" % cid)
                     abs_s = beat_start[card["beat_id"]] + float(card.get("at", 0))
-                    dur_frames = int(round(float(card["duration"]) * FPS))
+                    dur_frames = int(round(float(card["duration"]) * fps))
                     path = exports_dir + "/" + payload["file"]
                     track_expr = "3"
                     media_type = ""
                 elif op == "sfx_place":
                     abs_s = beat_start[bid] + payload["at_ms"] / 1000.0
                     row = sfx_mod._manifest_load()["files"].get(payload["file"], {})
-                    dur_frames = max(1, int(round(float(row.get("length") or 1.0) * FPS)))
                     path = str(sfx_mod.SFX_DIR / payload["file"])
+                    length_s = float(row.get("length") or 0) or sfx_mod._probe_len(path) or 1.0
+                    dur_frames = max(1, int(round(length_s * fps)))
                     track_expr = "SFXTRACK"
                     media_type = ", mediaType = 2"
                 else:  # broll_attach
                     abs_s = float(payload["record_s"])
-                    dur_frames = int(round(float(payload["duration"]) * FPS))
+                    dur_frames = int(round(float(payload["duration"]) * fps))
                     path = footage_dir + "/" + payload["file"]
                     track_expr = "2"
                     media_type = ""
-                start_frame = 0 if op != "broll_attach" else int(round(float(payload.get("src_s", 0)) * FPS))
+                start_frame = 0 if op != "broll_attach" else int(round(float(payload.get("src_s", 0)) * fps))
                 mk_track = ""
                 if track_expr == "SFXTRACK":
                     if sfx_track[0] is None:
@@ -281,7 +303,8 @@ end
 local items = mp:AppendToTimeline({{mediaPoolItem = clip, startFrame = %(sf)d, endFrame = %(ef)d, trackIndex = %(track)s, recordFrame = %(rf)d%(mt)s}})
 if items == nil or #items == 0 then return 'ERR|append failed' end
 return 'OK|placed@' .. tostring(items[1]:GetStart())
-""" % {"mk_track": mk_track, "base": os.path.basename(path), "path": path,
+""" % {"mk_track": mk_track, "base": _lua_safe(os.path.basename(path)),
+       "path": _lua_safe(path),
        "sf": start_frame, "ef": start_frame + dur_frames - 1,
        "track": track_expr, "rf": frame(abs_s), "mt": media_type},
                     timeout=180)
@@ -303,14 +326,13 @@ for t = 1, tl:GetTrackCount('%(kind)s') do
   end
 end
 return 'ERR|no %(kind)s item named %(base)s at frame %(f)d'
-""" % {"kind": kind, "f": frame(abs_s) + 1, "base": base}, timeout=120)
+""" % {"kind": kind, "f": frame(abs_s) + 1, "base": _lua_safe(base)}, timeout=120)
             else:
                 raise RuntimeError("unknown op %s" % op)
             if out.startswith("ERR|"):
                 raise RuntimeError(out[4:])
             entry["result"] = "done"
             entry["note"] = out[3:]
-            done_ids.append(o)
         except Exception as e:
             entry["result"] = "failed"
             entry["note"] = str(e)[:200]
@@ -325,8 +347,13 @@ return 'saved'
         editroom._sync_timeline_cards(slug)
     except Exception:
         pass
-    remaining = [o for o in editroom._conform_pending(slug) if o not in done_ids]
+    failed_ops = [o for o, e in zip(ops, st["ops"]) if e["result"] == "failed"]
     with editroom._CONFORM_LOCK:
+        # everything read at stage-2 start clears — executed, failed (they
+        # re-queue below), and collapsed-away pairs alike (finding 2: those
+        # never cleared and the count could never reach zero again)
+        fresh = editroom._conform_pending(slug)
+        remaining = [o for o in fresh if o not in raw_ops] + failed_ops
         path = work / "pending_conform.json"
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"ops": remaining}, indent=2))
