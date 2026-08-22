@@ -113,6 +113,13 @@ def beat_spec(beat: "dict", caption_text: str, cards: "list",
                 sigs[c["id"]] = [int(st.st_mtime), st.st_size]
         if sigs:
             spec["gfx_sig"] = sigs
+    if slug and caption_text:
+        # symmetric with gfx_sig: a caption mov re-baked with unchanged text
+        # (orientation fix, whisper re-alignment) must re-key its proxy too
+        cap = work_path(slug) / "captions" / ("%s.mov" % beat["id"])
+        if cap.exists():
+            st = cap.stat()
+            spec["cap_sig"] = [int(st.st_mtime), st.st_size]
     return spec
 
 
@@ -138,7 +145,8 @@ def _spec_body(beat, caption_text, cards, tl_mod, captions_mod, animate_mod):
 
 def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
                 cards: "list", out_path: Path, cues: "list | None" = None,
-                log=print) -> Path:
+                dims: "tuple | None" = None, log=print) -> Path:
+    pw, ph = dims or (W, H)
     work = work_path(slug)
     src = catalog[beat["file"]]["path"]
     rec0 = beat["record_s"]
@@ -208,7 +216,7 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
         fc.append("[%d:v]scale=%d:%d,fps=24,setsar=1,trim=end_frame=%d,"
                   "setpts=PTS-STARTPTS[v%d];[%d:a]atrim=start=0:end=%.3f,"
                   "asetpts=PTS-STARTPTS,aformat=sample_rates=48000:"
-                  "channel_layouts=stereo[a%d]" % (i, W, H, n_frames, i, i, seg_dur, i))
+                  "channel_layouts=stereo[a%d]" % (i, pw, ph, n_frames, i, i, seg_dur, i))
     fc.append("%sconcat=n=%d:v=1:a=1[base][aud]"
               % ("".join("[v%d][a%d]" % (i, i) for i in seg_labels), n_seg))
     cur = "base"
@@ -216,10 +224,10 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
         lbl = "ov%d" % j
         if kind == "broll":
             fc.append("[%d:v]scale=%d:%d,fps=24,setsar=1,setpts=PTS-STARTPTS+%.3f/TB[%s]"
-                      % (k, W, H, max(at, 0.0), lbl))
+                      % (k, pw, ph, max(at, 0.0), lbl))
         else:
             fc.append("[%d:v]scale=%d:%d,fps=24,setpts=PTS-STARTPTS+%.3f/TB[%s]"
-                      % (k, W, H, max(at, 0.0), lbl))
+                      % (k, pw, ph, max(at, 0.0), lbl))
         nxt = "m%d" % j
         fc.append("[%s][%s]overlay=0:0:eof_action=pass[%s]" % (cur, lbl, nxt))
         cur = nxt
@@ -227,7 +235,7 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
         # a visible badge beats a silent absence
         txt = "overlay not baked: " + ",".join(missing[:3])
         fc.append("[%s]drawbox=x=8:y=8:w=%d:h=26:color=black@0.6:t=fill[%s]"
-                  % (cur, min(10 + 7 * len(txt), W - 16), "bdg"))
+                  % (cur, min(10 + 7 * len(txt), pw - 16), "bdg"))
         cur = "bdg"
 
     # --- sound cues: mixed UNDER the voice (decision 06 — proxies carry the
@@ -273,6 +281,14 @@ def build(slug: str, only_beats: "list | None" = None, log=print) -> "dict":
         return _build_locked(slug, only_beats, log)
 
 
+def _proxy_dims(tl):
+    # the Review proxy canvas must follow the project, or a portrait project
+    # replays the stretch incident on the other axis (review finding 6)
+    if tl.get("orientation") == "portrait":
+        return 480, 854
+    return W, H
+
+
 def _build_locked(slug, only_beats=None, log=print):
     """Render proxies for all (or named) beats. Returns {beat_id: proxy path}."""
     tl, catalog, caps, cards_by_beat, cues_by_beat = _load(slug)
@@ -294,7 +310,7 @@ def _build_locked(slug, only_beats=None, log=print):
             for stale in proxy_dir.glob("%s.*.mp4" % bid):
                 stale.unlink()
             render_beat(slug, beat, catalog, caps.get(bid, ""), cards, out,
-                        cues=cues, log=log)
+                        cues=cues, dims=_proxy_dims(tl), log=log)
             fresh += 1
             log("[proxy] %s rendered (%.1fs)" % (bid, beat["record_e"] - beat["record_s"]))
         result[bid] = str(out)

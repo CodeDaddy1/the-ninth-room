@@ -376,7 +376,8 @@ def _brand_copy_errors(card: "dict[str, Any]", where: str) -> "list[str]":
 
 
 def validate_graphics_plan(plan: "dict[str, Any]",
-                           edit_plan: "dict[str, Any] | None" = None) -> "list[str]":
+                           edit_plan: "dict[str, Any] | None" = None,
+                           beat_lens: "dict | None" = None) -> "list[str]":
     """graphics_plan.json — the graphics-director's card list. When edit_plan
     is given, beat references are cross-checked too."""
     errors: "list[str]" = []
@@ -397,6 +398,15 @@ def validate_graphics_plan(plan: "dict[str, Any]",
         if _req(errors, c, "type", str, where) and c["type"] not in CARD_TYPES:
             errors.append("%s: type '%s' not in %s" % (where, c["type"], CARD_TYPES))
         _req(errors, c, "beat_id", str, where)
+        # a card whose `at` overruns its beat is composited into NO proxy
+        # (invisible in Review) while landing mid-NEXT-beat in Resolve —
+        # the exact divergence proxies exist to prevent (review finding 11)
+        if beat_lens and isinstance(c.get("at"), (int, float)):
+            blen = beat_lens.get(c.get("beat_id"))
+            if blen is not None and c["at"] > blen - 0.05:
+                errors.append("%s: at %.2fs is past the end of %s (%.2fs) - "
+                              "re-home the card to the beat it overlays"
+                              % (where, c["at"], c.get("beat_id"), blen))
         if beat_ids and c.get("beat_id") not in beat_ids:
             errors.append("%s: unknown beat '%s'" % (where, c.get("beat_id")))
         for key in ("at", "duration"):

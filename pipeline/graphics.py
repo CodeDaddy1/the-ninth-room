@@ -266,11 +266,21 @@ def build_cards(slug: str, orientation: "str | None" = None,
     plan = json.loads(plan_path.read_text())
     if orientation is None:
         # a hardcoded "portrait" default baked 34 landscape cards in portrait
-        # layout when a maintenance script omitted the arg — the proxies then
-        # composited them stretched (2026-08-22). The plan knows better.
-        orientation = plan.get("orientation") or "landscape"
+        # layout when a maintenance script omitted the arg (2026-08-22).
+        # timeline_map.json is where orientation truly lives — the same file
+        # editroom._orientation reads; graphics_plan never carries it.
+        tm_path = work / "analysis" / "timeline_map.json"
+        orientation = "landscape"
+        if tm_path.exists():
+            orientation = json.loads(tm_path.read_text()).get(
+                "orientation", "landscape")
     from . import schemas
-    errors = schemas.validate_graphics_plan(plan)
+    tm_p = work / "analysis" / "timeline_map.json"
+    lens = None
+    if tm_p.exists():
+        lens = {b["id"]: round(b["record_e"] - b["record_s"], 3)
+                for b in json.loads(tm_p.read_text()).get("beats", [])}
+    errors = schemas.validate_graphics_plan(plan, beat_lens=lens)
     if errors:
         raise IngestError("graphics_plan failed validation:\n  " + "\n  ".join(errors))
 

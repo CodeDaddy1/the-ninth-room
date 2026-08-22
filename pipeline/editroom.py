@@ -784,6 +784,14 @@ def _save_overlay(slug: str, card_id: str, updates: "dict") -> "dict":
         return _save_overlay_locked(slug, card_id, updates)
 
 
+def _beat_lens(slug: str) -> "dict":
+    p = work_path(slug) / "analysis" / "timeline_map.json"
+    if not p.exists():
+        return {}
+    return {b["id"]: round(b["record_e"] - b["record_s"], 3)
+            for b in json.loads(p.read_text()).get("beats", [])}
+
+
 def _save_overlay_locked(slug, card_id, updates):
     """Persist edits; a timeline card re-validates the WHOLE plan (the 2.5s
     chapter rule etc. gate edits exactly like they gate the pipeline)."""
@@ -796,7 +804,8 @@ def _save_overlay_locked(slug, card_id, updates):
             if c["id"] == card_id:
                 merged = _merge_edits(c, updates)
                 plan["cards"][i] = merged
-                errors = schemas.validate_graphics_plan(plan)
+                errors = schemas.validate_graphics_plan(
+                    plan, beat_lens=_beat_lens(slug))
                 if errors:
                     raise IngestError("; ".join(errors))
                 _write_json(gp, plan)
