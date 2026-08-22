@@ -289,9 +289,14 @@ def plan_beats(slug: str) -> "dict":
             dur = grid.snap(min(br["duration"], clip["duration"], record - at))
             if dur <= 0 or at >= record:
                 continue
-            # sample the clip from 10% in — DJI clips often start with a ramp
-            src_off = grid.snap(min(clip["duration"] * 0.1,
-                                    max(0.0, clip["duration"] - dur)))
+            # honor a desk-set in-point (the P3 trim strip writes src_s);
+            # otherwise sample from 10% in — DJI clips often start with a ramp
+            if br.get("src_s") is not None:
+                src_off = grid.snap(min(float(br["src_s"]),
+                                        max(0.0, clip["duration"] - dur)))
+            else:
+                src_off = grid.snap(min(clip["duration"] * 0.1,
+                                        max(0.0, clip["duration"] - dur)))
             broll_out.append({"clip_id": br["clip_id"], "file": clip["file"],
                               "record_s": at, "duration": dur, "src_s": src_off})
 

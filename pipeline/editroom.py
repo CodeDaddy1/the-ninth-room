@@ -122,6 +122,9 @@ def _state(slug: str) -> "dict":
             "caption": caps.get(beat["id"], ""),
             "cards": cards_by_beat.get(beat["id"], []),
             "broll": [br["clip_id"] for br in pb.get("broll", [])],
+            # full placement rows from the TIMELINE beat - the b-roll drawer
+            # lists and removes covers by these (record_s is absolute)
+            "broll_placed": beat.get("broll", []),
             "proxy": proxies.get(beat["id"]),
             "review": review.get(beat["id"], {}),
         }
@@ -271,6 +274,108 @@ def _sfx_remove(slug: str, cue_id: str, log=print) -> "dict":
     proxy_mod.build(slug, only_beats=[gone["beat_id"]], log=log)
     _conform_append(slug, "sfx_remove", gone["beat_id"], gone)
     _mark_edited(slug, gone["beat_id"])
+    return gone
+
+
+_EDITPLAN_LOCK = threading.Lock()
+
+
+def _broll_catalog(slug: str) -> "list":
+    p = work_path(slug) / "analysis" / "broll.json"
+    if not p.exists():
+        return []
+    return json.loads(p.read_text()).get("clips", [])
+
+
+def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
+                  duration: float, src_s: float, log=print) -> "dict":
+    """Cover part of a beat with b-roll, everywhere it matters at once:
+    edit_plan (so future assembles keep it), timeline_map (so the proxy
+    renders it NOW), the conform ledger (so Resolve gets it on push), and
+    the review queue (decision 05). Audio always stays with the take."""
+    clips = {c["id"]: c for c in _broll_catalog(slug)}
+    if clip_id not in clips:
+        raise IngestError("unknown b-roll clip '%s'" % clip_id)
+    clip = clips[clip_id]
+    with _EDITPLAN_LOCK:
+        work = work_path(slug)
+        tm_path = work / "analysis" / "timeline_map.json"
+        tm = json.loads(tm_path.read_text())
+        beats = {b["id"]: b for b in tm["beats"]}
+        if beat_id not in beats:
+            raise IngestError("beat '%s' not in the timeline" % beat_id)
+        beat = beats[beat_id]
+        beat_len = beat["record_e"] - beat["record_s"]
+        at = max(0.0, min(float(at), beat_len - 0.2))
+        src_s = max(0.0, min(float(src_s), clip["duration"] - 0.2))
+        duration = max(0.2, min(float(duration), clip["duration"] - src_s,
+                                beat_len - at))
+        entry_plan = {"clip_id": clip_id, "at": round(at, 3),
+                      "duration": round(duration, 3), "src_s": round(src_s, 3)}
+        entry_map = {"clip_id": clip_id, "file": clip["file"],
+                     "record_s": round(beat["record_s"] + at, 3),
+                     "duration": round(duration, 3), "src_s": round(src_s, 3)}
+        ep_path = work / "edit_plan.json"
+        plan = json.loads(ep_path.read_text())
+        for b in plan["beats"]:
+            if b["id"] == beat_id:
+                b.setdefault("broll", []).append(entry_plan)
+                break
+        else:
+            raise IngestError("beat '%s' not in the edit plan" % beat_id)
+        tmp = ep_path.with_suffix(".ep.tmp")
+        tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+        os.replace(tmp, ep_path)
+        beat.setdefault("broll", []).append(entry_map)
+        tmp = tm_path.with_suffix(".tm.tmp")
+        tmp.write_text(json.dumps(tm, indent=2))
+        os.replace(tmp, tm_path)
+    from . import proxy as proxy_mod
+    proxy_mod.build(slug, only_beats=[beat_id], log=log)
+    _conform_append(slug, "broll_attach", beat_id, entry_map)
+    _mark_edited(slug, beat_id)
+    return entry_map
+
+
+def _broll_detach(slug: str, beat_id: str, clip_id: str, at: float,
+                  log=print) -> "dict":
+    """Remove one placed cover (matched by clip + beat-relative start)."""
+    with _EDITPLAN_LOCK:
+        work = work_path(slug)
+        tm_path = work / "analysis" / "timeline_map.json"
+        tm = json.loads(tm_path.read_text())
+        beats = {b["id"]: b for b in tm["beats"]}
+        if beat_id not in beats:
+            raise IngestError("beat '%s' not in the timeline" % beat_id)
+        beat = beats[beat_id]
+        rec = round(beat["record_s"] + float(at), 3)
+        gone = None
+        for br in list(beat.get("broll", [])):
+            if br.get("clip_id") == clip_id and abs(br["record_s"] - rec) < 0.05:
+                beat["broll"].remove(br)
+                gone = br
+                break
+        if gone is None:
+            raise IngestError("no %s cover at %.1fs on %s" % (clip_id, at, beat_id))
+        ep_path = work / "edit_plan.json"
+        plan = json.loads(ep_path.read_text())
+        for b in plan["beats"]:
+            if b["id"] == beat_id:
+                for br in list(b.get("broll", [])):
+                    if br.get("clip_id") == clip_id and abs(float(br.get("at", -1)) - float(at)) < 0.05:
+                        b["broll"].remove(br)
+                        break
+                break
+        tmp = ep_path.with_suffix(".ep.tmp")
+        tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+        os.replace(tmp, ep_path)
+        tmp = tm_path.with_suffix(".tm.tmp")
+        tmp.write_text(json.dumps(tm, indent=2))
+        os.replace(tmp, tm_path)
+    from . import proxy as proxy_mod
+    proxy_mod.build(slug, only_beats=[beat_id], log=log)
+    _conform_append(slug, "broll_remove", beat_id, gone)
+    _mark_edited(slug, beat_id)
     return gone
 
 
@@ -1828,13 +1933,30 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 if lslug and _valid_slug(lslug):
                     lib["cues"] = sfx_mod.cues(lslug)
                 self._send(200, lib)
+            elif self.path.startswith("/api/broll/catalog"):
+                qs = self._qs()
+                bslug = qs.get("slug", [""])[0]
+                if not _valid_slug(bslug):
+                    self._send(400, {"error": "bad slug"})
+                    return
+                self._send(200, {"clips": _broll_catalog(bslug)})
+            elif self.path.startswith("/api/conform/status"):
+                from . import conform as conform_mod
+                qs = self._qs()
+                cslug = qs.get("slug", [""])[0]
+                if not _valid_slug(cslug):
+                    self._send(400, {"error": "bad slug"})
+                    return
+                self._send(200, conform_mod.status(cslug))
             elif self.path.startswith("/api/conform/pending"):
                 qs = self._qs()
                 cslug = qs.get("slug", [""])[0]
                 if not _valid_slug(cslug):
                     self._send(400, {"error": "bad slug"})
                     return
-                self._send(200, {"ops": _conform_pending(cslug)})
+                from . import conform as conform_mod
+                self._send(200, {"ops": _conform_pending(cslug),
+                                 "stale": len(conform_mod._stale_cards(cslug))})
             elif self.path.startswith("/media/"):
                 parts = self.path.split("?")[0].split("/")
                 # /media/<slug>/sfxlib/<category>/<file> — the sound library
@@ -1997,6 +2119,24 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     gone = _sfx_remove(self._slug_b(body), body["cue_id"], log=log)
                     self._send(200, {"ok": True, "removed": gone})
                 except sfx_mod.SfxError as e:
+                    self._send(400, {"error": str(e)})
+            elif self.path == "/api/broll/attach":
+                entry = _broll_attach(self._slug_b(body), body["beat_id"],
+                                      body["clip_id"], float(body.get("at", 0)),
+                                      float(body.get("duration", 4)),
+                                      float(body.get("src_s", 0)), log=log)
+                self._send(200, {"ok": True, "placed": entry})
+            elif self.path == "/api/broll/remove":
+                gone = _broll_detach(self._slug_b(body), body["beat_id"],
+                                     body["clip_id"], float(body.get("at", 0)),
+                                     log=log)
+                self._send(200, {"ok": True, "removed": gone})
+            elif self.path == "/api/conform/start":
+                from . import conform as conform_mod
+                try:
+                    conform_mod.start(self._slug_b(body))
+                    self._send(200, {"ok": True})
+                except conform_mod.ConformBusy as e:
                     self._send(400, {"error": str(e)})
             elif self.path == "/api/review/archive_resolved":
                 n = _archive_resolved_reviews(self._slug_b(body))

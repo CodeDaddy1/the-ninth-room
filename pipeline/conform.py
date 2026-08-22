@@ -1,0 +1,336 @@
+# -*- coding: utf-8 -*-
+"""Conform: push the desk's batched edits into the Resolve timeline.
+
+Two stages (plan decision 10 + the Complete Suite Audit's G1 amendment):
+
+1. **Export the stale set.** Every card whose bake key moved since its last
+   export re-bakes; each fresh export appends its own card_place /
+   card_replace op to the ledger (editroom._export_overlay does that).
+2. **Execute the ledger** through the bridge, one op at a time, additive
+   inserts and clip replacements ONLY — restructures stay agent territory:
+   - card_replace: find the placed item at its synced record position on
+     its synced track, ReplaceClip to the new export file.
+   - card_place / sfx_place / broll_attach: AppendToTimeline at the exact
+     record frame (S3 spike: works in free Resolve, audio via mediaType 2).
+   - sfx_remove / broll_remove: find the item by position + basename,
+     DeleteClips.
+
+Runs as a background thread with a polled status file — a conform can take
+many minutes (33 stale exports at UHD) and one long POST would trip the
+proxy's timeout and the ECONNRESET race (P2 review finding 14). Successful
+ops leave the ledger; failed ops stay with their error so nothing is
+silently dropped. Ends with a timeline re-sync and a project save.
+"""
+import json
+import os
+import threading
+import time
+
+from .ingest import work_path
+
+FPS = 24
+_RUN_LOCK = threading.Lock()
+_running = {}
+
+
+class ConformBusy(Exception):
+    pass
+
+
+def _status_path(slug):
+    return work_path(slug) / "conform_status.json"
+
+
+def _write_status(slug, st):
+    p = _status_path(slug)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(st, indent=2))
+    os.replace(tmp, p)
+
+
+def status(slug: str) -> "dict":
+    p = _status_path(slug)
+    if p.exists():
+        return json.loads(p.read_text())
+    return {"state": "idle"}
+
+
+def start(slug: str) -> None:
+    """Kick off a conform in a background thread; one per slug at a time."""
+    with _RUN_LOCK:
+        if _running.get(slug):
+            raise ConformBusy("a conform is already running for %s" % slug)
+        _running[slug] = True
+    t = threading.Thread(target=_run_guarded, args=(slug,), daemon=True)
+    t.start()
+
+
+def _run_guarded(slug):
+    try:
+        _run(slug)
+    except Exception as e:  # status must reflect a crash, never hang
+        st = status(slug)
+        st.update({"state": "failed", "error": "%s: %s" % (type(e).__name__, e)})
+        _write_status(slug, st)
+    finally:
+        with _RUN_LOCK:
+            _running[slug] = False
+
+
+def _stale_cards(slug):
+    from . import editroom
+    exp = editroom._export_state(slug)
+    orient = editroom._orientation(slug)
+    out = []
+    for card, _src in editroom._all_overlays(slug):
+        prev = exp.get(card["id"])
+        if not prev or prev.get("key") != editroom._current_key(slug, card, orient):
+            out.append(card["id"])
+    return out
+
+
+def _pair_key(o):
+    p = o["payload"]
+    if o["op"].startswith("sfx_"):
+        return ("sfx", p.get("id"))
+    return ("broll", p.get("file"), round(float(p.get("record_s", -1)), 2))
+
+
+def _collapse_ops(ops):
+    """A place later removed cancels (sfx by cue id, b-roll by file +
+    record position); repeated card exports keep only the last."""
+    out = []
+    removes = {_pair_key(o) for o in ops
+               if o["op"] in ("sfx_remove", "broll_remove")}
+    places = {_pair_key(o) for o in ops
+              if o["op"] in ("sfx_place", "broll_attach")}
+    latest_card = {}
+    for o in ops:
+        if o["op"] in ("card_place", "card_replace"):
+            latest_card[o["payload"]["card_id"]] = o
+    seen_cards = set()
+    for o in ops:
+        op = o["op"]
+        if op in ("sfx_place", "broll_attach") and _pair_key(o) in removes:
+            continue
+        if op in ("sfx_remove", "broll_remove") and _pair_key(o) in places:
+            continue  # its counterpart place was dropped above
+        if op in ("card_place", "card_replace"):
+            cid = o["payload"]["card_id"]
+            if cid in seen_cards or latest_card[cid] is not o:
+                continue
+            seen_cards.add(cid)
+        out.append(o)
+    return out
+
+
+def _beat_starts(slug):
+    tm = json.loads((work_path(slug) / "analysis" /
+                     "timeline_map.json").read_text())
+    return {b["id"]: b["record_s"] for b in tm["beats"]}
+
+
+def _run(slug):
+    from . import editroom, resolve_api, sfx as sfx_mod
+    work = work_path(slug)
+    st = {"state": "running", "stage": "export", "started_ts": int(time.time()),
+          "exported": 0, "export_total": 0, "ops": []}
+    _write_status(slug, st)
+
+    # --- stage 1: export everything stale --------------------------------
+    stale = _stale_cards(slug)
+    st["export_total"] = len(stale)
+    _write_status(slug, st)
+    for cid in stale:
+        editroom._export_overlay(slug, cid, log=lambda *a: None)
+        st["exported"] += 1
+        _write_status(slug, st)
+
+    # --- stage 2: the ledger via the bridge ------------------------------
+    st["stage"] = "push"
+    _write_status(slug, st)
+    ops = editroom._conform_pending(slug)
+    ops = _collapse_ops(ops)
+    if not ops:
+        st.update({"state": "done", "stage": "done"})
+        _write_status(slug, st)
+        return
+
+    tc_path = work / "timeline_cards.json"
+    tc = json.loads(tc_path.read_text()) if tc_path.exists() else {}
+    meta_project = tc.get("project")
+    meta_timeline = tc.get("timeline")
+    if not (meta_project and meta_timeline):
+        raise RuntimeError("no timeline sync on file — run Sync from Resolve once first")
+    placed = tc.get("cards", {})
+    beat_start = _beat_starts(slug)
+    exports_dir = str(work / "exports" / "overlays")
+    footage_dir = str(work / "footage")
+
+    resolve_api.ensure_bridge()
+    # one prelude: right project + timeline, remember start frame; a fresh
+    # audio track hosts this run's sfx placements
+    prelude = resolve_api.send("conform-pre", """
+local pm = resolve:GetProjectManager()
+local proj = pm:GetCurrentProject()
+if proj == nil or proj:GetName() ~= '%(proj)s' then proj = pm:LoadProject('%(proj)s') end
+if proj == nil then return 'ERR|cannot load %(proj)s' end
+local tl = proj:GetCurrentTimeline()
+if tl == nil or tl:GetName() ~= '%(tl)s' then
+  local mp = proj:GetMediaPool()
+  for i = 1, proj:GetTimelineCount() do
+    local t = proj:GetTimelineByIndex(i)
+    if t:GetName() == '%(tl)s' then proj:SetCurrentTimeline(t); tl = t; break end
+  end
+end
+if tl == nil or tl:GetName() ~= '%(tl)s' then return 'ERR|timeline %(tl)s not found' end
+return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(tl:GetTrackCount('audio'))
+""" % {"proj": meta_project, "tl": meta_timeline}, timeout=180)
+    if prelude.startswith("ERR|"):
+        raise RuntimeError(prelude[4:])
+    _, tl_start_s, _n_audio = prelude.split("|")
+    tl_start = int(float(tl_start_s))
+    sfx_track = [None]  # created lazily on first sfx_place
+
+    def frame(sec):
+        return tl_start + int(round(float(sec) * FPS))
+
+    done_ids = []
+    for i, o in enumerate(ops):
+        op, payload, bid = o["op"], o["payload"], o.get("beat_id", "")
+        entry = {"op": op, "beat_id": bid, "result": "pending",
+                 "detail": payload.get("card_id") or payload.get("file", "")}
+        st["ops"].append(entry)
+        _write_status(slug, st)
+        try:
+            if op == "card_replace":
+                cid = payload["card_id"]
+                info = placed.get(cid)
+                if not info:
+                    raise RuntimeError("card %s not in the timeline sync" % cid)
+                track_idx = int(str(info.get("track", "V3")).lstrip("V") or 3)
+                target_frame = frame(info["record_s"])
+                out = resolve_api.send("conform-op%d" % i, """
+local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
+local items = tl:GetItemListInTrack('video', %(track)d) or {}
+for _, it in ipairs(items) do
+  if it:GetStart() <= %(f)d and it:GetEnd() > %(f)d then
+    local mpi = it:GetMediaPoolItem()
+    if mpi == nil then return 'ERR|item has no pool clip' end
+    local ok = mpi:ReplaceClip('%(path)s')
+    return 'OK|replaced=' .. tostring(ok)
+  end
+end
+return 'ERR|no item at frame %(f)d on V%(track)d'
+""" % {"track": track_idx, "f": target_frame + 1,
+       "path": exports_dir + "/" + payload["file"]}, timeout=120)
+            elif op in ("card_place", "sfx_place", "broll_attach"):
+                if op == "card_place":
+                    cid = payload["card_id"]
+                    card = {c["id"]: c for c, _s in editroom._all_overlays(slug)}[cid]
+                    if not card.get("beat_id"):
+                        raise RuntimeError("card %s has no beat — place it in Resolve by hand" % cid)
+                    abs_s = beat_start[card["beat_id"]] + float(card.get("at", 0))
+                    dur_frames = int(round(float(card["duration"]) * FPS))
+                    path = exports_dir + "/" + payload["file"]
+                    track_expr = "3"
+                    media_type = ""
+                elif op == "sfx_place":
+                    abs_s = beat_start[bid] + payload["at_ms"] / 1000.0
+                    row = sfx_mod._manifest_load()["files"].get(payload["file"], {})
+                    dur_frames = max(1, int(round(float(row.get("length") or 1.0) * FPS)))
+                    path = str(sfx_mod.SFX_DIR / payload["file"])
+                    track_expr = "SFXTRACK"
+                    media_type = ", mediaType = 2"
+                else:  # broll_attach
+                    abs_s = float(payload["record_s"])
+                    dur_frames = int(round(float(payload["duration"]) * FPS))
+                    path = footage_dir + "/" + payload["file"]
+                    track_expr = "2"
+                    media_type = ""
+                start_frame = 0 if op != "broll_attach" else int(round(float(payload.get("src_s", 0)) * FPS))
+                mk_track = ""
+                if track_expr == "SFXTRACK":
+                    if sfx_track[0] is None:
+                        mk_track = "tl:AddTrack('audio')\n"
+                        sfx_track[0] = "made"
+                    track_expr = "tl:GetTrackCount('audio')"
+                out = resolve_api.send("conform-op%d" % i, """
+local proj = resolve:GetProjectManager():GetCurrentProject()
+local mp = proj:GetMediaPool()
+local tl = proj:GetCurrentTimeline()
+%(mk_track)slocal clip = nil
+local base = '%(base)s'
+local function scan(folder)
+  for _, c in ipairs(folder:GetClipList() or {}) do
+    local p = c:GetClipProperty('File Path') or ''
+    if string.sub(p, -string.len(base)) == base then return c end
+  end
+  for _, sub in ipairs(folder:GetSubFolderList() or {}) do
+    local r = scan(sub)
+    if r then return r end
+  end
+  return nil
+end
+clip = scan(mp:GetRootFolder())
+if clip == nil then
+  local imported = mp:ImportMedia({'%(path)s'})
+  if imported == nil or #imported == 0 then return 'ERR|import failed' end
+  clip = imported[1]
+end
+local items = mp:AppendToTimeline({{mediaPoolItem = clip, startFrame = %(sf)d, endFrame = %(ef)d, trackIndex = %(track)s, recordFrame = %(rf)d%(mt)s}})
+if items == nil or #items == 0 then return 'ERR|append failed' end
+return 'OK|placed@' .. tostring(items[1]:GetStart())
+""" % {"mk_track": mk_track, "base": os.path.basename(path), "path": path,
+       "sf": start_frame, "ef": start_frame + dur_frames - 1,
+       "track": track_expr, "rf": frame(abs_s), "mt": media_type},
+                    timeout=180)
+            elif op in ("sfx_remove", "broll_remove"):
+                if op == "sfx_remove":
+                    abs_s = beat_start.get(bid, 0) + payload["at_ms"] / 1000.0
+                    kind, base = "audio", os.path.basename(payload["file"])
+                else:
+                    abs_s = float(payload["record_s"])
+                    kind, base = "video", os.path.basename(payload["file"])
+                out = resolve_api.send("conform-op%d" % i, """
+local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
+for t = 1, tl:GetTrackCount('%(kind)s') do
+  for _, it in ipairs(tl:GetItemListInTrack('%(kind)s', t) or {}) do
+    if it:GetStart() <= %(f)d and it:GetEnd() > %(f)d and string.find(it:GetName(), '%(base)s', 1, true) then
+      local ok = tl:DeleteClips({it})
+      return 'OK|deleted=' .. tostring(ok)
+    end
+  end
+end
+return 'ERR|no %(kind)s item named %(base)s at frame %(f)d'
+""" % {"kind": kind, "f": frame(abs_s) + 1, "base": base}, timeout=120)
+            else:
+                raise RuntimeError("unknown op %s" % op)
+            if out.startswith("ERR|"):
+                raise RuntimeError(out[4:])
+            entry["result"] = "done"
+            entry["note"] = out[3:]
+            done_ids.append(o)
+        except Exception as e:
+            entry["result"] = "failed"
+            entry["note"] = str(e)[:200]
+        _write_status(slug, st)
+
+    # --- wrap up: save, re-sync, clear the executed ops ------------------
+    resolve_api.send("conform-save", """
+resolve:GetProjectManager():SaveProject()
+return 'saved'
+""", timeout=120)
+    try:
+        editroom._sync_timeline_cards(slug)
+    except Exception:
+        pass
+    remaining = [o for o in editroom._conform_pending(slug) if o not in done_ids]
+    with editroom._CONFORM_LOCK:
+        path = work / "pending_conform.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"ops": remaining}, indent=2))
+        os.replace(tmp, path)
+    st.update({"state": "done", "stage": "done",
+               "failed": sum(1 for e in st["ops"] if e["result"] == "failed")})
+    _write_status(slug, st)

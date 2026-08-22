@@ -104,3 +104,14 @@ CustomName}` → `AddRenderJob()` (returns a job id) → `StartRendering(id)`
 `DeleteRenderJob(id)`. A 48-frame probe of hmns_210023 rendered to mp4 in
 ~5s with no watermark. StartRendering flips Resolve to the Deliver page —
 harmless, but don't drive it while Caleb is mid-edit.
+
+## Conform primitives (S3 spike, 2026-08-22)
+
+All three conform operations work in the FREE edition through the bridge:
+`AppendToTimeline({{mediaPoolItem, startFrame, endFrame, trackIndex,
+recordFrame}})` lands a VIDEO clip at the exact record frame on the named
+track; adding `mediaType = 2` does the same for AUDIO onto an audio track
+(verified: items report GetStart() == recordFrame); and
+`Timeline:DeleteClips({item})` removes a timeline item. recordFrame is
+relative to frame 0 — offset by `Timeline:GetStartFrame()` when the
+timeline starts at 01:00:00:00.
