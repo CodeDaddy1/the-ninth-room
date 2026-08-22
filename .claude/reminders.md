@@ -109,3 +109,10 @@ console settings, recordings, decisions). Check items off when done.
   (2026-08-19), so it exists in the conversation transcript. Create a new key
   at platform.openai.com/api-keys, update `~/.config/watch/.env`, revoke the
   old one. Takes two minutes.
+
+## 2026-08-22 — Studio Interactive Suite plan
+- Paste `EPIDEMIC_API_KEY=<your key>` into `~/Projects/the-ninth-room/.env`
+  (gitignored). The P0 Epidemic probe and the P2 sound picker need it.
+- Keep Resolve open when asked during P3 conform and P5 render checks.
+- After P2 ships: prune Epidemic pulls you don't like from brand/sfx/;
+  manifest.json tracks what's licensed.
