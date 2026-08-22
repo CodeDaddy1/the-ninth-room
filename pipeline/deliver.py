@@ -40,9 +40,18 @@ def checklist(slug: str) -> "dict":
                  "fix": "/studio/review/%s" % slug})
 
     review = editroom._normalize_review(slug)
+    # Count only beats in the LIVE cut — review.json keeps entries for beat
+    # ids a re-assembly dropped, and 14 such ghosts once held this row amber
+    # while the Review desk (which renders the cut) was rightly all green.
+    # The row must share the desk's predicate exactly, or it points at a
+    # queue the desk can't show.
+    live_ids = {b["id"] for b in json.loads(
+        (work / "edit_plan.json").read_text()).get("beats", [])}
     open_beats = [k for k, e in review.items()
-                  if e.get("status") in ("flagged", "reworked", "edited")]
-    n_reviewed = sum(1 for e in review.values() if e.get("status"))
+                  if k in live_ids
+                  and e.get("status") in ("flagged", "reworked", "edited")]
+    n_reviewed = sum(1 for k, e in review.items()
+                     if k in live_ids and e.get("status"))
     rows.append({"id": "review", "label": "Review queue empty",
                  "ok": not open_beats,
                  "detail": ("%d beats open" % len(open_beats)) if open_beats
