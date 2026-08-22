@@ -244,6 +244,51 @@ def _sfx_remove(slug: str, cue_id: str, log=print) -> "dict":
 _EDITPLAN_LOCK = threading.Lock()
 
 
+def _takes_state(slug: str) -> "dict":
+    """The Takes desk (P7): every transcribed take with its fate.
+
+    376 takes at ~25 words each travel fine as one payload; search runs
+    client-side. Fate comes from the edit plan: picked (which beat), killed
+    (the designer's reason), or unused — the honest leftovers pile."""
+    out = analysis_dir(slug)
+    tk_path = out / "takes.json"
+    if not tk_path.exists():
+        return {"slug": slug, "ingested": False, "takes": []}
+    data = json.loads(tk_path.read_text())
+    picked, killed = {}, {}
+    ep_path = work_path(slug) / "edit_plan.json"
+    if ep_path.exists():
+        plan = json.loads(ep_path.read_text())
+        for b in plan.get("beats", []):
+            if b.get("take_id"):
+                picked.setdefault(b["take_id"], []).append(b["id"])
+        for k in plan.get("kill_list", []):
+            killed[k.get("take_id")] = k.get("reason", "")
+    takes = []
+    for t in data.get("takes", []):
+        fate = ("picked" if t["id"] in picked
+                else "killed" if t["id"] in killed else "unused")
+        takes.append({"id": t["id"], "file": t.get("file"),
+                      "s": round(float(t.get("s", 0)), 2),
+                      "e": round(float(t.get("e", 0)), 2),
+                      "duration": round(float(t.get("duration", 0)), 2),
+                      "transcript": t.get("transcript", ""),
+                      "complete": bool(t.get("complete", True)),
+                      "fillers": int(t.get("fillers", 0)),
+                      "fate": fate,
+                      "beats": picked.get(t["id"], []),
+                      "kill_reason": killed.get(t["id"], "")})
+    reqs = {"rounds": []}
+    rq_path = work_path(slug) / "asset_requests.json"
+    if rq_path.exists():
+        try:
+            reqs = json.loads(rq_path.read_text())
+        except ValueError:
+            pass
+    return {"slug": slug, "ingested": True, "takes": takes,
+            "requests": reqs.get("rounds", [])}
+
+
 def _broll_catalog(slug: str) -> "list":
     p = work_path(slug) / "analysis" / "broll.json"
     if not p.exists():
@@ -409,7 +454,9 @@ _EDITABLE = ("kicker", "text", "subtext", "subtext_italic", "emphasis",
              # meme pack subjects
              "emoji", "emoji2", "image",
              # legibility scrim strength (0-100; 0 removes it)
-             "scrim")
+             "scrim",
+             # position nudge in design pixels
+             "offset_x", "offset_y")
 
 # Starter copy for a freshly created overlay, per kit screen. Keys must be
 # names overlay_kit.RENDERERS knows (the big emoji screen is "emoji").
@@ -1156,6 +1203,67 @@ def _project_row(slug: str) -> "dict":
                        "queue": n_queue}}
 
 
+def _archive_project(slug: str) -> None:
+    """Move a dead project under work/_archive/ (quick win, round-2 audit
+    G7). NOT a delete — footage survives — but Resolve's absolute media
+    paths into the project break until it is restored to the same name."""
+    src = work_path(slug)
+    if not src.is_dir():
+        raise IngestError("no project '%s'" % slug)
+    dest_root = src.parent / "_archive"
+    dest_root.mkdir(exist_ok=True)
+    dest = dest_root / slug
+    if dest.exists():
+        raise IngestError("'%s' already archived" % slug)
+    os.replace(src, dest)
+
+
+def _restore_project(slug: str) -> None:
+    src = work_path(slug).parent / "_archive" / slug
+    if not src.is_dir():
+        raise IngestError("'%s' is not archived" % slug)
+    dest = work_path(slug)
+    if dest.exists():
+        raise IngestError("'%s' already exists live" % slug)
+    os.replace(src, dest)
+
+
+def _archived_slugs() -> "list":
+    root = work_path("x").parent / "_archive"
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.iterdir()
+                  if p.is_dir() and _SLUG_RE.match(p.name))
+
+
+def _start_project_from_idea(idea_id: str) -> "dict":
+    """Idea -> project (quick win, round-2 audit G8): create the project and
+    seed the planner with the idea's own words, so starting an episode is a
+    click instead of retyping."""
+    scout = work_path("_scout") / "ideas.json"
+    if not scout.exists():
+        raise IngestError("no scouted ideas on file")
+    ideas = json.loads(scout.read_text()).get("ideas", [])
+    idea = next((i for i in ideas if i.get("id") == idea_id), None)
+    if idea is None:
+        raise IngestError("no idea '%s'" % idea_id)
+    slug = re.sub(r"[^a-z0-9]+", "-", idea.get("title", "").lower()).strip("-")[:32]
+    slug = slug or ("idea-%s" % idea_id)
+    if work_path(slug).exists():
+        raise IngestError("project '%s' already exists" % slug)
+    work_path(slug).mkdir(parents=True)
+    (work_path(slug) / "footage").mkdir()
+    plan = {"place": idea.get("title", ""), "date": "",
+            "chapters": [],
+            "ninth_room_candidates": [],
+            "checklist": [],
+            "notes": "From the scout: %s\n\nAngle: %s\nWhy now: %s" % (
+                idea.get("title", ""), idea.get("angle", ""),
+                idea.get("why_now", ""))}
+    _write_json(_plan_path(slug), plan)
+    return {"slug": slug}
+
+
 def _projects_state() -> "dict":
     root = work_path("x").parent
     slugs = sorted(p.name for p in root.iterdir()
@@ -1163,7 +1271,8 @@ def _projects_state() -> "dict":
                    and not p.name.startswith("_")
                    and ((p / "footage").is_dir() or (p / "analysis").is_dir()
                         or (p / "edit_plan.json").exists()))
-    return {"projects": [_project_row(s) for s in slugs]}
+    return {"projects": [_project_row(s) for s in slugs],
+            "archived": _archived_slugs()}
 
 
 def _content_sig(path: Path, size: int) -> str:
@@ -1968,6 +2077,8 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 if lslug and _valid_slug(lslug):
                     lib["cues"] = sfx_mod.cues(lslug)
                 self._send(200, lib)
+            elif self.path.startswith("/api/takes"):
+                self._send(200, _takes_state(self._slug_q()))
             elif self.path.startswith("/api/broll/catalog"):
                 qs = self._qs()
                 bslug = qs.get("slug", [""])[0]
@@ -2194,6 +2305,15 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                      record_s=(float(rs) if rs is not None else None),
                                      log=log)
                 self._send(200, {"ok": True, "removed": gone})
+            elif self.path == "/api/project/archive":
+                _archive_project(self._slug_b(body))
+                self._send(200, {"ok": True})
+            elif self.path == "/api/project/restore":
+                _restore_project(self._slug_b(body))
+                self._send(200, {"ok": True})
+            elif self.path == "/api/idea/start":
+                r = _start_project_from_idea(str(body.get("id", "")))
+                self._send(200, dict(r, ok=True))
             elif self.path == "/api/job/start":
                 from . import jobs as jobs_mod
                 try:

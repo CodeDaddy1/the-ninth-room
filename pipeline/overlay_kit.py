@@ -2049,6 +2049,17 @@ def overlay_html(card: "dict", w: int = 1920, h: int = 1080) -> str:
         # overflow:hidden.
         body = '<div style="zoom:%g;width:%dpx;height:%dpx;position:relative">%s</div>' % (
             cs, w, h, body)
+    # position nudge (the sizing pattern's sibling): offset_x/offset_y in
+    # design pixels shift the whole card; the scrim is added AFTER so it
+    # stays full-frame regardless
+    try:
+        ox = float(card.get("offset_x") or 0)
+        oy = float(card.get("offset_y") or 0)
+    except (TypeError, ValueError):
+        ox = oy = 0.0
+    if ox or oy:
+        body = ('<div style="position:relative;width:100%%;height:100%%;'
+                'transform:translate(%gpx,%gpx)">%s</div>' % (ox, oy, body))
     # scrim sits OUTSIDE the card_scale zoom — it must cover the frame
     # edge-to-edge no matter how the card itself is scaled
     body = _scrim_html(kind, card, h) + body
