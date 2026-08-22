@@ -84,10 +84,17 @@ def _relative_beat(beat: "dict") -> "dict":
 
 
 def beat_spec(beat: "dict", caption_text: str, cards: "list",
-              cues: "list | None" = None) -> "dict":
+              cues: "list | None" = None,
+              slug: "str | None" = None) -> "dict":
     """Everything that shapes this beat's pixels (and now sound) — the
     cache key. Sound cues join only when present: an empty "sfx" key on
-    every beat would re-key all 82 cueless proxies for no change."""
+    every beat would re-key all 82 cueless proxies for no change.
+
+    With `slug`, the key also carries each card MOV's file signature: the
+    composite renders those files, and a re-baked mov with identical card
+    fields left every proxy silently stale-but-cached (the stretched-card
+    incident, 2026-08-22 — cards re-baked in the right orientation, proxies
+    kept compositing the wrong ones)."""
     from . import timeline as tl_mod
     from . import captions as captions_mod
     from . import animate as animate_mod
@@ -96,6 +103,16 @@ def beat_spec(beat: "dict", caption_text: str, cards: "list",
     if cues:
         spec["sfx"] = [{"file": c["file"], "at_ms": c["at_ms"],
                         "gain_db": c["gain_db"]} for c in cues]
+    if slug and cards:
+        sigs = {}
+        gdir = work_path(slug) / "graphics"
+        for c in cards:
+            mov = gdir / ("%s.mov" % c["id"])
+            if mov.exists():
+                st = mov.stat()
+                sigs[c["id"]] = [int(st.st_mtime), st.st_size]
+        if sigs:
+            spec["gfx_sig"] = sigs
     return spec
 
 
@@ -270,7 +287,7 @@ def _build_locked(slug, only_beats=None, log=print):
             continue
         cards = cards_by_beat.get(bid, [])
         cues = cues_by_beat.get(bid, [])
-        spec = beat_spec(beat, caps.get(bid, ""), cards, cues)
+        spec = beat_spec(beat, caps.get(bid, ""), cards, cues, slug=slug)
         h = _hash_spec(spec)
         out = proxy_dir / ("%s.%s.mp4" % (bid, h))
         if not out.exists():

@@ -250,7 +250,7 @@ def bake_key(card: "dict", orientation: str) -> str:
          "v": animate_mod.BAKE_V}, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def build_cards(slug: str, orientation: str = "portrait",
+def build_cards(slug: str, orientation: "str | None" = None,
                 only_ids: "list | None" = None, log=print) -> "list[Path]":
     """Render every card in work/<slug>/graphics_plan.json to graphics/<id>.mov.
 
@@ -264,6 +264,11 @@ def build_cards(slug: str, orientation: str = "portrait",
     if not plan_path.exists():
         raise IngestError("no graphics_plan.json — run the graphics-director agent first")
     plan = json.loads(plan_path.read_text())
+    if orientation is None:
+        # a hardcoded "portrait" default baked 34 landscape cards in portrait
+        # layout when a maintenance script omitted the arg — the proxies then
+        # composited them stretched (2026-08-22). The plan knows better.
+        orientation = plan.get("orientation") or "landscape"
     from . import schemas
     errors = schemas.validate_graphics_plan(plan)
     if errors:
