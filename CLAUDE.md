@@ -193,6 +193,7 @@ exactly this. Which card, how often, and how they fail:
 | `brand/design-system/` | Synced from Claude Design — tokens, canvases, channel assets |
 | `brand/names.json` | Proper-noun corrections applied to every transcript |
 | `brand/fonts/` | Bricolage + Newsreader, for Pillow (captions) |
+| `brand/sfx/` | The sound library: `<category>/<file>` + `manifest.json` license ledger (`pipeline/sfx.py` owns it; Epidemic pulls land here; renders never touch the network) |
 | `brand/_retired-curated-curiosities/` | The old brand. Reference only |
 | `workflows/*.md` | Cadence + platform specs (safe zones, lengths) |
 | `pipeline/` | The Python pipeline (see `pipeline/__init__.py` for the module map) |
