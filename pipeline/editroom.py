@@ -1138,10 +1138,9 @@ def _project_row(slug: str) -> "dict":
                                  "page, or open the footage folder and copy "
                                  "them in.")
     elif not ingested:
-        phase, nxt = "ingest", ('Footage is in (%d clips). Tell Claude: '
-                                '“ingest %s” — transcription, '
-                                'take analysis, b-roll catalog.'
-                                % (len(footage), slug))
+        phase, nxt = "ingest", ("Footage is in (%d clips). Press Ingest — "
+                                "transcription, take analysis, b-roll "
+                                "catalog run as an engine job." % len(footage))
     elif not plan and not stories:
         phase, nxt = "story", ('Tell Claude: “pitch stories for %s” '
                                '— the story designer writes three '
@@ -1154,9 +1153,9 @@ def _project_row(slug: str) -> "dict":
         phase, nxt = "story", ('Direction approved. Tell Claude: '
                                '“write the edit plan for %s”.' % slug)
     elif not (tl and prox):
-        phase, nxt = "assembly", ('Tell Claude: “assemble %s” '
-                                  '— timeline and review proxies in '
-                                  'story order.' % slug)
+        phase, nxt = "assembly", ("Press Assemble — the timeline and review "
+                                  "proxies build in story order as an "
+                                  "engine job.")
     elif prox and (n_appr + n_flag) < prox:
         phase, nxt = "review", ("Work the review queue — approve what "
                                 "ships; the broll / sfx / cards buttons "
@@ -2003,6 +2002,22 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     self._send(400, {"error": "bad slug"})
                     return
                 self._send(200, {"clips": _broll_catalog(bslug)})
+            elif self.path.startswith("/api/jobs"):
+                from . import jobs as jobs_mod
+                qs = self._qs()
+                jslug = qs.get("slug", [""])[0] or None
+                self._send(200, {"jobs": jobs_mod.jobs(jslug)})
+            elif self.path.startswith("/api/job/log"):
+                from . import jobs as jobs_mod
+                qs = self._qs()
+                jid = qs.get("id", [""])[0]
+                body = jobs_mod.log_tail(jid).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             elif self.path.startswith("/api/conform/status"):
                 from . import conform as conform_mod
                 qs = self._qs()
@@ -2198,6 +2213,14 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                      record_s=(float(rs) if rs is not None else None),
                                      log=log)
                 self._send(200, {"ok": True, "removed": gone})
+            elif self.path == "/api/job/start":
+                from . import jobs as jobs_mod
+                try:
+                    job = jobs_mod.start(body.get("kind", ""),
+                                         self._slug_b(body))
+                    self._send(200, {"ok": True, "job": job})
+                except jobs_mod.JobError as e:
+                    self._send(400, {"error": str(e)})
             elif self.path == "/api/conform/start":
                 from . import conform as conform_mod
                 try:
