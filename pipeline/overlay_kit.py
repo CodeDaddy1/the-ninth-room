@@ -542,7 +542,7 @@ def hook(card: "dict", F: "dict") -> str:
     sub = ""
     if card.get("subtext"):
         sub = ('<div style="font-family:%s;font-size:34px;font-weight:600;color:%s;'
-               'margin-top:24px;text-shadow:%s;animation:yFade 240ms ease 460ms both">%s</div>'
+               'margin-top:24px;text-shadow:%s;animation:yFade 240ms ease 240ms both">%s</div>'
                % (FONT_DISPLAY, SLATE_300, SHADOW_CHALK, _e(card["subtext"])))
     return """%(scrim)s
 <div style="position:absolute;left:%(left)dpx;top:%(top)dpx;right:%(right)dpx">
@@ -572,12 +572,20 @@ def lower_third(card: "dict", F: "dict") -> str:
     sub = ""
     if card.get("subtext"):
         italic = "font-style:italic;" if card.get("subtext_italic", True) else ""
+        # `subtext_delay` (ms) overrides the canvas's 300/400ms stagger for
+        # ONE card — rule and serif line then land together on the given
+        # beat. Unset keeps the kit timing (Caleb on BT10, 2026-08-22:
+        # "Subtext should not be delayed"); 120 matches the headline.
+        d = card.get("subtext_delay")
+        # kit rule: subtext does NOT delay — it lands with the headline
+        # (120ms). subtext_delay stays as a per-card override.
+        rule_ms, sub_ms = (120, 120) if d is None else (int(d), int(d))
         sub = ('<div style="height:2px;background:%s;margin-top:18px;transform-origin:left;'
-               'animation:yGrow 320ms %s 300ms both"></div>'
+               'animation:yGrow 320ms %s %dms both"></div>'
                '<div style="font-family:%s;%sfont-size:34px;color:%s;margin-top:14px;'
-               'text-shadow:%s;animation:yFade 240ms ease 400ms both">%s</div>'
-               % (HAIRLINE, EASE_RULE, FONT_SERIF, italic, SLATE_300,
-                  SHADOW_CHALK, _e(card["subtext"])))
+               'text-shadow:%s;animation:yFade 240ms ease %dms both">%s</div>'
+               % (HAIRLINE, EASE_RULE, rule_ms, FONT_SERIF, italic, SLATE_300,
+                  SHADOW_CHALK, sub_ms, _e(card["subtext"])))
     return """%(scrim)s
 <div style="position:absolute;left:%(left)dpx;bottom:%(bottom)dpx;width:%(width)dpx">
   %(eyebrow)s
@@ -762,7 +770,7 @@ def chapter(card: "dict", F: "dict") -> str:
     sub = ""
     if card.get("subtext"):
         sub = ('<div style="font-family:%s;font-size:34px;font-weight:600;color:%s;'
-               'animation:yFade 240ms ease 620ms both">%s</div>'
+               'animation:yFade 240ms ease 200ms both">%s</div>'
                % (FONT_DISPLAY, SLATE_300, _e(card["subtext"])))
     return """%(wash)s
 <div style="position:absolute;left:%(left)dpx;top:0;bottom:0;right:%(side)dpx;display:flex;
@@ -917,7 +925,7 @@ def countdown(card: "dict", F: "dict") -> str:
                 font-family:%s;font-size:140px;font-weight:800;color:%s;text-shadow:%s">%s</div>
   </div>
   <div style="font-family:%s;font-size:32px;font-weight:700;color:%s;text-shadow:%s;
-              animation:yFade 240ms ease 600ms both">%s</div>
+              animation:yFade 240ms ease 240ms both">%s</div>
 """ % (YELLOW, FONT_DISPLAY, CHALK, SHADOW_CHALK, "".join(nums),
        FONT_DISPLAY, SLATE_300, SHADOW_CHALK, sub)) + close
 
@@ -956,7 +964,7 @@ def poll(card: "dict", F: "dict") -> str:
     note = ""
     if card.get("subtext"):
         note = ('<div style="font-size:28px;color:%s;margin-top:32px;font-family:%s;'
-                'text-shadow:%s;animation:yFade 240ms ease 900ms both">%s</div>'
+                'text-shadow:%s;animation:yFade 240ms ease 240ms both">%s</div>'
                 % (SLATE_400, FONT_DISPLAY, SHADOW_CHALK, _e(card["subtext"])))
     return """%(scrim)s
 <div style="position:absolute;right:%(side)dpx;top:%(top)dpx;width:%(width)dpx;color:%(chalk)s">
@@ -1070,7 +1078,7 @@ def prediction(card: "dict", F: "dict") -> str:
     sub = _e(card.get("subtext") or "We\u2019ll find out in a second.")
     return head + body + ("""
   <div style="font-family:%s;font-size:32px;font-weight:600;color:%s;margin-top:26px;
-              text-shadow:%s;animation:yFade 240ms ease 600ms both">%s</div>
+              text-shadow:%s;animation:yFade 240ms ease 240ms both">%s</div>
 """ % (FONT_DISPLAY, SLATE_300, SHADOW_CHALK, sub)) + close
 
 
@@ -1102,7 +1110,7 @@ def caption_this(card: "dict", F: "dict") -> str:
       <span style="display:inline-block;width:6px;height:58px;background:%(yellow)s;animation:yPulse 900ms ease-in-out 600ms 3"></span>
       <div style="flex:1;height:3px;background:rgba(234,244,255,.4);margin-top:44px"></div>
     </div>
-    <div style="font-family:%(display)s;font-size:30px;font-weight:600;color:%(slate)s;margin-top:22px;text-align:center;text-shadow:%(shadow)s;animation:yFade 240ms ease 700ms both">%(sub)s</div>
+    <div style="font-family:%(display)s;font-size:30px;font-weight:600;color:%(slate)s;margin-top:22px;text-align:center;text-shadow:%(shadow)s;animation:yFade 240ms ease 300ms both">%(sub)s</div>
   </div>
 """ % {"w": min(1200, F["inner"]), "ease": EASE_REVEAL, "yellow": YELLOW,
        "display": FONT_DISPLAY, "slate": SLATE_300, "shadow": SHADOW_CHALK,
@@ -1198,7 +1206,7 @@ def verdict(card: "dict", F: "dict") -> str:
     label = ""
     if card.get("subtext"):
         label = ('<div style="font-family:%s;font-size:34px;font-weight:600;color:%s;'
-                 'margin-top:26px;text-shadow:%s;animation:yFade 240ms ease 800ms both">%s</div>'
+                 'margin-top:26px;text-shadow:%s;animation:yFade 240ms ease 240ms both">%s</div>'
                  % (FONT_DISPLAY, SLATE_300, SHADOW_CHALK, _e(card["subtext"])))
     return head + ('<div style="display:flex;gap:26px;margin-top:40px;align-items:flex-end">%s</div>%s'
                    % ("".join(doors), label)) + close
@@ -1303,7 +1311,7 @@ def next_room(card: "dict", F: "dict") -> str:
     sub = ""
     if card.get("subtext"):
         sub = ('<div style="font-family:%s;font-size:36px;font-weight:600;color:%s;'
-               'text-shadow:%s;animation:yFade 240ms ease 480ms both">%s</div>'
+               'text-shadow:%s;animation:yFade 240ms ease 160ms both">%s</div>'
                % (FONT_DISPLAY, SLATE_300, SHADOW_CHALK, _e(card["subtext"])))
     return """%(wash)s
 <div style="position:absolute;left:%(left)dpx;right:%(side)dpx;top:0;bottom:0;display:flex;
