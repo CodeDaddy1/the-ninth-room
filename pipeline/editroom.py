@@ -1884,6 +1884,121 @@ def _plan_state(slug: str) -> "dict":
             "plan": json.loads(p.read_text())}
 
 
+def _chapter_title(text: str) -> str:
+    """'CH2 · The park — Central Park at dusk…' -> 'The park'. Tolerant:
+    freeform text falls back to its first clause, trimmed to title length."""
+    import re as _re
+    t = str(text or "").strip()
+    m = _re.match(r"^CH\s?\d{1,2}\s*[·:.]\s*(.*)$", t, _re.I)
+    if m:
+        t = m.group(1)
+    head = t.split(" — ")[0].strip()
+    return (head[:60] + "…") if len(head) > 60 else (head or "Chapter")
+
+
+def _seed_plan(slug: str) -> "dict":
+    """Prefill the shoot plan from the APPROVED story (Caleb, 2026-08-23):
+    the plan stops being pre-shoot guesswork and becomes the capture list
+    the chosen direction actually needs. Chapters come from the approved
+    option's outline (title + its rough-cut text as the first shot to
+    cover); research angles land as ninth-room candidates; the brief's
+    location fills the place. Refuses to clobber: a plan that already has
+    chapters is someone's work, not a seed target.
+    """
+    work = work_path(slug)
+    fb_p = work / "story_feedback.json"
+    rounds = (json.loads(fb_p.read_text()).get("rounds", [])
+              if fb_p.exists() else [])
+    if not rounds or rounds[-1].get("decision") != "approve":
+        raise IngestError("no approved story yet — approve a direction on "
+                          "the Story desk first")
+    choice = rounds[-1].get("choice")
+
+    plan_p = work / "plan.json"
+    plan = json.loads(plan_p.read_text()) if plan_p.exists() else {}
+    if plan.get("chapters"):
+        raise IngestError("the shoot plan already has chapters — seeding "
+                          "would clobber them; clear them first if you "
+                          "really want the story's")
+
+    chapters = []
+    script_p = work / "script.json"
+    if script_p.exists():
+        # The SCRIPT is the approved artifact and it survives rounds —
+        # stories.json is overwritten per round, so the approved option can
+        # vanish from it (found live: approval said S2, stories.json held
+        # round 2's S4-S6). It is also the richer seed: real chapter titles,
+        # and each VO line names exactly the b-roll that must cover it.
+        script = json.loads(script_p.read_text())
+        for ch in script.get("chapters", [])[:12]:
+            shots = [{"desc": "Cover with b-roll: %s" % sec.get("text", "").strip()}
+                     for sec in ch.get("sections", [])
+                     if sec.get("kind") == "vo" and sec.get("text", "").strip()][:6]
+            if not shots:
+                first = next((sec.get("text", "").strip()
+                              for sec in ch.get("sections", [])
+                              if sec.get("text", "").strip()), "")
+                if first:
+                    shots = [{"desc": "Story: %s" % first}]
+            chapters.append({"title": str(ch.get("title") or "Chapter"),
+                             "shots": shots, "card_ideas": []})
+    else:
+        stories = json.loads((work / "stories.json").read_text()) \
+            if (work / "stories.json").exists() else {}
+        option = next((o for o in stories.get("options", [])
+                       if o.get("id") == choice), None)
+        if option is None:
+            raise IngestError(
+                "approved option '%s' is not in the current stories.json "
+                "round and no script exists — Write the script first, or "
+                "re-approve a current pitch" % choice)
+        for item in (option.get("beats_outline") or [])[:12]:
+            text = item.get("text", "") if isinstance(item, dict) else str(item)
+            chapters.append({
+                "title": _chapter_title(text),
+                # the rough cut IS the first thing to cover
+                "shots": [{"desc": "Story: %s" % text.strip()}]
+                         if text.strip() else [],
+                "card_ideas": [],
+            })
+
+    angles = []
+    r_p = work / "research.json"
+    if r_p.exists():
+        try:
+            angles = [str(a).strip() for a in
+                      json.loads(r_p.read_text()).get("angles", []) if a][:12]
+        except ValueError:
+            pass
+
+    brief_p = work / "story_brief.json"
+    location = ""
+    if brief_p.exists():
+        try:
+            location = str(json.loads(brief_p.read_text())
+                           .get("location") or "").strip()
+        except ValueError:
+            pass
+
+    plan.setdefault("place", "")
+    if location and not plan["place"]:
+        plan["place"] = location
+    plan.setdefault("visit_date", "")
+    plan["chapters"] = chapters
+    existing = plan.get("ninth_room_candidates") or []
+    plan["ninth_room_candidates"] = existing + [a for a in angles
+                                                if a not in existing]
+    plan.setdefault("checklist", [])
+    plan.setdefault("notes", "")
+    plan["slug"] = slug
+    plan["updated"] = int(time.time())
+    errs = _validate_plan(plan)
+    if errs:
+        raise IngestError("seeded plan invalid: " + "; ".join(errs[:3]))
+    _write_json(plan_p, plan)
+    return plan
+
+
 def _validate_plan(plan: "dict") -> "list":
     """Same posture as pipeline.schemas: name every problem, reject on any.
 
@@ -2645,6 +2760,9 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/asset/use":
                 result = _use_asset(self._slug_b(body), body.get("id", ""))
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/plan/seed":
+                plan = _seed_plan(self._slug_b(body))
+                self._send(200, {"ok": True, "plan": plan})
             elif self.path == "/api/script/section":
                 sec = _save_script_section(self._slug_b(body),
                                            str(body.get("section_id", "")),
