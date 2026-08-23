@@ -77,10 +77,13 @@ def start(slug: str) -> None:
     """Kick off a conform in a background thread; one per slug at a time.
     Refused while a render job runs — conform ops would edit the very
     timeline Resolve is rendering (P5 review F10)."""
-    from . import jobs as jobs_mod
+    from . import jobs as jobs_mod, resolve_api
     if any(j["kind"] == "render" and j["state"] in ("queued", "running")
            for j in jobs_mod.jobs()):
         raise ConformBusy("a master render is running — conform after it")
+    # the ledger forgets across an engine restart; Resolve does not (F1)
+    if resolve_api.rendering_in_progress():
+        raise ConformBusy("Resolve is rendering — conform after it finishes")
     with _RUN_LOCK:
         if _running.get(slug):
             raise ConformBusy("a conform is already running for %s" % slug)
@@ -206,6 +209,11 @@ def _run(slug):
     footage_dir = str(work / "footage")
 
     resolve_api.ensure_bridge()
+    # authoritative re-check now the handle is live: the passive guard in
+    # start() cannot see past a stale handle, and mutating a rendering
+    # timeline cancels the render (audit F1)
+    if resolve_api.rendering_in_progress():
+        raise RuntimeError("Resolve is rendering — conform after it finishes")
     # one prelude: right project + timeline, remember start frame; a fresh
     # audio track hosts this run's sfx placements
     prelude = resolve_api.send("conform-pre", """

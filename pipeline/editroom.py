@@ -1137,7 +1137,8 @@ def _project_row(slug: str) -> "dict":
     tl = (out / "timeline_map.json").exists()
     prox = (len(list((work / "proxies").glob("BT*.mp4")))
             if (work / "proxies").is_dir() else 0)
-    masters = (sorted((work / "deliverables").glob("*.mp4"))
+    masters = (sorted(m for m in (work / "deliverables").glob("*.mp4")
+                      if not m.name.startswith("_tmp."))
                if (work / "deliverables").is_dir() else [])
     review = {}
     if (work / "review.json").exists():

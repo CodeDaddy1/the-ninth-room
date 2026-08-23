@@ -122,3 +122,28 @@ console settings, recordings, decisions). Check items off when done.
   ONE YEAR after creation; when pulls start failing with 401, mint a new
   key at epidemicsound.com/account/api-keys, paste into `.env`, re-run
   `scripts/epidemic_probe.py`.
+
+## 2026-08-22 — from the hmns fixer round (BT10 / BT78)
+
+- [ ] **Brief `subtext_delay` back into Claude Design.** BT10's note
+  ("Subtext should not be delayed") needed a per-card timing override on the
+  lower third, so `pipeline/overlay_kit.py` now reads `subtext_delay` (ms) and
+  falls back to the canvas's 300/400ms stagger when unset. Only the runtime
+  kit knows about it — the Cyanotype canvas in the design system still hard-
+  codes the stagger. Rule 6 says the canvas is the source of truth, so it
+  should learn the knob (or tell us the stagger is non-negotiable and BT10
+  gets a different answer).
+- [ ] **CARD09 is a blank kit template parked on BT33.** A `chapter` card,
+  untouched defaults (kicker empty, text "Chapter title"), `at` 0.0 on an
+  APPROVED beat, so the fixer left it alone. It has never been baked, but it
+  IS in `graphics_plan.json`, so the next BT33 re-proxy or conform will render
+  a card that literally reads "Chapter title" over the shot. Delete it on the
+  Overlays desk or give it copy.
+
+- **Delete the orphaned `curated-curiosities` Vercel project.** It is still
+  linked to the renamed `the-ninth-room` GitHub repo, so every engine push
+  triggers a doomed Next.js build (the failed-deploy emails). Nothing real
+  is attached — no custom domains, not live, v1 app long superseded. Run:
+  `vercel project rm curated-curiosities` (or, to keep the project shell
+  and only stop the builds, disconnect the Git repo in the Vercel dashboard:
+  curated-curiosities → Settings → Git → Disconnect). (2026-08-22)

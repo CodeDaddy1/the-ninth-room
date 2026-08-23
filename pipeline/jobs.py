@@ -255,9 +255,11 @@ def start(kind: str, slug: str) -> "dict":
     if not (work_path(slug)).is_dir():
         raise JobError("no project '%s'" % slug)
     if kind == "render":
-        from . import conform as conform_mod
+        from . import conform as conform_mod, resolve_api
         if conform_mod.status(slug).get("state") == "running":
             raise JobError("a conform is running — render after it")
+        if resolve_api.rendering_in_progress():
+            raise JobError("Resolve is already rendering — wait for it")
     if kind == "story":
         if not (work_path(slug) / "analysis" / "catalog.json").exists():
             raise JobError("ingest first — the designer needs transcripts")

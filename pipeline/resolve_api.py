@@ -111,6 +111,34 @@ return error("stale resolve handle")
         return False
 
 
+def rendering_in_progress() -> bool:
+    """Ground truth from Resolve itself: is ANY render running right now?
+
+    The render/conform truce used to read the engine's job ledger — which an
+    engine restart wipes — and a post-restart conform cancelled two live
+    master renders (audit F1). Passive on purpose: never calls
+    ensure_bridge (that LAUNCHES Resolve); no Resolve means no render, and
+    an unanswerable bridge reports False so a closed Resolve never blocks
+    the desk."""
+    try:
+        if not (resolve_running() and alive() and _handle_is_live()):
+            # a stale handle can't answer — callers that go on to MUTATE the
+            # timeline re-check after ensure_bridge revives the handle
+            return False
+        out = send("render-probe", '''
+local ok, ans = pcall(function()
+  local p = resolve:GetProjectManager():GetCurrentProject()
+  if p == nil then return 'no' end
+  return p:IsRenderingInProgress() and 'yes' or 'no'
+end)
+if ok then return ans end
+return 'no'
+''', timeout=30)
+        return out.strip() == "yes"
+    except Exception:
+        return False
+
+
 def ensure_bridge(boot_timeout: float = 180.0) -> None:
     """Make the bridge reachable, launching Resolve and auto-clicking the menu
     when permissions allow. Raises BridgeError with the exact manual step when
@@ -268,14 +296,6 @@ if not job then return error("AddRenderJob failed") end
 if not proj:StartRendering(job) then return error("StartRendering failed") end
 return job
 ''' % (lua_str(str(target_dir)), lua_str(custom_name)), timeout=300)
-
-
-def rendering_in_progress(timeout: float = 300.0) -> bool:
-    out = send("render_poll", '''
-local pm = resolve:GetProjectManager()
-return tostring(pm:GetCurrentProject():IsRenderingInProgress())
-''', timeout=timeout)
-    return out == "true"
 
 
 def wait_for_render(timeout: float = 7200.0, poll_sec: float = 10.0) -> None:

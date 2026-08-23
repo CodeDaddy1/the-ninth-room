@@ -99,7 +99,8 @@ def checklist(slug: str) -> "dict":
     masters = []
     vids = []
     for ext in ("*.mp4", "*.mov", "*.mxf", "*.m4v"):
-        vids += glob.glob(str(work / "deliverables" / ext))
+        vids += [v for v in glob.glob(str(work / "deliverables" / ext))
+                 if not os.path.basename(v).startswith("_tmp.")]
     for f in sorted(vids, key=os.path.getmtime, reverse=True)[:8]:
         try:
             dur = float(subprocess.run(
@@ -133,7 +134,16 @@ def render_master(slug: str, log=print, set_pct=lambda p: None) -> str:
     out_dir = work / "deliverables"
     out_dir.mkdir(exist_ok=True)
     name = "%s_master_%s" % (slug, time.strftime("%m%d_%H%M"))
+    # Render under a _tmp. name and rename only on Complete (the footage
+    # uploads' trick): a cancelled render must never leave a master-shaped
+    # file for the desk to list (audit F1). Stale temps from a crash are
+    # swept here — only one render runs at a time.
+    tmp_name = "_tmp." + name
+    for stale in glob.glob(str(out_dir / "_tmp.*")):
+        os.unlink(stale)
     resolve_api.ensure_bridge()
+    if resolve_api.rendering_in_progress():
+        raise RuntimeError("Resolve is already rendering — wait for it")
     set_pct(3)
     out = resolve_api.send("deliver-start", """
 local pm = resolve:GetProjectManager()
@@ -154,14 +164,15 @@ if tl == nil or tl:GetName() ~= '%(tl)s' then return 'ERR|timeline %(tl)s not fo
 -- queue if Resolve rejects the settings.
 local ok = proj:SetRenderSettings({ SelectAllFrames = true,
   MarkIn = tl:GetStartFrame(), MarkOut = tl:GetEndFrame() - 1,
-  TargetDir = '%(dir)s', CustomName = '%(name)s' })
+  TargetDir = '%(dir)s', CustomName = '%(tmp)s' })
 if ok == false then return 'ERR|SetRenderSettings rejected' end
 local job = proj:AddRenderJob()
 if job == nil then return 'ERR|AddRenderJob failed' end
 local started = proj:StartRendering(job)
 if started == false then return 'ERR|StartRendering refused' end
 return 'JOB|' .. job
-""" % {"proj": proj_name, "tl": tl_name, "dir": str(out_dir), "name": name},
+""" % {"proj": proj_name, "tl": tl_name, "dir": str(out_dir),
+       "tmp": tmp_name},
         timeout=180)
     if out.startswith("ERR|"):
         raise RuntimeError(out[4:])
@@ -200,10 +211,14 @@ return tostring(s.JobStatus) .. '|' .. tostring(s.CompletionPercentage or 0)
     resolve_api.send("deliver-clean",
                      "resolve:GetProjectManager():GetCurrentProject()"
                      ":DeleteRenderJob('%s') return 'ok'" % job, timeout=60)
+    hits = glob.glob(str(out_dir / (tmp_name + "*")))
     if state != "Complete":
+        for h in hits:  # the partial is junk, not a master
+            os.unlink(h)
         raise RuntimeError("render %s" % state.lower())
-    hits = glob.glob(str(out_dir / (name + "*")))
     if not hits:
-        raise RuntimeError("render finished but no file matched %s*" % name)
-    log("[deliver] %s" % os.path.basename(hits[0]))
-    return os.path.basename(hits[0])
+        raise RuntimeError("render finished but no file matched %s*" % tmp_name)
+    final = str(out_dir / os.path.basename(hits[0])[len("_tmp."):])
+    os.replace(hits[0], final)
+    log("[deliver] %s" % os.path.basename(final))
+    return os.path.basename(final)
