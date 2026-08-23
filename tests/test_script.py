@@ -180,5 +180,51 @@ class ScriptStateAndEditing(unittest.TestCase):
         self.assertIsNone(editroom._script_state("ep")["script"])
 
 
+class VoCoverageRule(unittest.TestCase):
+    """A teleprompter recording's picture must never ship."""
+
+    TAKES = {"takes": [
+        {"id": "V1", "file": "vo_CH1-S2_t1.webm", "s": 0.0, "e": 10.0,
+         "complete": True, "fillers": 0},
+    ]}
+    BROLL = {"clips": [{"id": "B1", "file": "b.mov", "duration": 30.0}]}
+
+    def plan(self, broll):
+        return {"slug": "ep", "beats": [{
+            "id": "BT01", "purpose": "vo", "take_id": "V1",
+            "trim": {"s": 0.0, "e": 10.0}, "broll": broll,
+        }]}
+
+    def errs(self, broll):
+        return schemas.validate_edit_plan(self.plan(broll), self.TAKES, self.BROLL)
+
+    def test_a_vo_beat_with_no_broll_is_refused(self):
+        self.assertTrue(any("teleprompter picture would ship" in e
+                            for e in self.errs([])))
+
+    def test_partial_cover_names_the_gap(self):
+        errs = self.errs([{"clip_id": "B1", "at": 0.0, "duration": 4.0}])
+        self.assertTrue(any("covers 4.0s of a 10.0s" in e for e in errs))
+
+    def test_full_cover_passes_the_rule(self):
+        errs = self.errs([{"clip_id": "B1", "at": 0.0, "duration": 10.0}])
+        self.assertFalse(any("teleprompter" in e for e in errs))
+
+    def test_the_editplan_prompt_teaches_the_script(self):
+        import tempfile, shutil
+        tmp = Path(tempfile.mkdtemp())
+        wp = jobs.work_path
+        jobs.work_path = lambda slug: tmp
+        try:
+            self.assertNotIn("approved SCRIPT", jobs._editplan_prompt("ep"))
+            (tmp / "script.json").write_text("{}")
+            p = jobs._editplan_prompt("ep")
+            self.assertIn("approved SCRIPT", p)
+            self.assertIn("covering their ENTIRE beat", p)
+        finally:
+            jobs.work_path = wp
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

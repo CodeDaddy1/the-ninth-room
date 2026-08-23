@@ -285,6 +285,27 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
 
     # --- editing-quality rules (added after the 4/10 review, 2026-08-19) ---
 
+    # A VO take on screen is a teleprompter recording of Caleb reading --
+    # its PICTURE must never ship. Any beat cut from a vo_* file needs
+    # b-roll, and enough of it to cover what the beat keeps.
+    for b in plan["beats"]:
+        t = take_by_id.get(b.get("take_id"))
+        if not t or not str(t.get("file", "")).startswith("vo_"):
+            continue
+        where = "beat %s" % b.get("id")
+        if not b.get("broll"):
+            errors.append("%s: cut from voice-over take %s with NO b-roll "
+                          "-- the teleprompter picture would ship"
+                          % (where, b["take_id"]))
+            continue
+        trim = b.get("trim") or {"s": t["s"], "e": t["e"]}
+        kept = max(0.0, float(trim["e"]) - float(trim["s"]))
+        covered = sum(float(br.get("duration", 0)) for br in b["broll"])
+        if kept > 0 and covered < kept * 0.9:
+            errors.append("%s: b-roll covers %.1fs of a %.1fs voice-over "
+                          "beat -- the gap shows the teleprompter"
+                          % (where, covered, kept))
+
     # A b-roll clip may appear ONCE in the whole video. Reused cutaways read
     # as filler and viewers notice the second time even when they can't say
     # why. 150 placements over 111 clips meant ~39 repeats.

@@ -225,7 +225,17 @@ def _story_prompt(slug) -> str:
 
 
 def _editplan_prompt(slug) -> str:
-    return EDITPLAN_PROMPT % {"slug": slug, "brief": _brief_clause(slug)}
+    clause = _brief_clause(slug)
+    # a script outranks improvisation: when one exists the cut FOLLOWS it
+    if (work_path(slug) / "script.json").exists():
+        clause += ("work/%s/script.json is the approved SCRIPT -- the cut "
+                   "follows it section by section: oncamera sections use "
+                   "their cited take_id; vo sections use the recorded "
+                   "vo_<section>_t<n> takes (ordinary speech takes after "
+                   "ingest) with b-roll covering their ENTIRE beat -- a "
+                   "teleprompter recording on screen is a mistake. Respect "
+                   "the one-use-per-b-roll-clip rule. " % slug)
+    return EDITPLAN_PROMPT % {"slug": slug, "brief": clause}
 
 
 def _run_story(slug, log, set_pct):
