@@ -221,6 +221,63 @@ def _run_story(slug, log, set_pct):
     set_pct(100)
 
 
+EDITPLAN_PROMPT = (
+    "Write the edit plan for %(slug)s. Read .claude/agents/story-designer.md "
+    "and act as that agent for the EDIT PLAN stage: the latest round in "
+    "work/%(slug)s/story_feedback.json is an APPROVING round — build the "
+    "plan from its chosen direction in work/%(slug)s/stories.json, honoring "
+    "its notes. Read work/%(slug)s/analysis/ (takes, b-roll, timings) and "
+    "write work/%(slug)s/edit_plan.json that satisfies the agent's plan "
+    "rules. Do NOT run conforms or renders, and do NOT touch DaVinci "
+    "Resolve. The engine is running on :8765; leave it alone.")
+
+
+def _run_editplan(slug, log, set_pct):
+    """The Story desk's approved-state button (UX overhaul, 2026-08-23).
+    Approving a direction used to end with the desk saying "tell Claude:
+    write the edit plan" — a hand-off to a session a customer doesn't have.
+    Same dispatch-and-verify shape as _run_story: the proof of work is
+    edit_plan.json changing, not the exit code."""
+    import json
+    import subprocess
+    work = work_path(slug)
+    fb = work / "story_feedback.json"
+    if not (work / "stories.json").exists():
+        raise RuntimeError("no story pitches yet — pitch stories first")
+    rounds = (json.loads(fb.read_text()).get("rounds", [])
+              if fb.exists() else [])
+    if not rounds or rounds[-1].get("decision") != "approve":
+        raise RuntimeError("no approving round — approve a direction on "
+                           "the Story desk first")
+    plan_path = work / "edit_plan.json"
+    if plan_path.exists():
+        # overwriting a cut that desks and reviews hang off is a decision,
+        # not a button press
+        raise RuntimeError("edit_plan.json already exists — the cut is "
+                           "built; re-cutting is a session decision")
+    log("[editplan] dispatching the story designer for the cut")
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p",
+         EDITPLAN_PROMPT % {"slug": slug},
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("edit-plan session exited %d — see the log" % rc)
+    if not plan_path.exists():
+        raise RuntimeError("session finished but edit_plan.json was not "
+                           "written — read the log")
+    log("[editplan] cut written — assemble builds the timeline next")
+    set_pct(100)
+
+
 def _run_render(slug, log, set_pct):
     from . import deliver
     deliver.render_master(slug, log=log, set_pct=set_pct)
@@ -234,6 +291,8 @@ KINDS = {
     "render": ("Render master — Resolve render queue", _run_render),
     "fixer": ("Fixer round — flagged beats to re-review", _run_fixer),
     "story": ("Story pitches — three directions", _run_story),
+    "editplan": ("Build the cut — plan from the approved direction",
+                 _run_editplan),
 }
 
 
