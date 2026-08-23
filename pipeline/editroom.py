@@ -2268,6 +2268,14 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     if p.is_file() and p.suffix.lower() in _VIDEO_UP:
                         self._send_video(p)
                         return
+                elif kind == "deliverables":
+                    # the Studio's Export desk plays the newest master in
+                    # place -- "ready to ship" answered by watching, not by
+                    # reading a row (UX overhaul, 2026-08-23)
+                    p = (work_path(mslug) / "deliverables" / name).resolve()
+                    if p.is_file() and p.suffix.lower() == ".mp4":
+                        self._send_video(p)
+                        return
                 elif kind == "assets":
                     p = (work_path(mslug) / "assets" / name).resolve()
                     if p.is_file() and p.suffix.lower() in _VIDEO_UP:
