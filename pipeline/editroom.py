@@ -1387,6 +1387,32 @@ def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
     return {"stored": name, "still": False}
 
 
+_FAV_LOCK = threading.Lock()
+
+
+def _favorites(slug: str) -> "list":
+    f = work_path(slug) / "favorites.json"
+    if not f.exists():
+        return []
+    return json.loads(f.read_text()).get("files", [])
+
+
+def _toggle_favorite(slug: str, name: str, on: bool) -> "list":
+    """Star/unstar one clip. The starred set is the story bucket: the
+    story-designer treats it as the episode's core material, so what is
+    starred here directly widens or narrows the pitched scope."""
+    if not name:
+        raise IngestError("no file name")
+    with _FAV_LOCK:
+        favs = _favorites(slug)
+        if on and name not in favs:
+            favs.append(name)
+        if not on and name in favs:
+            favs.remove(name)
+        _write_json(work_path(slug) / "favorites.json", {"files": favs})
+    return favs
+
+
 def _footage_state(slug: str) -> "dict":
     """Inventory of what's been dropped in: per-clip thumbnail, duration,
     size — thumbnails and probes cached in footage/.thumbs keyed by
@@ -1441,7 +1467,8 @@ def _footage_state(slug: str) -> "dict":
         if changed:
             _write_json(meta_path, meta)
     ingested = (work_path(slug) / "analysis" / "catalog.json").exists()
-    return {"slug": slug, "files": items, "ingested": ingested}
+    return {"slug": slug, "files": items, "ingested": ingested,
+            "favorites": _favorites(slug)}
 
 
 def _delete_footage(slug: str, name: str) -> "dict":
@@ -2384,6 +2411,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 log("[footage] %s removed %s" % (body.get("slug"),
                                                  result["removed"]))
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/footage/favorite":
+                favs = _toggle_favorite(self._slug_b(body),
+                                        body.get("name", ""),
+                                        bool(body.get("on")))
+                self._send(200, {"ok": True, "favorites": favs})
             elif self.path == "/api/footage/clear":
                 result = _clear_footage(self._slug_b(body))
                 log("[footage] %s cleared (%d files to .trash)"
