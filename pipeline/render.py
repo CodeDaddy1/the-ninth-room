@@ -15,16 +15,14 @@ from pathlib import Path
 from . import resolve_api as ra
 from .ingest import work_path, analysis_dir, IngestError
 
-# The DaVinci Resolve project name. `open_project` tries PROJECT_NAME first,
-# then LEGACY_PROJECT_NAME, and only creates a project if neither exists — so
-# this rename is safe whether or not the project has been renamed inside
-# Resolve. The legacy project still holds the shipped HMNS timeline and every
-# media link in it; without the fallback, LoadProject would miss it and
-# CreateProject would make a second, EMPTY project while the real one sat
-# orphaned. Once the project is renamed in Resolve's project manager, the
-# legacy name can be dropped.
-PROJECT_NAME = "The Ninth Room"
-LEGACY_PROJECT_NAME = "Curated Curiosities"
+# No project name is hardcoded here any more. It used to open "The Ninth Room"
+# with a "Curated Curiosities" fallback, but on 2026-08-23 a live check found
+# NEITHER name in Resolve's project manager -- Caleb works in
+# CC_hmns_SemiFinal, alongside six others. Both lookups would have missed and
+# CreateProject would have built an empty project while the real one sat
+# orphaned: exactly the failure that fallback was written to prevent. Every
+# other Resolve caller here (conform, build_api, color, deliver) reads
+# GetCurrentProject, so this one does too.
 DURATION_TOLERANCE_SEC = 0.75
 
 
@@ -67,7 +65,11 @@ def render_timeline(slug: str, fcpxml: Path, log=print) -> Path:
     """Import a generated FCPXML, then render it. Kept for assets Resolve's
     importer links correctly; the DJI/HEVC path uses render_current instead."""
     ra.ensure_bridge()
-    ra.open_project(PROJECT_NAME, LEGACY_PROJECT_NAME)
+    log("[render] project %s" % ra.send("render-project", '''
+local p = resolve:GetProjectManager():GetCurrentProject()
+if not p then return error("no project open -- open the episode\'s project in Resolve first") end
+return p:GetName()
+''', timeout=60))
     # Timeline names must be unique per import or Resolve silently numbers
     # them; a timestamp suffix keeps reruns unambiguous.
     tl_name = "%s_%s" % (slug, time.strftime("%H%M%S"))

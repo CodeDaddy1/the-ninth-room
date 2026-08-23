@@ -91,7 +91,16 @@ def build(slug: str, cards: "list[dict]", caption_clips: "list[dict]", log=print
     for item in list(cards) + list(caption_clips):
         paths.append(item["path"])
     uniq = sorted({str(Path(p).resolve()) for p in paths})
-    lua_list = ",".join(ra.lua_str(p) for p in uniq)
+    # Overlays are imported SEPARATELY so they can be filed in their own bin
+    # (resolve_api.BIN_OVERLAYS) — a card must land in the same place whether
+    # this build imported it or a later conform did. Camera originals and
+    # b-roll keep going to the pool's current folder: they are long-lived and
+    # may already be organised by hand, so this does not move them.
+    overlay_paths = sorted({str(Path(item["path"]).resolve())
+                            for item in list(cards) + list(caption_clips)})
+    media_paths = [p for p in uniq if p not in set(overlay_paths)]
+    lua_list = ",".join(ra.lua_str(p) for p in media_paths)
+    lua_ovlist = ",".join(ra.lua_str(p) for p in overlay_paths)
     # Overlay movs are REGENERATED at the same path every build, but a reused
     # project keeps the old pool items — after a few builds the pool held four
     # BT05.movs of different lengths and the name scan picked one at random
@@ -101,10 +110,10 @@ def build(slug: str, cards: "list[dict]", caption_clips: "list[dict]", log=print
     overlay_names = sorted({Path(item["path"]).name
                             for item in list(cards) + list(caption_clips)})
     lua_overlays = ",".join(ra.lua_str(n) for n in overlay_names)
-    got = ra.send("preload_media", '''
+    got = ra.send("preload_media", '''%(binhelper)s
 local mp = resolve:GetProjectManager():GetCurrentProject():GetMediaPool()
 local purge_names = {}
-for _, n in ipairs({%s}) do purge_names[n] = true end
+for _, n in ipairs({%(purge)s}) do purge_names[n] = true end
 local stale = {}
 local function sweep(folder)
   for _, c in ipairs(folder:GetClipList()) do
@@ -114,16 +123,22 @@ local function sweep(folder)
 end
 sweep(mp:GetRootFolder())
 if #stale > 0 then mp:DeleteClips(stale) end
-local items = mp:ImportMedia({%s})
+local items = mp:ImportMedia({%(media)s}) or {}
+local ovpaths = {%(overlays)s}
+if #ovpaths > 0 then
+  for _, it in ipairs(_nr_import(mp, '%(bin)s', ovpaths) or {}) do items[#items+1] = it end
+end
 -- Stash THIS build's imports by name. Rebuilds regenerate overlay .movs at
 -- the same paths, and the pool can hold stale same-name items from earlier
 -- builds whose files were replaced or missing; a name-only scan could pick
 -- an offline one. Bridge globals persist within a session, so later append
 -- commands prefer these fresh handles.
-_cc_imported = _cc_imported or {}
-for _, it in ipairs(items or {}) do _cc_imported[it:GetName()] = it end
+_nr_imported = _nr_imported or {}
+for _, it in ipairs(items or {}) do _nr_imported[it:GetName()] = it end
 return tostring(items and #items or 0)
-''' % (lua_overlays, lua_list), timeout=900)
+''' % {"binhelper": ra.LUA_BIN_IMPORT, "purge": lua_overlays,
+        "media": lua_list, "overlays": lua_ovlist,
+        "bin": ra.BIN_OVERLAYS}, timeout=900)
     log("[build] media pool: %s/%d clips" % (got, len(uniq)))
 
     # Measure every camera clip now so its grade is ready to apply once the
@@ -196,7 +211,7 @@ local function scan(f)
   for _, s in ipairs(f:GetSubFolderList()) do scan(s) end
 end
 scan(mp:GetRootFolder())
-for n, it in pairs(_cc_imported or {}) do byname[n] = it end
+for n, it in pairs(_nr_imported or {}) do byname[n] = it end
 local infos = {}
 for _, e in ipairs({%s}) do
   local item = byname[e.n]
@@ -307,7 +322,7 @@ local function scan(folder)
 end
 scan(mp:GetRootFolder())
 -- Same fresh-handle preference append_v1 has: this build's imports win.
-for n, it in pairs(_cc_imported or {}) do byname[n] = it end
+for n, it in pairs(_nr_imported or {}) do byname[n] = it end
 
 -- recordFrame is ABSOLUTE timeline frames, and a Resolve timeline starts at
 -- the hour mark (01:00:00:00), not zero. Placing at 0 puts every clip before

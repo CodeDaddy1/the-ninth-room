@@ -220,6 +220,47 @@ def lua_str(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+# --- media pool bins ------------------------------------------------------
+# ImportMedia targets the media pool's CURRENT folder, so without this every
+# card landed in "whatever bin Caleb last clicked" and successive conforms
+# could scatter the same project's cards across different bins. Name the
+# destination instead. A card must resolve to the SAME bin whether it was
+# imported by the timeline build's preload or by a conform, so both read
+# these constants rather than spelling the name twice.
+#
+# Filing a clip somewhere else by hand stays safe: every clip lookup here
+# matches on file PATH and recurses through GetSubFolderList().
+BIN_OVERLAYS = "Ninth Room Cards"      # cards + baked caption clips
+BIN_SFX = "Ninth Room SFX"
+BIN_BROLL = "Ninth Room B-roll"
+
+# Lua: import into a named top-level bin, creating it once, then return the
+# pool's selection to Master — a conform must not leave the pool parked
+# somewhere the user didn't put it. Deliberately avoids `break` (Resolve's
+# Lua wants it as a block's last statement) and contains no '%' so it
+# survives the %-interpolation each caller runs it through.
+LUA_BIN_IMPORT = """
+local function _nr_import(mp, binName, paths)
+  local root = mp:GetRootFolder()
+  local target = nil
+  for _, f in ipairs(root:GetSubFolderList() or {}) do
+    if target == nil and f:GetName() == binName then target = f end
+  end
+  if target == nil then target = mp:AddSubFolder(root, binName) end
+  -- GetCurrentFolder() returns nil on Resolve 21.0.4.5 free (probed against
+  -- a live project 2026-08-23) -- the method exists but yields nothing, so
+  -- the obvious "put the selection back" is silently a no-op and the pool
+  -- ends up parked on whichever bin this import used. Fall back to Master so
+  -- the landing spot is at least deterministic.
+  local prev = mp:GetCurrentFolder() or root
+  if target ~= nil then mp:SetCurrentFolder(target) end
+  local out = mp:ImportMedia(paths)
+  mp:SetCurrentFolder(prev)
+  return out
+end
+"""
+
+
 # --- Resolve operations the pipeline uses ---------------------------------
 
 def open_project(name: str, legacy_name: "str | None" = None) -> str:

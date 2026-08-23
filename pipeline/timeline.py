@@ -328,7 +328,7 @@ def _asset_id(name: str, registry: "dict") -> str:
 
 
 def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
-                 caption_clips: "list[dict]") -> Path:
+                 caption_clips: "list[dict]", log=print) -> Path:
     """Emit timeline.fcpxml from the planned layout.
 
     cards: [{"id", "path", "record_s", "duration"}] (already-baked movs)
@@ -361,6 +361,90 @@ def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
     def overlays_in(rec_s: float, rec_e: float, items: "list[dict]") -> "list[dict]":
         return [x for x in items if rec_s <= x["record_s"] < rec_e]
 
+    # --- split edits: J-cuts and L-cuts ----------------------------------
+    # A J-cut's audio is heard BEFORE its own picture, so it cannot hang off
+    # its own clip -- it hangs off the PREVIOUS beat's. An L-cut's audio
+    # outlives its picture and hangs off the NEXT one. Both are the connected
+    # <audio lane="-1"> child verified against Resolve 21.0.4.5 on 2026-08-23
+    # (docs/resolve-findings.md): a 1s child landed on A2 one second ahead of
+    # its video while the spine stayed put.
+    #
+    # Keyed by the HOST segment's id so the main loop below picks each child
+    # up when it reaches the beat that owns that segment.
+    split_children: "dict[int, list]" = {}
+    # A J-cut also has to STOP the outgoing voice, or both takes play at once
+    # and the viewer hears two people. audioDuration on the host clip does it
+    # (verified 21.0.4.5, 2026-08-23). Maps host segment id -> seconds of
+    # audio it keeps.
+    audio_trim: "dict[int, float]" = {}
+
+    def _window(seg):
+        return seg["record_s"], seg["record_s"] + (seg["src_e"] - seg["src_s"])
+
+    def _host_for(beats_slice, rec_t):
+        for hb in beats_slice:
+            for seg in hb["segments"]:
+                lo, hi = _window(seg)
+                if lo <= rec_t < hi:
+                    return seg
+        return None
+
+    def _skip(beat, kind, why):
+        """A dropped split edit is a decision the story-designer made and
+        nobody would otherwise see -- it just would not be in the cut. Say it
+        out loud so the omission is reviewable."""
+        log("[timeline] %s on %s skipped: %s" % (kind, beat["id"], why))
+
+    def _split(beat, host, rec_start, src_start, dur, kind):
+        """One connected <audio> child, or nothing if it cannot be placed
+        safely. A NEGATIVE child offset silently kills the whole import, and
+        a source range outside the file pulls silence or a frozen tail --
+        both fail quietly, so each is a skip, not a clamp."""
+        if dur <= 0:
+            return _skip(beat, kind, "no duration")
+        if host is None:
+            return _skip(beat, kind, "no clip covers the record time "
+                                     "(a gap between beats?)")
+        f = file_by_name[beat["file"]]
+        if not f.get("has_audio", False):
+            return _skip(beat, kind, "%s has no audio" % f["name"])
+        if src_start < 0 or src_start + dur > f["duration"]:
+            return _skip(beat, kind, "reaches outside the take")
+        child_off = host["src_s"] + (rec_start - host["record_s"])
+        if child_off < 0:
+            return _skip(beat, kind, "would need a negative offset")
+        if kind == "jcut":
+            # the host keeps only the audio BEFORE the incoming voice starts.
+            # A trim of zero would silence the whole host segment, which is a
+            # worse edit than the overlap -- so drop the J-cut instead.
+            keep = rec_start - host["record_s"]
+            if keep <= 0:
+                return _skip(beat, kind, "would mute the whole previous clip")
+            audio_trim[id(host)] = keep
+        aid_a = register(f["name"], f["path"], f["duration"], True)
+        split_children.setdefault(id(host), []).append(
+            '<audio lane="-1" ref="%s" name=%s offset="%s" start="%s" '
+            'duration="%s" role="dialogue"/>'
+            % (aid_a, quoteattr("%s_%s" % (beat["id"], kind)),
+               grid.rt(child_off), grid.rt(src_start), grid.rt(dur)))
+
+    _beats = tl_map["beats"]
+    for _i, _b in enumerate(_beats):
+        if not _b.get("segments"):
+            continue
+        lead = _b.get("audio_lead")
+        if lead and _i > 0:
+            # audio runs from (picture start - lead) up to picture start
+            _rec = _b["record_s"] - lead
+            _src = _b["segments"][0]["src_s"] - lead
+            _split(_b, _host_for(_beats[:_i], _rec), _rec, _src, lead, "jcut")
+        tail = _b.get("audio_tail")
+        if tail and _i < len(_beats) - 1:
+            # audio carries on from where the picture stopped
+            _rec = _b["record_e"]
+            _src = _b["segments"][-1]["src_e"]
+            _split(_b, _host_for(_beats[_i + 1:], _rec), _rec, _src, tail, "lcut")
+
     spine_parts = []
     for i, beat in enumerate(tl_map["beats"]):
         f = file_by_name[beat["file"]]
@@ -383,6 +467,9 @@ def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
             return seg_windows[0][0] if rec_t < seg_windows[0][1] else seg_windows[-1][0]
 
         children_by_seg: "dict[int, list]" = {id(seg): [] for seg in beat["segments"]}
+        # split-edit audio belonging to a NEIGHBOUR beat, hosted by this one
+        for _seg in beat["segments"]:
+            children_by_seg[id(_seg)].extend(split_children.get(id(_seg), []))
         beat_overlays = (
             [(1, "broll", item) for item in beat["broll"]] +
             [(2, "card", item) for item in overlays_in(beat["record_s"], beat["record_e"], cards)] +
@@ -416,10 +503,17 @@ def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
                     % (grid.rt(max(0.0, seg["record_s"] - DISSOLVE_SEC / 2)),
                        grid.rt(DISSOLVE_SEC)))
             body = "".join(children)
+            # a J-cut on the NEXT beat ends this clip's audio early; its
+            # picture is untouched. audioStart mirrors start -- it shifts the
+            # source in-point, not the timeline slot.
+            audio_attrs = ""
+            if id(seg) in audio_trim:
+                audio_attrs = ' audioStart="%s" audioDuration="%s"' % (
+                    grid.rt(seg["src_s"]), grid.rt(audio_trim[id(seg)]))
             spine_parts.append(
-                '<asset-clip ref="%s" name=%s offset="%s" start="%s" duration="%s" format="r1">%s</asset-clip>'
+                '<asset-clip ref="%s" name=%s offset="%s" start="%s" duration="%s"%s format="r1">%s</asset-clip>'
                 % (aid, quoteattr("%s_%s" % (beat["id"], j)), grid.rt(seg["record_s"]),
-                   grid.rt(seg["src_s"]), grid.rt(dur), body))
+                   grid.rt(seg["src_s"]), grid.rt(dur), audio_attrs, body))
 
     frame = grid.frame
     fcpxml = (

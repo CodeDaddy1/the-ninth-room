@@ -133,6 +133,21 @@ def _pair_key(o):
             round(float(p.get("src_s", 0)), 2), round(float(p.get("duration", 0)), 2))
 
 
+def _op_detail(o):
+    """One human label for a queued op, used by BOTH the pending preview and
+    the running status panel — the desk must never describe the same op two
+    different ways. Card ops carry no beat_id (a card is addressed by
+    card_id), which is why a bare "card place" told Caleb nothing.
+    """
+    p = o.get("payload") or {}
+    bits = []
+    if p.get("card_id"):
+        bits.append(str(p["card_id"]))
+    if p.get("file"):
+        bits.append(os.path.basename(str(p["file"])))
+    return " \u00b7 ".join(bits) or o.get("beat_id", "")
+
+
 def _collapse_ops(ops):
     """A place later removed cancels (sfx by cue id, b-roll by file +
     record position); repeated card exports keep only the last."""
@@ -259,7 +274,7 @@ return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(proj:GetSetting(
     for i, o in enumerate(ops):
         op, payload, bid = o["op"], o["payload"], o.get("beat_id", "")
         entry = {"op": op, "beat_id": bid, "result": "pending",
-                 "detail": payload.get("card_id") or payload.get("file", "")}
+                 "detail": _op_detail(o)}
         st["ops"].append(entry)
         _write_status(slug, st)
         try:
@@ -308,7 +323,7 @@ return 'OK|' .. tostring(tl:GetStartFrame()) .. '|' .. tostring(proj:GetSetting(
                     track_expr = ("(function() local ts = {} for t = 1, "
                                   "tl:GetTrackCount('video') do ts[#ts+1] = t "
                                   "end return ts end)()")
-                out = resolve_api.send("conform-op%d" % i, """
+                out = resolve_api.send("conform-op%d" % i, """%(binhelper)s
 local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
 local mp = resolve:GetProjectManager():GetCurrentProject():GetMediaPool()
 for _, t in ipairs(%(tracks)s) do
@@ -346,7 +361,7 @@ for t = 1, tl:GetTrackCount('video') do
     end
   end
 end
-local imported = mp:ImportMedia({'%(path)s'})
+local imported = _nr_import(mp, '%(bin)s', {'%(path)s'})
 if imported == nil or #imported == 0 then return 'ERR|insert: import failed' end
 local placed3 = mp:AppendToTimeline({{mediaPoolItem = imported[1], startFrame = 0, endFrame = %(durf)d, trackIndex = 3, recordFrame = %(f0)d}})
 if placed3 == nil or #placed3 == 0 then return 'ERR|insert failed' end
@@ -356,6 +371,8 @@ return 'OK|inserted at frame %(f0)d on V3'
        "durf": max(1, int(round(float(
            ({c["id"]: c for c, _s in editroom._all_overlays(slug)}
             .get(payload["card_id"], {}).get("duration", 3))) * fps)) - 1),
+       "binhelper": resolve_api.LUA_BIN_IMPORT,
+       "bin": _lua_safe(resolve_api.BIN_OVERLAYS),
        "path": _lua_safe(exports_dir + "/" + payload["file"])}, timeout=180)
             elif op in ("card_place", "sfx_place", "broll_attach"):
                 if op == "card_place":
@@ -389,7 +406,12 @@ return 'OK|inserted at frame %(f0)d on V3'
                         mk_track = "tl:AddTrack('audio')\n"
                         sfx_track[0] = "made"
                     track_expr = "tl:GetTrackCount('audio')"
-                out = resolve_api.send("conform-op%d" % i, """
+                # a card belongs with the cards, a sound with the sounds --
+                # the destination follows the op, not the pool selection
+                bin_name = (resolve_api.BIN_OVERLAYS if op == "card_place"
+                            else resolve_api.BIN_SFX if op == "sfx_place"
+                            else resolve_api.BIN_BROLL)
+                out = resolve_api.send("conform-op%d" % i, """%(binhelper)s
 local proj = resolve:GetProjectManager():GetCurrentProject()
 local mp = proj:GetMediaPool()
 local tl = proj:GetCurrentTimeline()
@@ -408,7 +430,7 @@ local function scan(folder)
 end
 clip = scan(mp:GetRootFolder())
 if clip == nil then
-  local imported = mp:ImportMedia({'%(path)s'})
+  local imported = _nr_import(mp, '%(bin)s', {'%(path)s'})
   if imported == nil or #imported == 0 then return 'ERR|import failed' end
   clip = imported[1]
 end
@@ -417,6 +439,8 @@ if items == nil or #items == 0 then return 'ERR|append failed' end
 return 'OK|placed@' .. tostring(items[1]:GetStart())
 """ % {"mk_track": mk_track, "base": _lua_safe(os.path.basename(path)),
        "path": _lua_safe(path),
+       "binhelper": resolve_api.LUA_BIN_IMPORT,
+       "bin": _lua_safe(bin_name),
        "sf": start_frame, "ef": start_frame + dur_frames - 1,
        "track": track_expr, "rf": frame(abs_s), "mt": media_type},
                     timeout=180)

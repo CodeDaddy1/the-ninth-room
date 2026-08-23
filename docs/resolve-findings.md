@@ -21,9 +21,9 @@ finds no framework Python to load. Irrelevant for us: the bridge is Lua, which
 is built in.
 
 **What works: scripts started from inside Resolve.** Our bridge
-(`pipeline/bridge/Curated Bridge.lua`, installed to
+(`pipeline/bridge/Ninth Room Bridge.lua`, installed to
 `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/`)
-runs from **Workspace ▸ Scripts ▸ Curated Bridge** and then executes Lua
+runs from **Workspace ▸ Scripts ▸ Ninth Room Bridge** and then executes Lua
 command files the outside pipeline drops into `work/_bridge/inbox/`, writing
 results to `outbox/`. A heartbeat file (`bridge.alive`) proves liveness.
 
@@ -46,6 +46,9 @@ with hand-generated FCPXML 1.9 (stdlib string/XML — no OTIO dependency needed)
 | **Cross-dissolve** (`<transition>` + `filter-video "Cross Dissolve"`) | ✅ | rendered mp4 shows an exact 50/50 color blend mid-cut; round-trip export keeps the transition |
 | Connected clips on `lane="1"` → V2 | ✅ | items land on V2 at the right frames (offset is relative to the **parent's source time**, mind the parent's `start`) |
 | ProRes 4444 clip with straight alpha on V2 | ✅ | card composites over V1 in the render; Resolve reads it as Alpha mode "Straight" |
+| **Split-edit audio** (connected `<audio lane="-1">` child) | ✅ | **verified 2026-08-23.** A 1s `<audio>` child of clip A referencing clip B's asset landed on **A2 at frames 60–90** while B's video stayed at 90 — audio one second ahead of its picture. This is the J-cut / L-cut mechanism; the child's `offset` is in the PARENT clip's source time, same rule as connected `<video>`. Resolve made the second audio track itself. |
+| **`audioDuration` shorter than `duration`** (asset-clip) | ✅ | **verified 2026-08-23.** V1 ran 0–90 while A1 stopped at 60: the clip's audio ends before its picture. This is the OUTGOING half of a J-cut — the connected `<audio>` child alone only adds the incoming voice, it cannot stop the previous one. `audioStart` mirrors `start`; it shifts the source in-point, NOT the timeline slot, so it cannot delay audio without desyncing it. |
+| **`audioDuration="0/1s"`** (silence a clip entirely) | ✅ | **verified 2026-08-23.** Splitting one clip into two contiguous spine entries and zeroing the head's audio gave V1 continuous 0–150 with A1 only 45–150 — picture seamless, audio starting late. This is the INCOMING half of an L-cut. Not yet implemented: it restructures the spine, so overlay children must be re-homed across the split. |
 | **`adjust-transform` keyframes** (position/scale animation) | ❌ **dropped** | round-trip export shows static `scale="1 1" position="0 0"` |
 | Static `adjust-transform` values | untested (assumed OK, but we don't need them) | |
 
