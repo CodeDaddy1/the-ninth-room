@@ -136,6 +136,55 @@ Write `work/<slug>/edit_plan.json`:
 - `transition_in`: `"cut"` by default; `"dissolve"` only on act boundaries
   (into a new location/topic), never between retake fragments.
 
+## The cut vocabulary (Caleb, 2026-08-23)
+
+Every beat carries an optional `technique`. It defaults to `hard` and you
+should leave it there unless you mean something. Naming the technique is not
+decoration — it is how your intent survives into QC, and how a reviewer can
+tell a deliberate jump cut from a botched splice.
+
+Most of these are not seams at all. Read the third column before reaching for
+one: several are decisions you make somewhere else in the plan.
+
+| technique | What the viewer gets | How you actually make it happen |
+|---|---|---|
+| `hard` | Instant switch | Nothing to do — the default |
+| `jump` | A visible leap forward in one shot | Two segments of the SAME take with time removed between them |
+| `cutaway` | B-roll over continuing narration | A `broll` entry on the beat. Audio never leaves V1 |
+| `cross_cut` | Two threads alternating | Beat ORDER — interleave beats from the two threads |
+| `montage` | A run of short shots, time passing | A group of short beats, usually over one continuous audio bed |
+| `match` | Two shots that rhyme in shape or motion | A SHOT CHOICE — pick the b-roll/take whose composition echoes its neighbour |
+| `cut_on_action` | The eye rides a movement across the cut | A TRIM CHOICE — land the cut mid-gesture, not after it |
+| `smash` | An abrupt tonal jolt | A hard cut plus a sound. Use `transition_in: "cut"` and place an sfx |
+| `j_cut` | You HEAR the next thing before you see it | `technique: "j_cut"` **and** `audio_lead: <seconds>` |
+| `l_cut` | The previous voice carries over the new picture | `technique: "l_cut"` **and** `audio_tail: <seconds>` |
+
+### J-cuts and L-cuts specifically
+
+These are the only two that need a construct the writer would not otherwise
+emit, so they are the only two with their own field. The number is seconds,
+it is required, and it is capped at **3.0** — past that a split edit stops
+reading as craft and the viewer starts hunting for the offscreen speaker.
+
+- `audio_lead: 0.8` on a beat = its audio starts 0.8s before its picture.
+- `audio_tail: 1.2` on a beat = its audio runs 1.2s past its picture.
+
+The writer places these as connected audio, verified working in Resolve
+(`docs/resolve-findings.md`). It will **silently skip** a split edit it cannot
+place safely: on the first or last beat, when the source file has no audio, or
+when the lead/tail would reach outside the take. So do not lean on one to
+carry a transition — if the moment only works with the split edit, it is
+fragile. Write the beat so it also reads as a hard cut.
+
+Use them where speech genuinely overlaps a change of view. A J-cut into a
+reveal is the workhorse: Sofia says "wait, what IS that" while we are still on
+Alma's face, then we cut to the thing. An L-cut is for letting a reaction
+breathe — hold the voice, show the face.
+
+**Do not put a split edit on every boundary.** They are seasoning. If more
+than roughly one beat in six carries one, you are using them to paper over
+pacing you should have fixed in the take picks.
+
 ## Structure to aim for
 
 Cold hook → stakes (why should I care) → 2–4 escalating build beats, each a

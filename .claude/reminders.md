@@ -133,13 +133,6 @@ console settings, recordings, decisions). Check items off when done.
   codes the stagger. Rule 6 says the canvas is the source of truth, so it
   should learn the knob (or tell us the stagger is non-negotiable and BT10
   gets a different answer).
-- [ ] **CARD09 is a blank kit template parked on BT33.** A `chapter` card,
-  untouched defaults (kicker empty, text "Chapter title"), `at` 0.0 on an
-  APPROVED beat, so the fixer left it alone. It has never been baked, but it
-  IS in `graphics_plan.json`, so the next BT33 re-proxy or conform will render
-  a card that literally reads "Chapter title" over the shot. Delete it on the
-  Overlays desk or give it copy.
-
 - **Delete the orphaned `curated-curiosities` Vercel project.** It is still
   linked to the renamed `the-ninth-room` GitHub repo, so every engine push
   triggers a doomed Next.js build (the failed-deploy emails). Nothing real

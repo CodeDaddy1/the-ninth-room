@@ -171,7 +171,7 @@ and the `emoji` kit screen exists for moments where emoji *are* the content.
 
 - The Curated Curiosities navy/amber/cream system with Playfair Display and
   Work Sans — retired. Its token files are kept at
-  `brand/design-system/_retired-curated-curiosities/` for reference only.
+  `brand/_retired-curated-curiosities/` for reference only.
 - The **Midnight / "Cutout" chip kit** (design handoff 2026-08-19) — retired
   by the Cyanotype kit, which says so itself. Chips, 5px ice outlines, hard
   offset shadows and ±1–2° tilts are all gone. The previous runtime is kept

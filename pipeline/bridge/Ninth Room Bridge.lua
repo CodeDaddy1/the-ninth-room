@@ -1,5 +1,5 @@
 --[[
-Curated Bridge — file-spool command executor for the Curated Curiosities pipeline.
+Ninth Room Bridge — file-spool command executor for The Ninth Room pipeline.
 
 Why this exists: the free edition of DaVinci Resolve refuses external scripting
 connections (verified 2026-08-18: fusionscript.so and fuscript both return nil

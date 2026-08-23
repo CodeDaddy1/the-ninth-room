@@ -41,7 +41,7 @@ Chrome. Creative judgment runs as **Claude Code subagents** (`.claude/agents/`)
 that read and write JSON artifacts under `work/<slug>/` — there are no
 Anthropic API calls and no paid services (**$0/mo is binding**). Resolve is
 controlled through the in-app Lua bridge (`pipeline/resolve_api.py` +
-`pipeline/bridge/Curated Bridge.lua`) because the free edition blocks external
+`pipeline/bridge/Ninth Room Bridge.lua`) because the free edition blocks external
 scripting. Timelines are generated as FCPXML and imported; transitions survive
 import, transform keyframes do not — so all graphics animation is **baked into
 ProRes 4444 alpha clips** with ffmpeg before they reach the timeline.
