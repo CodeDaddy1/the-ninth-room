@@ -1585,7 +1585,7 @@ def _clear_footage(slug: str) -> "dict":
 
 
 def _save_story_brief(slug: str, target_minutes, chapters,
-                      notes: str = "") -> "dict":
+                      notes: str = "", location: str = "") -> "dict":
     """The pre-production questionnaire (Caleb, 2026-08-23): target length
     and chapter count, briefed to the story-designer instead of left to its
     judgment. Bounds are the system's own: 12 chapters is the kit's chapter
@@ -1599,7 +1599,11 @@ def _save_story_brief(slug: str, target_minutes, chapters,
         raise IngestError("target_minutes must be 1-60")
     if not (1 <= chaps <= 12):
         raise IngestError("chapters must be 1-12 (the kit's chapter cap)")
+    location = str(location or "").strip()
+    if len(location) > 200:
+        raise IngestError("location: keep it under 200 characters")
     brief = {"target_minutes": mins, "chapters": chaps,
+             "location": location,
              "notes": str(notes or "").strip(), "ts": int(time.time())}
     _write_json(work_path(slug) / "story_brief.json", brief)
     return brief
@@ -1675,9 +1679,17 @@ def _save_script_section(slug: str, section_id: str, text: str) -> "dict":
 
 def _story_state(slug: str) -> "dict":
     work = work_path(slug)
-    stories = fb = plan_summary = brief = None
+    stories = fb = plan_summary = brief = research = None
     if (work / "story_brief.json").exists():
         brief = json.loads((work / "story_brief.json").read_text())
+    if (work / "research.json").exists():
+        try:
+            r = json.loads((work / "research.json").read_text())
+            research = {"facts": len(r.get("facts", [])),
+                        "location": r.get("location", ""),
+                        "ts": r.get("ts")}
+        except ValueError:
+            research = {"facts": 0, "location": "", "ts": None}
     if (work / "stories.json").exists():
         stories = json.loads((work / "stories.json").read_text())
     if (work / "story_feedback.json").exists():
@@ -1688,6 +1700,7 @@ def _story_state(slug: str) -> "dict":
                         "chapters": [c.get("title", "")
                                      for c in plan.get("chapters", [])]}
     return {"slug": slug, "stories": stories, "brief": brief,
+            "research": research,
             "feedback": fb or {"rounds": []}, "plan": plan_summary}
 
 
@@ -2641,7 +2654,8 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 brief = _save_story_brief(self._slug_b(body),
                                           body.get("target_minutes"),
                                           body.get("chapters"),
-                                          body.get("notes", ""))
+                                          body.get("notes", ""),
+                                          body.get("location", ""))
                 self._send(200, {"ok": True, "brief": brief})
             elif self.path == "/api/story/feedback":
                 fb = _save_story_feedback(self._slug_b(body),

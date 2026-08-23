@@ -95,6 +95,12 @@ class BriefValidation(unittest.TestCase):
         with self.assertRaises(Exception):
             editroom._save_story_brief("ep", "ten", "six")
 
+    def test_location_is_kept_and_bounded(self):
+        b = editroom._save_story_brief("ep", 10, 6, "", "Houston Museum of Natural Science")
+        self.assertEqual(b["location"], "Houston Museum of Natural Science")
+        with self.assertRaises(Exception):
+            editroom._save_story_brief("ep", 10, 6, "", "x" * 201)
+
     def test_chapter_cap_is_the_kits_cap(self):
         # 12 passes, 13 refuses — the DoorMeter/kit ceiling
         editroom._save_story_brief("ep", 10, 12)

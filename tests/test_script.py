@@ -180,6 +180,54 @@ class ScriptStateAndEditing(unittest.TestCase):
         self.assertIsNone(editroom._script_state("ep")["script"])
 
 
+class ResearchStage(unittest.TestCase):
+    """The web's half of the story: gated on a named place, widened prompts."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._wp = jobs.work_path
+        jobs.work_path = lambda slug: self.tmp
+        import subprocess
+        self._popen = subprocess.Popen
+        def explode(*a, **k):
+            raise AssertionError("a guarded refusal must not spawn a session")
+        subprocess.Popen = explode
+
+    def tearDown(self):
+        import subprocess
+        subprocess.Popen = self._popen
+        jobs.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def brief(self, **over):
+        b = {"target_minutes": 12, "chapters": 6, "notes": "", "location": ""}
+        b.update(over)
+        (self.tmp / "story_brief.json").write_text(json.dumps(b))
+
+    def test_no_location_refuses_before_spawning(self):
+        self.brief(location="")
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_research("ep", lambda *a: None, lambda p: None)
+        self.assertIn("no location", str(cm.exception))
+
+    def test_the_place_reaches_every_prompt(self):
+        self.brief(location="Royal Caribbean Allure of the Seas")
+        for build in (jobs._story_prompt, jobs._editplan_prompt, jobs._script_prompt):
+            self.assertIn("The place: Royal Caribbean Allure of the Seas",
+                          build("ep"), build.__name__)
+
+    def test_research_widens_the_story_prompt_only_when_it_exists(self):
+        self.brief(location="somewhere")
+        self.assertNotIn("RANGE WIDE", jobs._story_prompt("ep"))
+        (self.tmp / "research.json").write_text(json.dumps({"facts": []}))
+        p = jobs._story_prompt("ep")
+        self.assertIn("RANGE WIDE", p)
+        self.assertIn("research.json", p)
+
+    def test_the_script_prompt_demands_sources_on_researched_lines(self):
+        self.assertIn('source_url as "source"', jobs._script_prompt("ep"))
+
+
 class VoCoverageRule(unittest.TestCase):
     """A teleprompter recording's picture must never ship."""
 

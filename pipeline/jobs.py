@@ -214,6 +214,17 @@ def _brief_clause(slug) -> str:
               "cannot fill it honestly. "
               % (float(b.get("target_minutes", 10)),
                  int(b.get("chapters", 6))))
+    location = str(b.get("location") or "").strip()
+    if location:
+        clause += "The place: %s. " % location
+    research_p = work_path(slug) / "research.json"
+    if research_p.exists():
+        clause += (
+            "work/%s/research.json holds SOURCED facts about the place -- "
+            "read it and RANGE WIDE: a beat the takes cannot support is "
+            "legitimate when its text says the voice-over carries it, built "
+            "on those facts over b-roll. The footage anchors the story; the "
+            "research expands it. " % slug)
     notes = str(b.get("notes") or "").strip()
     if notes:
         clause += "Brief notes: %s " % notes
@@ -296,7 +307,9 @@ SCRIPT_PROMPT = (
     "a real take (take_id from analysis/takes.json, text = what it says, "
     "est_s = its trimmed span). vo sections are lines Caleb records LATER "
     "over b-roll, in his voice, est_s = words/150*60 -- this is the lane "
-    "that fills a brief the day's takes cannot. Each chapter's est_s sum "
+    "that fills a brief the day's takes cannot. A vo line built on a "
+    "research.json fact carries that fact's source_url as \"source\" so "
+    "QC can trace the claim. Each chapter's est_s sum "
     "must land within 25 percent of its target_s. Run "
     "/usr/bin/python3 -c 'from pipeline import schemas; import json; "
     "print(schemas.validate_script(json.load(open(\"work/%(slug)s/"
@@ -307,6 +320,73 @@ SCRIPT_PROMPT = (
 
 def _script_prompt(slug) -> str:
     return SCRIPT_PROMPT % {"slug": slug, "brief": _brief_clause(slug)}
+
+
+RESEARCH_PROMPT = (
+    "Research %(location)s for The Ninth Room episode %(slug)s. Search the "
+    "web broadly -- history, numbers, engineering, oddities, the stories "
+    "locals and enthusiasts tell -- and write work/%(slug)s/research.json: "
+    '{"location": "...", "facts": [{"fact": "one verifiable sentence", '
+    '"source_url": "...", "confidence": "verified"|"claimed"}], '
+    '"angles": ["story angle this research opens", ...], "ts": <epoch int>}. '
+    "10-25 facts, every one SOURCED -- accuracy is the brand and a parent "
+    "is fact-checking this in front of their kid; mark disputed or "
+    "single-source claims \"claimed\", never settled. The facts feed "
+    "voice-over lines Caleb records over b-roll, so favor what makes "
+    "someone say 'wait, really?' out loud. Do NOT touch DaVinci Resolve "
+    "or the engine on :8765.")
+
+
+def _run_research(slug, log, set_pct):
+    """The web's half of the story (Caleb, 2026-08-23): the footage knows
+    what happened on the day; research.json knows the place. Story pitches
+    and VO scripts read it, which is what lets them range wider than what
+    was said on camera. Same dispatch-and-verify shape as the scout."""
+    import json
+    import subprocess
+    work = work_path(slug)
+    brief_p = work / "story_brief.json"
+    location = ""
+    if brief_p.exists():
+        try:
+            location = str(json.loads(brief_p.read_text())
+                           .get("location") or "").strip()
+        except ValueError:
+            pass
+    if not location:
+        raise RuntimeError("the brief has no location -- name the place or "
+                           "event on the Story desk first")
+    out_p = work / "research.json"
+    before = out_p.stat().st_mtime if out_p.exists() else None
+    log("[research] dispatching the researcher for %s" % location)
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p",
+         RESEARCH_PROMPT % {"slug": slug, "location": location},
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("research session exited %d -- see the log" % rc)
+    after = out_p.stat().st_mtime if out_p.exists() else None
+    if after is None or after == before:
+        raise RuntimeError("session finished but research.json did not "
+                           "change -- read the log")
+    facts = json.loads(out_p.read_text()).get("facts", [])
+    unsourced = [f for f in facts if not str(f.get("source_url") or "").strip()]
+    if not facts or unsourced:
+        raise RuntimeError(
+            "research.json has %d facts, %d unsourced -- every fact needs a "
+            "source; accuracy is the brand" % (len(facts), len(unsourced)))
+    log("[research] %d sourced facts in -- pitch a round and they widen it"
+        % len(facts))
+    set_pct(100)
 
 
 def _run_script(slug, log, set_pct):
@@ -458,6 +538,7 @@ KINDS = {
                  _run_editplan),
     "script": ("Write the script — timed sections from the approved "
                "direction", _run_script),
+    "research": ("Research — sourced facts about the place", _run_research),
     "scout": ("Scout — episode ideas with sources", _run_scout),
 }
 

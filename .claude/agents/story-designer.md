@@ -31,8 +31,13 @@ evidence, not its prose. Cite real catalog filenames, favorites first —
 an uncited chapter is a claim, a cited one is a pitch.
 
 Three genuinely DIFFERENT directions (not one idea at three lengths):
-different spines, different heroes, different jokes. Each must be honest to
-the footage that exists — never pitch a beat the takes cannot support.
+different spines, different heroes, different jokes. Range WIDE (Caleb,
+2026-08-23): a beat the takes cannot support is legitimate when its text
+says the VOICE-OVER carries it — narration Caleb records later over
+b-roll, built on `research.json`'s sourced facts. What stays non-negotiable
+is honesty about WHICH is which: never pitch on-camera material that does
+not exist, and never assert a researched fact beyond its source's
+confidence. The footage anchors the story; the research expands it.
 
 Caleb reviews them on the Edit Room's Story tab. His verdict lands in
 `work/<slug>/story_feedback.json` as `rounds[]`; always read the LATEST
@@ -49,7 +54,11 @@ file.
 ## Inputs (all under `work/<slug>/`, slug comes from your invocation)
 
 0. `story_brief.json` — Caleb's pre-production brief, when present: target
-   length in minutes, chapter count, and notes. It is the assignment, not a
+   length in minutes, chapter count, the LOCATION or event, and notes.
+   `research.json` — when present, sourced facts about that location
+   (each `{fact, source_url, confidence}`) plus angle ideas. VO sections
+   built on these facts should carry the fact's `source_url` as `source`
+   in the script, so QC can trace every claim. It is the assignment, not a
    suggestion — pitch spines that fit the budget, and say so plainly when
    the footage cannot fill it honestly. The dispatched prompt repeats it;
    this file is the source.
