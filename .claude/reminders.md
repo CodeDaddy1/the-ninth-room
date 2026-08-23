@@ -140,3 +140,19 @@ console settings, recordings, decisions). Check items off when done.
   `vercel project rm curated-curiosities` (or, to keep the project shell
   and only stop the builds, disconnect the Git repo in the Vercel dashboard:
   curated-curiosities → Settings → Git → Disconnect). (2026-08-22)
+
+- [ ] **Re-grant Desktop access to the terminal hosting Claude Code.** Sometime
+  after ~10:30 on 2026-08-23 macOS revoked it (morning audits decoded the
+  Desktop DJI files; by 15:00 even an unsandboxed `ls ~/Desktop` returns
+  Operation not permitted). System Settings ▸ Privacy & Security ▸ Files and
+  Folders (or Full Disk Access) ▸ your terminal app ▸ Desktop. Until then:
+  hmns audio work (trough rescue, speech-edge audit, re-proxy) is blocked —
+  its footage symlinks into ~/Desktop/Curated Curiosities. The audit now says
+  "N of M edges UNMEASURABLE" instead of silently passing. After granting,
+  run: `rebake hmns` then `audit hmns` for the sighted rescue. (2026-08-23)
+
+- [ ] **Back up work/ + the Desktop footage before shipping HMNS.** Neither
+  the 62 GB in ~/Desktop/Curated Curiosities nor work/hmns has a second copy
+  anywhere (footage/artifacts are gitignored by design). One rsync to an
+  external drive before conform/re-cut runs on the episode that matters.
+  (2026-08-23)

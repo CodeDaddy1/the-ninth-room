@@ -95,7 +95,9 @@ def _sentence_ends_before(words: "list[dict]", t: float) -> bool:
 
 def cut_dead_space(span_s: float, span_e: float, gaps: "list[dict]",
                    hard_cuts: "list[dict] | None" = None,
-                   words: "list[dict] | None" = None) -> "list[tuple]":
+                   words: "list[dict] | None" = None,
+                   audio_path: "str | None" = None,
+                   trough_cache: "dict | None" = None) -> "list[tuple]":
     """Split [span_s, span_e] wherever a silence gap exceeds MAX_KEEP_GAP_SEC,
     and remove every `hard_cuts` span outright.
 
@@ -115,7 +117,17 @@ def cut_dead_space(span_s: float, span_e: float, gaps: "list[dict]",
         # editor's call via an explicit per-beat cut, not the machine's.
         if words is not None and not _sentence_ends_before(words, gs):
             continue
-        removals.append((gs + KEEP_PAD_SEC, ge - KEEP_PAD_SEC))
+        rs, re_ = gs + KEEP_PAD_SEC, ge - KEEP_PAD_SEC
+        # Snap this removal's edges to measured troughs (troughs.py): the
+        # audit kept finding voice hard against these cuts, because
+        # silencedetect's threshold is not where a voice actually stops.
+        # Segments may only GROW into the gap, so no word that survived
+        # before is lost now. Hard cuts below are deliberately untouched --
+        # growing across a flub boundary would re-include the flub.
+        if audio_path is not None and trough_cache is not None:
+            from . import troughs
+            rs, re_ = troughs.snap_removal(audio_path, rs, re_, trough_cache)
+        removals.append((rs, re_))
     for c in hard_cuts or []:
         cs, ce = max(c["s"], span_s), min(c["e"], span_e)
         if ce > cs:
@@ -176,6 +188,11 @@ def plan_beats(slug: str) -> "dict":
     grid = FrameGrid(fps)
 
     words_cache: "dict[str, list]" = {}
+    # trough measurements are cached across runs -- footage is immutable, so
+    # every map regeneration after the first costs no ffmpeg
+    from . import troughs
+    trough_cache = troughs.load_cache(out)
+    trough_cache_size = len(trough_cache)
 
     def file_words(f: "dict") -> "list[dict]":
         if f["name"] not in words_cache:
@@ -222,7 +239,9 @@ def plan_beats(slug: str) -> "dict":
         span_e = min(f["duration"], snap_e + TAIL_PAD_SEC)
         segments = cut_dead_space(span_s, span_e, f.get("silence", []),
                                   hard_cuts=b.get("cuts"),
-                                  words=file_words(f))
+                                  words=file_words(f),
+                                  audio_path=f.get("path"),
+                                  trough_cache=trough_cache)
 
         transition = b.get("transition_in", "cut")
         if transition == "dissolve" and beats_out:
@@ -315,6 +334,8 @@ def plan_beats(slug: str) -> "dict":
         "duration": record,
         "beats": beats_out,
     }
+    if len(trough_cache) != trough_cache_size:
+        troughs.save_cache(out, trough_cache)
     (out / "timeline_map.json").write_text(json.dumps(tl_map, indent=2))
     return tl_map
 

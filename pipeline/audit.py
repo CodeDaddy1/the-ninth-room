@@ -128,14 +128,26 @@ def _rms_windows(path: str, start: float, dur: float) -> "list[float]":
     return out
 
 
-def _edge_hot(path: str, t: float, direction: int) -> "float | None":
+DEAF = "deaf"
+
+
+def _edge_hot(path: str, t: float, direction: int):
     """Is there sustained voice just outside the cut at source-time t?
 
     direction +1 probes AFTER t (an out-edge), -1 probes BEFORE t (an
-    in-edge). Returns the peak dB of the offending stretch, or None.
+    in-edge). Returns the peak dB of the offending stretch, None for a
+    clean edge — or DEAF when the source could not be decoded at all.
+
+    DEAF exists because of 2026-08-23: a sandboxed shell lost permission to
+    the Desktop the hmns footage symlinks into, ffmpeg failed every probe,
+    and the audit reported 17 real warnings as 2 — silence-as-evidence when
+    the microphone was unplugged. An audit that cannot hear must say so,
+    never pass.
     """
     start = t if direction > 0 else max(t - EDGE_PROBE_SEC, 0.0)
     vals = _rms_windows(path, start, EDGE_PROBE_SEC)
+    if not vals:
+        return DEAF
     if direction < 0:
         vals = list(reversed(vals))  # walk outward from the cut either way
     near = int(EDGE_WITHIN_SEC / EDGE_WINDOW_SEC)
@@ -155,6 +167,8 @@ def audit_speech_edges(slug: str, log=print) -> "list[dict]":
     path_by_name = {f["name"]: f["path"] for f in catalog["files"]}
 
     flags = []
+    deaf = 0
+    total_edges = 0
     for beat in tl["beats"]:
         path = path_by_name[beat["file"]]
         segs = beat["segments"]
@@ -166,8 +180,12 @@ def audit_speech_edges(slug: str, log=print) -> "list[dict]":
                 edges.append(("cut-out", seg["src_e"], +1))
             if j > 0:
                 edges.append(("cut-in", seg["src_s"], -1))
+            total_edges += len(edges)
             for kind, t, direction in edges:
                 peak = _edge_hot(path, t, direction)
+                if peak is DEAF:
+                    deaf += 1
+                    continue
                 if peak is not None:
                     flags.append({"beat": beat["id"], "kind": kind,
                                   "t": round(t, 3), "peak_db": round(peak, 1)})
@@ -179,4 +197,14 @@ def audit_speech_edges(slug: str, log=print) -> "list[dict]":
             % (f["beat"], f["kind"], f["t"], f["peak_db"]))
     log("[audit] %d speech-edge warnings (%d quieter than %.0f dB suppressed)"
         % (len(flags), len(quiet), EDGE_REPORT_DB))
+    if deaf:
+        log("[audit] %d of %d edges UNMEASURABLE — source audio would not "
+            "decode (permissions? missing files?); their silence proves "
+            "nothing" % (deaf, total_edges))
+    if total_edges and deaf == total_edges:
+        raise IngestError(
+            "every speech-edge probe failed to decode — the audit heard "
+            "nothing, so this run proves nothing. Check that the source "
+            "files are readable from THIS shell (hmns footage symlinks "
+            "into ~/Desktop, which sandboxed shells cannot read).")
     return flags
