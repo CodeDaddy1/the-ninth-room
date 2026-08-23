@@ -1234,6 +1234,34 @@ def streak(card: "dict", F: "dict") -> str:
 
 # --- transitions -----------------------------------------------------------
 
+def _plate(card: "dict", flat: bool = False) -> str:
+    """The ground a transition's title sits on.
+
+    A house cut covers by default — solid navy, the shot underneath gone for
+    the length of the wipe. A card that carries `scrim` (0-100) asks for the
+    brand's other answer instead: a navy GRADIENT at that strength, deepest
+    behind the title on the left and fading to nothing across the frame, so
+    the shot reads through the card. Still not a filled plate — and the
+    chalk double-shadow on the title carries legibility either way.
+
+    Opt-in on purpose: a transition with no `scrim` renders byte-identical
+    to before, so lowering one title card cannot restyle the other cuts.
+    """
+    try:
+        pct = float(card.get("scrim")) if card.get("scrim") is not None else None
+    except (TypeError, ValueError):
+        pct = None
+    if pct is None:
+        return NAVY
+    a = max(0.0, min(100.0, pct)) / 100.0
+    if flat:
+        # the grid's six columns are a treatment already; a gradient per
+        # column would stripe the frame instead of raking across it
+        return "rgba(11,35,64,%.3f)" % a
+    return ("linear-gradient(90deg,rgba(11,35,64,%.3f) 0%%,"
+            "rgba(11,35,64,%.3f) 46%%,rgba(11,35,64,0) 100%%)" % (a, a * 0.55))
+
+
 def transition(card: "dict", F: "dict") -> str:
     """The house cut. Four styles, all built from the same four shapes.
 
@@ -1261,13 +1289,15 @@ def transition(card: "dict", F: "dict") -> str:
                                       fscale=_fscale(card)),
                                  "-.055em", lh="1"),
              "title": _e(title)}
+    ground = _plate(card)
     if style == "iris":
         body = ('<div style="position:absolute;inset:0;background:%s;'
-                'animation:yIris 620ms %s both"></div>' % (NAVY, EASE_RULE))
+                'animation:yIris 620ms %s both"></div>' % (ground, EASE_RULE))
     elif style == "grid":
         cols = "".join(
             '<div style="flex:1;background:%s;transform-origin:bottom;'
-            'animation:yColUp 540ms %s %dms both"></div>' % (NAVY, EASE_RULE, i * 40)
+            'animation:yColUp 540ms %s %dms both"></div>'
+            % (_plate(card, flat=True), EASE_RULE, i * 40)
             for i in range(6))
         body = ('<div style="position:absolute;inset:0;display:flex;gap:6px">%s</div>'
                 % cols)
@@ -1276,13 +1306,13 @@ def transition(card: "dict", F: "dict") -> str:
                 'animation:yPushIn 420ms %s both"></div>'
                 '<div style="position:absolute;left:0;right:0;top:50%%;height:3px;background:%s;'
                 'transform-origin:center;animation:yBracket 480ms %s both"></div>'
-                % (NAVY, EASE_RULE, CYAN, EASE_RULE))
+                % (ground, EASE_RULE, CYAN, EASE_RULE))
     else:
         body = ('<div style="position:absolute;inset:0;background:%s;'
                 'animation:yReveal 480ms %s both"></div>'
                 '<div style="position:absolute;top:0;bottom:0;width:6px;background:%s;'
                 'animation:yRule 480ms %s both"></div>'
-                % (NAVY, EASE_RULE, YELLOW, EASE_RULE))
+                % (ground, EASE_RULE, YELLOW, EASE_RULE))
     return body + label
 
 

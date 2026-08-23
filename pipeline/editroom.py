@@ -1553,9 +1553,32 @@ def _clear_footage(slug: str) -> "dict":
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
 
+def _save_story_brief(slug: str, target_minutes, chapters,
+                      notes: str = "") -> "dict":
+    """The pre-production questionnaire (Caleb, 2026-08-23): target length
+    and chapter count, briefed to the story-designer instead of left to its
+    judgment. Bounds are the system's own: 12 chapters is the kit's chapter
+    cap, and an hour is not an episode."""
+    try:
+        mins = float(target_minutes)
+        chaps = int(chapters)
+    except (TypeError, ValueError):
+        raise IngestError("brief needs numbers: target_minutes, chapters")
+    if not (1 <= mins <= 60):
+        raise IngestError("target_minutes must be 1-60")
+    if not (1 <= chaps <= 12):
+        raise IngestError("chapters must be 1-12 (the kit's chapter cap)")
+    brief = {"target_minutes": mins, "chapters": chaps,
+             "notes": str(notes or "").strip(), "ts": int(time.time())}
+    _write_json(work_path(slug) / "story_brief.json", brief)
+    return brief
+
+
 def _story_state(slug: str) -> "dict":
     work = work_path(slug)
-    stories = fb = plan_summary = None
+    stories = fb = plan_summary = brief = None
+    if (work / "story_brief.json").exists():
+        brief = json.loads((work / "story_brief.json").read_text())
     if (work / "stories.json").exists():
         stories = json.loads((work / "stories.json").read_text())
     if (work / "story_feedback.json").exists():
@@ -1565,7 +1588,7 @@ def _story_state(slug: str) -> "dict":
         plan_summary = {"beats": len(plan.get("beats", [])),
                         "chapters": [c.get("title", "")
                                      for c in plan.get("chapters", [])]}
-    return {"slug": slug, "stories": stories,
+    return {"slug": slug, "stories": stories, "brief": brief,
             "feedback": fb or {"rounds": []}, "plan": plan_summary}
 
 
@@ -2508,6 +2531,12 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/asset/use":
                 result = _use_asset(self._slug_b(body), body.get("id", ""))
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/story/brief":
+                brief = _save_story_brief(self._slug_b(body),
+                                          body.get("target_minutes"),
+                                          body.get("chapters"),
+                                          body.get("notes", ""))
+                self._send(200, {"ok": True, "brief": brief})
             elif self.path == "/api/story/feedback":
                 fb = _save_story_feedback(self._slug_b(body),
                                           body.get("choice"),

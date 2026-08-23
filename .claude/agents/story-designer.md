@@ -18,10 +18,17 @@ the same inputs below and write `work/<slug>/stories.json`:
   {"id": "S1", "title": "...", "tone": "...",
    "logline": "one sentence — what the video IS",
    "hook": "the opening curiosity gap, in words Caleb could say",
-   "beats_outline": ["chapter/beat level only — 5-9 bullets"]},
+   "beats_outline": [
+     {"text": "chapter/beat level only — 5-9 items",
+      "clips": ["1-3 catalog filenames that CARRY this chapter"]}]},
   {"id": "S2", ...}, {"id": "S3", ...}
 ]}
 ```
+
+Outline items may be plain strings, but PREFER the object form: the Story
+desk plays each chapter's cited clips so Caleb judges a pitch against its
+evidence, not its prose. Cite real catalog filenames, favorites first —
+an uncited chapter is a claim, a cited one is a pitch.
 
 Three genuinely DIFFERENT directions (not one idea at three lengths):
 different spines, different heroes, different jokes. Each must be honest to
@@ -41,6 +48,11 @@ file.
 
 ## Inputs (all under `work/<slug>/`, slug comes from your invocation)
 
+0. `story_brief.json` — Caleb's pre-production brief, when present: target
+   length in minutes, chapter count, and notes. It is the assignment, not a
+   suggestion — pitch spines that fit the budget, and say so plainly when
+   the footage cannot fill it honestly. The dispatched prompt repeats it;
+   this file is the source.
 1. `analysis/takes.json` — every take: transcript, timing (`s`/`e` seconds in
    its source file), `fillers`, `restart`, `complete`, and `groups` clustering
    retakes of the same content.

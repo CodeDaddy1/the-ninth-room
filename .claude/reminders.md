@@ -156,3 +156,33 @@ console settings, recordings, decisions). Check items off when done.
   anywhere (footage/artifacts are gitignored by design). One rsync to an
   external drive before conform/re-cut runs on the episode that matters.
   (2026-08-23)
+
+## 2026-08-23 — from the hmns fixer round (BT01)
+
+- [ ] **Brief the translucent transition plate back into Claude Design.**
+  BT01's note ("lower opacity for the title card with background visible
+  underneath, apply gradient") needed the house cut to stop covering the
+  shot, so `pipeline/overlay_kit.py`'s `transition()` now reads the existing
+  per-card `scrim` (0-100): with it set, the full-frame navy plate becomes a
+  navy gradient at that strength — deepest under the title on the left,
+  fading to nothing — instead of the opaque wall. Opt-in, so a transition
+  with no `scrim` renders byte-identical (verified on CARD03/13/17/27/38).
+  Only the runtime kit knows about it; the Cyanotype canvas still paints the
+  transition solid. Rule 6 says the canvas is the source of truth, so it
+  should learn the knob. Same shape of debt as `subtext_delay` above.
+- [ ] **BT01 is fixed but unverified — re-proxy it after Desktop access is
+  back.** CARD02 is re-baked with the gradient (frame-checked against the
+  real shot), but `proxy hmns --beat BT01` cannot read the footage, so the
+  Review desk still shows the OLD opaque card and the beat is deliberately
+  left flagged. Run `/usr/bin/python3 -m pipeline.cli proxy hmns --beat BT01`,
+  look, then approve it on the desk.
+- **`scrim` (and `style`) are invisible to the proxy cache.**
+  `pipeline/proxy.py:_spec_body` keys a beat's proxy on only
+  `id/type/kit_type/at/duration/kicker/text/stat/subtext/emphasis/rows/entries/animation`,
+  so dialing `scrim` on the Overlays desk re-bakes the card but leaves the
+  beat's proxy a cache hit — the desk keeps showing the old look, which is
+  exactly the "74 stale proxies" failure that comment warns about. Same gap
+  for `style`, `font_scale`, `card_scale`, `offset_x/y`, `subtext_delay`.
+  Not fixed here: adding fields changes every beat's hash and would
+  re-render all 34 card-bearing beats, which is outside a fixer round.
+  (2026-08-23)

@@ -176,7 +176,13 @@ STORY_PROMPT = (
     "Pitch stories for %(slug)s. Read .claude/agents/story-designer.md and "
     "act as that agent: read work/%(slug)s/analysis/ (take transcripts and "
     "the b-roll catalog) and the brand docs, and write "
-    "work/%(slug)s/stories.json with three distinct directions. If "
+    "work/%(slug)s/stories.json with three distinct directions. "
+    "%(brief)s"
+    "Each beats_outline item may be an OBJECT "
+    '{"text": "...", "clips": ["<catalog filename>", ...]} citing 1-3 real '
+    "clips from the catalog that carry that chapter, favorites first -- the "
+    "Story desk plays those citations so Caleb can judge a pitch against "
+    "its evidence. If "
     "work/%(slug)s/favorites.json exists, its files are the clips Caleb "
     "STARRED as the story's core material: build every direction around "
     "them first — a big starred set means a wide story, a small one means "
@@ -186,6 +192,36 @@ STORY_PROMPT = (
     "needs an approving round on the Story desk), do NOT run conforms or "
     "renders, and do NOT touch DaVinci Resolve. The engine is running on "
     ":8765; leave it alone.")
+
+
+def _brief_clause(slug) -> str:
+    """The questionnaire's voice in the prompt. Pure and separate so a test
+    can prove the brief actually reaches the agent -- the failure mode a
+    pre-production questionnaire invites is being politely ignored."""
+    p = work_path(slug) / "story_brief.json"
+    if not p.exists():
+        return ""
+    try:
+        b = json.loads(p.read_text())
+    except ValueError:
+        return ""
+    clause = ("Caleb's brief: a ~%g-minute episode in %d chapters -- pitch "
+              "spines that fit that budget, and say so when the footage "
+              "cannot fill it honestly. "
+              % (float(b.get("target_minutes", 10)),
+                 int(b.get("chapters", 6))))
+    notes = str(b.get("notes") or "").strip()
+    if notes:
+        clause += "Brief notes: %s " % notes
+    return clause
+
+
+def _story_prompt(slug) -> str:
+    return STORY_PROMPT % {"slug": slug, "brief": _brief_clause(slug)}
+
+
+def _editplan_prompt(slug) -> str:
+    return EDITPLAN_PROMPT % {"slug": slug, "brief": _brief_clause(slug)}
 
 
 def _run_story(slug, log, set_pct):
@@ -201,7 +237,7 @@ def _run_story(slug, log, set_pct):
     set_pct(5)
     proc = subprocess.Popen(
         ["~/.local/bin/claude", "-p",
-         STORY_PROMPT % {"slug": slug},
+         _story_prompt(slug),
          "--dangerously-skip-permissions"],
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
@@ -222,7 +258,8 @@ def _run_story(slug, log, set_pct):
 
 
 EDITPLAN_PROMPT = (
-    "Write the edit plan for %(slug)s. Read .claude/agents/story-designer.md "
+    "Write the edit plan for %(slug)s. %(brief)s"
+    "Read .claude/agents/story-designer.md "
     "and act as that agent for the EDIT PLAN stage: the latest round in "
     "work/%(slug)s/story_feedback.json is an APPROVING round — build the "
     "plan from its chosen direction in work/%(slug)s/stories.json, honoring "
@@ -259,7 +296,7 @@ def _run_editplan(slug, log, set_pct):
     set_pct(5)
     proc = subprocess.Popen(
         ["~/.local/bin/claude", "-p",
-         EDITPLAN_PROMPT % {"slug": slug},
+         _editplan_prompt(slug),
          "--dangerously-skip-permissions"],
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
