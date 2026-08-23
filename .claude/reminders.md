@@ -186,3 +186,48 @@ console settings, recordings, decisions). Check items off when done.
   Not fixed here: adding fields changes every beat's hash and would
   re-render all 34 card-bearing beats, which is outside a fixer round.
   (2026-08-23)
+
+## 2026-08-23 — from the hmns fixer round (BT01, BT04, BT24)
+
+- [ ] **Only you can grant this: Claude Code cannot read `~/Desktop`, so no
+  fixer round can re-proxy an hmns beat.** Every source clip in
+  `work/hmns/footage/` is a symlink into
+  `~/Desktop/Curated Curiosities/DJI/05-17-26 - HMNS/`, and ffmpeg run from
+  the session gets `Operation not permitted` on all of them — the cards bake
+  fine (Chrome + local files), the proxies cannot render. Grant the Claude
+  Code app Full Disk Access (System Settings → Privacy & Security → Full Disk
+  Access) and this whole class of round finishes itself.
+- [ ] **Three beats are fixed but unverified — re-proxy them.** Supersedes
+  the BT01-only item above: CARD02 (BT01, your scrim 50), CARD03 (BT04) and
+  CARD13 (BT24) are all re-baked as navy gradients and frame-checked against
+  the real shots, but their Review proxies are still the OLD opaque cards, so
+  all three stay flagged. Run
+  `/usr/bin/python3 -m pipeline.cli proxy hmns --beat BT01 --beat BT04 --beat BT24`,
+  look, then approve on the desk.
+- **Correction to the "`scrim` is invisible to the proxy cache" note above.**
+  Measured this round: `beat_spec` also carries `gfx_sig` (each card mov's
+  mtime + size), so a re-baked card DOES re-key its beat's proxy — BT01
+  9dbac390e124, BT04 eaf37a8f6587 after the bake. The real gap is upstream:
+  `/api/overlay/save` writes the plan and never bakes, so dialing `scrim` on
+  the Overlays desk leaves the mov stale until something calls
+  `build_cards` (Approve & Export, `cli rebake --card`, or a fixer round).
+  The desk shows the old look because nothing re-baked, not because the
+  proxy cache missed it.
+- [ ] **The other transitions still have solid plates.** CARD17, CARD27 and
+  CARD38 are the remaining `style: rule` house cuts with no `scrim`. You
+  flagged BT01, BT04 and BT24 one at a time and the fix is identical; say the
+  word and the next round does all three at once instead of waiting for three
+  more flags. (2026-08-23)
+- [ ] **Only you can confirm the five orchestra names in the crooise script
+  (CH5).** `script.json` CH5.S5–S10 quote takes T265–T270 — the Boardwalk
+  orchestra roll call, the beat that answers your "who lives aboard" brief
+  note. Whisper transcribed those names through applause and heavy accents,
+  and every one of them is a guess: "Nicholas" (Ecuador), "Juan Pedro
+  Saksapol-Raim" (United States), "Juan Agazaksozco" (Colombia), "Hatter"
+  (Canada), "Montromont Francisco" (Puerto Rico), and the musical director
+  "Piori". The script currently ships the plausible fragments and drops the
+  unrecoverable ones. Listen to `IMG_7188.mov` 0:00–0:37 and write down what
+  you actually hear before any of these reaches a caption or a card —
+  misspelling a musician's name on screen is the exact failure this channel
+  cannot afford. Same take carries a headcount ("34 musicians") that is
+  equally garbled; the script deliberately does not use it. (2026-08-23)

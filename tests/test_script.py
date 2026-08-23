@@ -1,0 +1,184 @@
+# -*- coding: utf-8 -*-
+"""The script stage: budgets that must add up, recordings matched by name.
+
+The feature exists because a 20-minute brief was unverifiable by eye
+(Caleb, 2026-08-23). These tests pin the three honesty mechanisms:
+validate_script refuses budget fiction (chapter sums vs targets), the
+script job refuses to run without an approval or over an existing script
+WITHOUT spawning a session, and recording status is decided by catalog
+NAMES — deterministic, no transcript fuzz.
+
+Run: /usr/bin/python3 -m unittest discover -s tests -t .
+"""
+import json
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from pipeline import editroom, jobs, schemas  # noqa: E402
+
+
+def script(**over):
+    d = {
+        "slug": "ep", "option_id": "S1", "target_minutes": 20,
+        "chapters": [{
+            "id": "CH1", "title": "Move-in day", "target_s": 180,
+            "sections": [
+                {"id": "CH1.S1", "kind": "oncamera", "take_id": "T1",
+                 "text": "we're here", "est_s": 120},
+                {"id": "CH1.S2", "kind": "vo",
+                 "text": "a line to record later", "est_s": 55},
+            ],
+        }],
+    }
+    d.update(over)
+    return d
+
+
+TAKES = {"takes": [{"id": "T1"}]}
+
+
+class ValidateScript(unittest.TestCase):
+    def test_a_sound_script_validates(self):
+        self.assertEqual(schemas.validate_script(script(), TAKES), [])
+
+    def test_budget_fiction_is_refused(self):
+        """Sections estimating 60s against a 180s target is the exact lie
+        the pitch's target_s was supposed to prevent."""
+        s = script()
+        s["chapters"][0]["sections"][0]["est_s"] = 30
+        s["chapters"][0]["sections"][1]["est_s"] = 30
+        errs = schemas.validate_script(s, TAKES)
+        self.assertTrue(any("off by more than 25%" in e for e in errs))
+
+    def test_an_oncamera_section_must_quote_a_real_take(self):
+        s = script()
+        s["chapters"][0]["sections"][0]["take_id"] = "T999"
+        errs = schemas.validate_script(s, TAKES)
+        self.assertTrue(any("unknown take" in e for e in errs))
+
+    def test_an_empty_section_is_a_hole(self):
+        s = script()
+        s["chapters"][0]["sections"][1]["text"] = "  "
+        errs = schemas.validate_script(s, TAKES)
+        self.assertTrue(any("empty text" in e for e in errs))
+
+    def test_duplicate_section_ids_are_refused(self):
+        s = script()
+        s["chapters"][0]["sections"][1]["id"] = "CH1.S1"
+        errs = schemas.validate_script(s, TAKES)
+        self.assertTrue(any("duplicate section" in e for e in errs))
+
+    def test_kind_is_closed(self):
+        s = script()
+        s["chapters"][0]["sections"][1]["kind"] = "narration"
+        errs = schemas.validate_script(s, TAKES)
+        self.assertTrue(any("oncamera or vo" in e for e in errs))
+
+
+class ScriptJobGuards(unittest.TestCase):
+    """A refused run must refuse BEFORE any session spawns."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._wp = jobs.work_path
+        jobs.work_path = lambda slug: self.tmp
+        import subprocess
+        self._popen = subprocess.Popen
+        def explode(*a, **k):
+            raise AssertionError("a guarded refusal must not spawn a session")
+        subprocess.Popen = explode
+
+    def tearDown(self):
+        import subprocess
+        subprocess.Popen = self._popen
+        jobs.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_no_approving_round_refuses(self):
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_script("ep", lambda *a: None, lambda p: None)
+        self.assertIn("approving round", str(cm.exception))
+
+    def test_an_existing_script_refuses(self):
+        (self.tmp / "story_feedback.json").write_text(
+            json.dumps({"rounds": [{"decision": "approve", "choice": "S1"}]}))
+        (self.tmp / "script.json").write_text("{}")
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_script("ep", lambda *a: None, lambda p: None)
+        self.assertIn("already exists", str(cm.exception))
+
+    def test_the_prompt_carries_the_brief_and_the_contract(self):
+        (self.tmp / "story_brief.json").write_text(
+            json.dumps({"target_minutes": 20, "chapters": 7}))
+        p = jobs._script_prompt("ep")
+        self.assertIn("~20-minute episode in 7 chapters", p)
+        self.assertIn('"vo"', p)
+        self.assertIn("validate_script", p)
+
+
+class ScriptStateAndEditing(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "analysis").mkdir()
+        self._wp, self._ad = editroom.work_path, editroom.analysis_dir
+        editroom.work_path = lambda slug: self.tmp
+        editroom.analysis_dir = lambda slug: self.tmp / "analysis"
+        (self.tmp / "script.json").write_text(json.dumps(script()))
+
+    def tearDown(self):
+        editroom.work_path, editroom.analysis_dir = self._wp, self._ad
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def catalog(self, files):
+        (self.tmp / "analysis" / "catalog.json").write_text(
+            json.dumps({"files": files}))
+
+    def test_recording_status_matches_by_name_and_class(self):
+        self.catalog([
+            {"name": "vo_CH1-S2_t1.webm", "class": "speech", "duration": 52.3},
+            {"name": "vo_CH1-S2_t2.webm", "class": "broll", "duration": 4.0},
+            {"name": "unrelated.mov", "class": "speech", "duration": 9.0},
+        ])
+        st = editroom._script_state("ep")
+        sec = st["script"]["chapters"][0]["sections"][1]
+        self.assertTrue(sec["recorded"])
+        self.assertEqual(sec["recordings"], ["vo_CH1-S2_t1.webm", "vo_CH1-S2_t2.webm"])
+        # the ingested REAL duration outranks the 150wpm estimate
+        self.assertEqual(sec["recorded_s"], 52.3)
+
+    def test_a_silent_upload_does_not_count_as_recorded(self):
+        """A vo take that ingest classed broll (no speech heard) must not
+        flip the section — a failed recording reading as done is the
+        deaf-audit bug wearing a new hat."""
+        self.catalog([{"name": "vo_CH1-S2_t1.webm", "class": "broll",
+                       "duration": 30.0}])
+        st = editroom._script_state("ep")
+        self.assertFalse(st["script"]["chapters"][0]["sections"][1]["recorded"])
+
+    def test_editing_a_vo_line_reestimates_its_seconds(self):
+        sec = editroom._save_script_section(
+            "ep", "CH1.S2", "five words spoken right here")
+        self.assertEqual(sec["est_s"], round(5 / 150 * 60, 1))
+        on_disk = json.loads((self.tmp / "script.json").read_text())
+        self.assertEqual(
+            on_disk["chapters"][0]["sections"][1]["text"],
+            "five words spoken right here")
+
+    def test_oncamera_text_is_a_quote_not_an_edit_surface(self):
+        with self.assertRaises(Exception) as cm:
+            editroom._save_script_section("ep", "CH1.S1", "reworded")
+        self.assertIn("oncamera", str(cm.exception))
+
+    def test_no_script_reads_as_null_not_a_crash(self):
+        (self.tmp / "script.json").unlink()
+        self.assertIsNone(editroom._script_state("ep")["script"])
+
+
+if __name__ == "__main__":
+    unittest.main()

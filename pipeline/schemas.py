@@ -575,6 +575,70 @@ def validate_custom_overlays(data: "dict[str, Any]") -> "list[str]":
     return errors
 
 
+SPEAKING_WPM = 150  # est_s for a VO line = words / SPEAKING_WPM * 60
+
+
+def validate_script(script: "dict[str, Any]",
+                    takes: "dict[str, Any] | None" = None) -> "list[str]":
+    """script.json — the timed script between an approved direction and the
+    cut (Caleb, 2026-08-23). Two kinds of section: `oncamera` quotes a real
+    take; `vo` is a line Caleb records LATER over b-roll — the lane that
+    lets a thin shoot fill a long brief. The chapter's est sum must land
+    near its target or the budget the pitch promised is fiction.
+    """
+    errors: "list[str]" = []
+    _req(errors, script, "slug", str, "script")
+    _req(errors, script, "option_id", str, "script")
+    if not _req(errors, script, "chapters", list, "script"):
+        return errors
+    take_ids = {t["id"] for t in (takes or {}).get("takes", [])}
+    seen_sections = set()
+    for i, ch in enumerate(script["chapters"]):
+        cw = "chapters[%d]" % i
+        if not isinstance(ch, dict):
+            errors.append(cw + ": not an object")
+            continue
+        _req(errors, ch, "id", str, cw)
+        _req(errors, ch, "title", str, cw)
+        has_target = _req(errors, ch, "target_s", (int, float), cw)
+        if not _req(errors, ch, "sections", list, cw):
+            continue
+        est_sum = 0.0
+        for j, sec in enumerate(ch["sections"]):
+            sw = "%s.sections[%d]" % (cw, j)
+            if not isinstance(sec, dict):
+                errors.append(sw + ": not an object")
+                continue
+            if _req(errors, sec, "id", str, sw):
+                if sec["id"] in seen_sections:
+                    errors.append("%s: duplicate section id '%s'" % (sw, sec["id"]))
+                seen_sections.add(sec["id"])
+            kind = sec.get("kind")
+            if kind not in ("oncamera", "vo"):
+                errors.append("%s: kind must be oncamera or vo" % sw)
+            if not str(sec.get("text") or "").strip():
+                errors.append("%s: empty text — a section with nothing to "
+                              "say is a hole in the episode" % sw)
+            est = sec.get("est_s")
+            if isinstance(est, bool) or not isinstance(est, (int, float)) or est <= 0:
+                errors.append("%s: est_s must be a positive number" % sw)
+            else:
+                est_sum += float(est)
+            if kind == "oncamera":
+                tid = sec.get("take_id")
+                if take_ids and tid not in take_ids:
+                    errors.append("%s: unknown take '%s'" % (sw, tid))
+        # the pitch promised target_s; the script must land near it
+        if has_target and est_sum > 0:
+            target = float(ch["target_s"])
+            if target > 0 and abs(est_sum - target) / target > 0.25:
+                errors.append(
+                    "%s: sections estimate %.0fs against a %.0fs target — "
+                    "off by more than 25%%; rebudget the chapter or the "
+                    "script" % (cw, est_sum, target))
+    return errors
+
+
 def validate_words(data: "list[Any]") -> "list[str]":
     """<file>.words.json — whisper word timings: [{"w","s","e"}, ...]."""
     errors: "list[str]" = []

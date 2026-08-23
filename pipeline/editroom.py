@@ -22,7 +22,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .ingest import work_path, analysis_dir, IngestError
+from .ingest import work_path, analysis_dir, IngestError, VIDEO_EXT
 
 PORT = 8765
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1133,7 +1133,10 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
 # what to tell Claude, since the agents run in the Claude session, not here.
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-_VIDEO_UP = (".mp4", ".mov", ".m4v", ".mts", ".avi", ".mkv")
+# the upload gate accepts exactly what ingest can see — one list, owned by
+# ingest.py (a private copy here drifted the day .webm arrived: the upload
+# said yes, ingest said "no media files")
+_VIDEO_UP = VIDEO_EXT
 _IMAGE_UP = (".jpg", ".jpeg", ".png", ".heic", ".webp")
 
 
@@ -1234,11 +1237,39 @@ def _project_row(slug: str) -> "dict":
     if progress:
         phase = "ingest"
         nxt = "Ingesting…"
+    # the Script stage's rail/first-run facts. Recorded counts honor
+    # ingest's speech classing (a silent upload must not read as done);
+    # the catalog only loads when a script exists, so the common listing
+    # stays cheap.
+    script_status = None
+    sp = work / "script.json"
+    if sp.exists():
+        try:
+            sc = json.loads(sp.read_text())
+            speech = set()
+            cat_p = out / "catalog.json"
+            if cat_p.exists():
+                speech = {f["name"] for f in
+                          json.loads(cat_p.read_text()).get("files", [])
+                          if f.get("class") == "speech"}
+            vo_total = vo_rec = 0
+            for ch in sc.get("chapters", []):
+                for sec in ch.get("sections", []):
+                    if sec.get("kind") != "vo":
+                        continue
+                    vo_total += 1
+                    prefix = _vo_file_prefix(str(sec.get("id", "")))
+                    if any(name.startswith(prefix) for name in speech):
+                        vo_rec += 1
+            script_status = {"exists": True, "vo_total": vo_total,
+                             "vo_recorded": vo_rec}
+        except ValueError:
+            script_status = {"exists": True, "vo_total": 0, "vo_recorded": 0}
     return {"slug": slug, "phase": phase, "next": nxt,
             "footage": len(footage), "ingested": ingested,
             "stories": bool(stories), "plan": plan, "proxies": prox,
             "master": masters[-1].name if masters else None,
-            "progress": progress,
+            "progress": progress, "script": script_status,
             "review": {"approved": n_appr, "flagged": n_flag,
                        "queue": n_queue}}
 
@@ -1572,6 +1603,74 @@ def _save_story_brief(slug: str, target_minutes, chapters,
              "notes": str(notes or "").strip(), "ts": int(time.time())}
     _write_json(work_path(slug) / "story_brief.json", brief)
     return brief
+
+
+def _vo_file_prefix(section_id: str) -> str:
+    """vo_CH1-S2_t3.webm <- section CH1.S2, take 3. Dots swap to dashes so
+    the section id never fights the extension; matching normalizes both."""
+    return "vo_%s_t" % section_id.replace(".", "-")
+
+
+def _script_state(slug: str) -> "dict":
+    """script.json plus per-vo-section recording status. A section is
+    recorded when the catalog holds a SPEECH file named for it -- matching
+    is by NAME, deterministically: the teleprompter names its uploads, so
+    there is no transcript fuzz to argue with."""
+    work = work_path(slug)
+    p = work / "script.json"
+    if not p.exists():
+        return {"slug": slug, "script": None}
+    script = json.loads(p.read_text())
+    cat_p = analysis_dir(slug) / "catalog.json"
+    files = (json.loads(cat_p.read_text()).get("files", [])
+             if cat_p.exists() else [])
+    by_prefix = {}
+    for f in files:
+        by_prefix.setdefault(f["name"], f)
+    for ch in script.get("chapters", []):
+        for sec in ch.get("sections", []):
+            if sec.get("kind") != "vo":
+                continue
+            prefix = _vo_file_prefix(str(sec.get("id", "")))
+            recs = [f for name, f in by_prefix.items()
+                    if name.startswith(prefix)]
+            sec["recordings"] = sorted(f["name"] for f in recs)
+            sec["recorded"] = any(f.get("class") == "speech" for f in recs)
+            # ingest's real duration outranks the 150wpm estimate
+            spoken = [f for f in recs if f.get("class") == "speech"]
+            if spoken:
+                sec["recorded_s"] = round(
+                    max(f.get("duration", 0) for f in spoken), 1)
+    return {"slug": slug, "script": script}
+
+
+def _save_script_section(slug: str, section_id: str, text: str) -> "dict":
+    """Caleb rewrites a VO line in his own voice; est_s re-estimates from
+    the new word count. oncamera text is a QUOTE of a take -- editing the
+    quote would not change the take, so it is refused rather than lied
+    about."""
+    from . import schemas
+    work = work_path(slug)
+    p = work / "script.json"
+    if not p.exists():
+        raise IngestError("no script yet")
+    script = json.loads(p.read_text())
+    text = str(text or "").strip()
+    if not text:
+        raise IngestError("a section cannot be empty")
+    for ch in script.get("chapters", []):
+        for sec in ch.get("sections", []):
+            if str(sec.get("id")) == section_id:
+                if sec.get("kind") != "vo":
+                    raise IngestError(
+                        "only vo sections are editable -- an oncamera "
+                        "section quotes its take; re-pick the take instead")
+                sec["text"] = text
+                words = len(text.split())
+                sec["est_s"] = round(words / schemas.SPEAKING_WPM * 60, 1)
+                _write_json(p, script)
+                return sec
+    raise IngestError("unknown section '%s'" % section_id)
 
 
 def _story_state(slug: str) -> "dict":
@@ -2171,6 +2270,8 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, _captions_state(self._slug_q()))
             elif self.path.startswith("/api/story"):
                 self._send(200, _story_state(self._slug_q()))
+            elif self.path.startswith("/api/script"):
+                self._send(200, _script_state(self._slug_q()))
             elif self.path.startswith("/api/footage"):
                 self._send(200, _footage_state(self._slug_q()))
             elif self.path.startswith("/api/ideas"):
@@ -2531,6 +2632,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/asset/use":
                 result = _use_asset(self._slug_b(body), body.get("id", ""))
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/script/section":
+                sec = _save_script_section(self._slug_b(body),
+                                           str(body.get("section_id", "")),
+                                           body.get("text", ""))
+                self._send(200, {"ok": True, "section": sec})
             elif self.path == "/api/story/brief":
                 brief = _save_story_brief(self._slug_b(body),
                                           body.get("target_minutes"),

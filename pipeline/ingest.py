@@ -26,7 +26,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORK_DIR = PROJECT_ROOT / "work"
 
-VIDEO_EXT = (".mp4", ".mov", ".m4v", ".mts", ".avi", ".mkv")
+# .webm: MediaRecorder's container — the Studio teleprompter records VO
+# takes in the browser (2026-08-23). THE authoritative footage allowlist;
+# editroom's upload gate imports it (a second copy is how the upload
+# accepted a file ingest then refused to see).
+VIDEO_EXT = (".mp4", ".mov", ".m4v", ".mts", ".avi", ".mkv", ".webm")
 AUDIO_EXT = (".wav", ".m4a", ".mp3", ".aiff", ".aif")
 
 # A "speech" file must say at least this many words at a plausible rate.

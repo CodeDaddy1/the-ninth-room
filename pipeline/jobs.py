@@ -178,11 +178,15 @@ STORY_PROMPT = (
     "the b-roll catalog) and the brand docs, and write "
     "work/%(slug)s/stories.json with three distinct directions. "
     "%(brief)s"
-    "Each beats_outline item may be an OBJECT "
-    '{"text": "...", "clips": ["<catalog filename>", ...]} citing 1-3 real '
-    "clips from the catalog that carry that chapter, favorites first -- the "
-    "Story desk plays those citations so Caleb can judge a pitch against "
-    "its evidence. If "
+    "Each beats_outline item must be an OBJECT "
+    '{"text": "...", "clips": [...], "target_s": <int seconds>} -- clips '
+    "cite 1-3 real catalog filenames that carry the chapter (favorites "
+    "first; the desk plays them as evidence), and target_s is the "
+    "chapter's TIME BUDGET. Chapter targets MUST sum to the brief's "
+    "target length within 10 percent, and when the on-camera takes cannot "
+    "honestly fill a chapter, its text says what the VOICE-OVER covers -- "
+    "narration Caleb records later over b-roll is a legitimate lane, not "
+    "a failure. If "
     "work/%(slug)s/favorites.json exists, its files are the clips Caleb "
     "STARRED as the story's core material: build every direction around "
     "them first — a big starred set means a wide story, a small one means "
@@ -267,6 +271,80 @@ EDITPLAN_PROMPT = (
     "write work/%(slug)s/edit_plan.json that satisfies the agent's plan "
     "rules. Do NOT run conforms or renders, and do NOT touch DaVinci "
     "Resolve. The engine is running on :8765; leave it alone.")
+
+
+SCRIPT_PROMPT = (
+    "Write the timed script for %(slug)s. %(brief)sRead "
+    ".claude/agents/story-designer.md and act as that agent for the SCRIPT "
+    "stage: the latest round in work/%(slug)s/story_feedback.json approves "
+    "a direction in work/%(slug)s/stories.json -- script THAT direction, "
+    "chapter by chapter, into work/%(slug)s/script.json with this exact "
+    "shape: {\"slug\", \"option_id\", \"target_minutes\", \"chapters\": "
+    "[{\"id\": \"CH1\", \"title\", \"target_s\", \"sections\": "
+    "[{\"id\": \"CH1.S1\", \"kind\": \"oncamera\"|\"vo\", \"text\", "
+    "\"take_id\" (oncamera only), \"est_s\"}]}]}. oncamera sections QUOTE "
+    "a real take (take_id from analysis/takes.json, text = what it says, "
+    "est_s = its trimmed span). vo sections are lines Caleb records LATER "
+    "over b-roll, in his voice, est_s = words/150*60 -- this is the lane "
+    "that fills a brief the day's takes cannot. Each chapter's est_s sum "
+    "must land within 25 percent of its target_s. Run "
+    "/usr/bin/python3 -c 'from pipeline import schemas; import json; "
+    "print(schemas.validate_script(json.load(open(\"work/%(slug)s/"
+    "script.json\")), json.load(open(\"work/%(slug)s/analysis/"
+    "takes.json\"))))' from the repo root and fix every error it prints. "
+    "Do NOT touch DaVinci Resolve; the engine on :8765 is not yours.")
+
+
+def _script_prompt(slug) -> str:
+    return SCRIPT_PROMPT % {"slug": slug, "brief": _brief_clause(slug)}
+
+
+def _run_script(slug, log, set_pct):
+    """The Script desk's writer (Caleb, 2026-08-23): the timed script
+    between an approved direction and the cut. Dispatch-and-verify like its
+    siblings -- but here the proof is not just that script.json changed; it
+    must also VALIDATE, because a script whose chapter sums ignore their
+    targets is the budget fiction this whole feature exists to prevent."""
+    import json
+    import subprocess
+    from . import schemas
+    work = work_path(slug)
+    fb = work / "story_feedback.json"
+    rounds = (json.loads(fb.read_text()).get("rounds", [])
+              if fb.exists() else [])
+    if not rounds or rounds[-1].get("decision") != "approve":
+        raise RuntimeError("no approving round -- approve a direction on "
+                           "the Story desk first")
+    script_path = work / "script.json"
+    if script_path.exists():
+        raise RuntimeError("script.json already exists -- edit sections on "
+                           "the Script desk; a rewrite is a session decision")
+    log("[script] dispatching the story designer for the script")
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p", _script_prompt(slug),
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("script session exited %d -- see the log" % rc)
+    if not script_path.exists():
+        raise RuntimeError("session finished but script.json was not "
+                           "written -- read the log")
+    takes = json.loads((work / "analysis" / "takes.json").read_text())
+    errs = schemas.validate_script(json.loads(script_path.read_text()), takes)
+    if errs:
+        raise RuntimeError("script.json failed validation: " +
+                           "; ".join(errs[:4]))
+    log("[script] script written -- read it on the Script desk, record the "
+        "vo sections, then Build the cut")
+    set_pct(100)
 
 
 def _run_editplan(slug, log, set_pct):
@@ -368,6 +446,8 @@ KINDS = {
     "story": ("Story pitches — three directions", _run_story),
     "editplan": ("Build the cut — plan from the approved direction",
                  _run_editplan),
+    "script": ("Write the script — timed sections from the approved "
+               "direction", _run_script),
     "scout": ("Scout — episode ideas with sources", _run_scout),
 }
 
