@@ -56,6 +56,40 @@ class EveryScreenRenders(unittest.TestCase):
                     html = kit.overlay_html(dict(SPEC, kit_type=name), w, h)
                     self.assertNotIn("font-size:0px", html)
 
+    def test_every_animation_name_has_its_keyframes(self):
+        """An `animation:` naming a keyframe that does not exist is the one
+        failure the HTML walker cannot see: the element renders static, and
+        a screen built to reveal itself stays invisible forever. Found while
+        verifying the VFX pack port (2026-08-23)."""
+        import re
+        defined = set(re.findall(r'@keyframes\s+([\w-]+)', kit.KEYFRAMES))
+        for name in sorted(kit.RENDERERS):
+            html = kit.overlay_html(dict(SPEC, kit_type=name), 1920, 1080)
+            html = re.sub(r'/\*.*?\*/', '', html, flags=re.S)
+            for decl in re.findall(
+                    r'animation(?:-name)?\s*:\s*([^;"}<{]+)[;}]', html):
+                for tok in decl.replace(',', ' ').split():
+                    if re.match(r'^y[A-Z]', tok):
+                        with self.subTest(screen=name, keyframes=tok):
+                            self.assertIn(tok, defined)
+
+    def test_the_vfx_pack_survives_being_imported_first(self):
+        """The pack registers itself into RENDERERS at ITS module tail
+        because merging from overlay_kit's tail crashed whenever vfx_kit
+        was the first import (circular re-entry into a half-built module,
+        found live 2026-08-23). A fresh interpreter is the only honest way
+        to test import order."""
+        import subprocess
+        r = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, %r); "
+             "from pipeline import vfx_kit; "
+             "from pipeline import overlay_kit as k; "
+             "assert 'fx_freeze' in k.RENDERERS, 'pack never registered'"
+             % os.path.dirname(os.path.dirname(os.path.abspath(__file__)))],
+            capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_an_unknown_kit_type_is_refused(self):
         with self.assertRaises(ValueError):
             kit.overlay_html({"kit_type": "not_a_real_kit"}, 1920, 1080)

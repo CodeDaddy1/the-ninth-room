@@ -2033,6 +2033,15 @@ RENDERERS = {
     "contact": contact,
 }
 
+# The VFX pack (Claude Design canvas 0eb765c9, ported 2026-08-23): ten
+# effects, fourteen custom transitions, nine editorial-cut furnitures.
+# vfx_kit registers itself into RENDERERS/KEYFRAMES at ITS tail — doing
+# the merge here instead crashes whenever vfx_kit happens to be imported
+# first (its import of this module re-enters a half-built vfx_kit). This
+# bare import only guarantees the registration has run by the time this
+# module is usable; either import order works.
+from . import vfx_kit  # noqa: F401  (registration side effect)
+
 
 # The brand's own answer to bright footage: "a gradient scrim or the chalk
 # double-shadow — never a box." The shadow alone lost the fight against the

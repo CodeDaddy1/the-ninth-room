@@ -563,6 +563,11 @@ _KIT_TEMPLATES = {
                   "cta": "Subscribe"},
 }
 
+# the VFX pack's starter copy + canvas durations ride the same dict the
+# picker and hover previews already read
+from .vfx_kit import VFX_TEMPLATES as _VFX_TEMPLATES
+_KIT_TEMPLATES.update(_VFX_TEMPLATES)
+
 
 def _orientation(slug: str) -> str:
     p = analysis_dir(slug) / "timeline_map.json"
@@ -782,10 +787,14 @@ def _kit_groups() -> "list":
         "Memes": [k for k in _KIT_TEMPLATES if k.startswith("meme_")],
         "Outro": ["takeaway", "next_room", "outro"],
     }
+    from .vfx_kit import VFX_GROUPS
+    for g in VFX_GROUPS:
+        named[g["title"]] = g["kits"]
     claimed = {k for ks in named.values() for k in ks}
     groups = [{"title": "Overlays",
                "kits": [k for k in _KIT_TEMPLATES if k not in claimed]}]
-    for title in ("Engagement", "Memes", "Outro"):
+    for title in ("Engagement", "Memes", "Effects", "Transitions",
+                  "Cut furniture", "Outro"):
         kits = [k for k in named[title] if k in _KIT_TEMPLATES]
         if kits:
             groups.append({"title": title, "kits": kits})
