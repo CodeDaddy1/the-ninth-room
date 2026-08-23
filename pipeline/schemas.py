@@ -134,6 +134,33 @@ BEAT_PURPOSES = ("hook", "stakes", "build", "payoff", "button",
                  "chapter_open", "chapter_close")
 FORMATS = ("youtube_short", "instagram_reel", "youtube_long")
 TRANSITIONS = ("cut", "dissolve")
+
+# The editor's cut vocabulary (Caleb, 2026-08-23). `transition_in` above stays
+# the FRAME-BOUNDARY treatment -- what happens in the seam. `technique` is the
+# editorial intent, and most of these need no new timeline construct at all:
+#
+#   hard          the spine does this by existing -- the default
+#   jump          segments of ONE take with time removed between them
+#   cutaway       b-roll over continuing audio -- a V2 <video> child (built)
+#   cross_cut     alternation between two threads -- BEAT ORDER, not a seam
+#   montage       a run of short beats -- a beat group, not a seam
+#   match         shapes rhyme across the cut -- a SHOT CHOICE
+#   cut_on_action the trim lands inside a movement -- a TRIM CHOICE
+#   smash         abrupt tonal jolt, usually carried by a sound not a construct
+#   j_cut         audio leads picture -> set audio_lead on THIS beat
+#   l_cut         audio trails picture -> set audio_tail on this beat
+#
+# Only j_cut and l_cut need a construct the writer did not already emit:
+# a connected <audio lane="-1"> child, verified against Resolve 21.0.4.5 on
+# 2026-08-23 (docs/resolve-findings.md). Recording the technique matters even
+# where it changes no XML -- it is how the story-designer's intent survives
+# into QC, and how a reviewer can tell a jump cut from a botched splice.
+CUT_TECHNIQUES = ("hard", "jump", "cutaway", "cross_cut", "montage", "match",
+                  "cut_on_action", "smash", "j_cut", "l_cut")
+
+# A split edit longer than this stops reading as a J/L cut and starts sounding
+# like a mistake -- the viewer hunts for the offscreen speaker.
+MAX_SPLIT_SEC = 3.0
 MAX_HOOK_SEC = 15.0
 
 
@@ -223,6 +250,36 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
         tr = b.get("transition_in", "cut")
         if tr not in TRANSITIONS:
             errors.append("%s: transition_in '%s' not in %s" % (where, tr, TRANSITIONS))
+        tech = b.get("technique", "hard")
+        if tech not in CUT_TECHNIQUES:
+            errors.append("%s: technique '%s' not in %s" % (where, tech, CUT_TECHNIQUES))
+        # A split edit is a NUMBER of seconds, not a flag: the writer needs to
+        # know how far the audio runs past its picture to place the connected
+        # <audio> child. Naming the technique without it emits nothing.
+        for key, tech_name in (("audio_lead", "j_cut"), ("audio_tail", "l_cut")):
+            if key in b:
+                v = b[key]
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+                    errors.append("%s: %s must be a positive number of seconds"
+                                  % (where, key))
+                elif v > MAX_SPLIT_SEC:
+                    errors.append("%s: %s of %.1fs exceeds the %.1fs maximum"
+                                  % (where, key, v, MAX_SPLIT_SEC))
+            elif tech == tech_name:
+                errors.append("%s: technique '%s' needs %s (seconds)"
+                              % (where, tech_name, key))
+        # A technique that names a cut the beat does not actually contain is
+        # worse than no technique at all: QC and the reviewer both read this
+        # field to tell a deliberate edit from a botched one. Only the two
+        # that leave evidence in the plan can be checked here -- match,
+        # cut_on_action and smash are judgement, and cross_cut and montage
+        # live in the beat ORDER, not in any single beat.
+        if tech == "cutaway" and not b.get("broll"):
+            errors.append("%s: technique 'cutaway' but the beat has no b-roll"
+                          % where)
+        if tech == "jump" and not b.get("cuts"):
+            errors.append("%s: technique 'jump' but the beat has no cuts — a "
+                          "jump cut is time removed from ONE take" % where)
         if chapter_ids and b.get("chapter_id") and b["chapter_id"] not in chapter_ids:
             errors.append("%s: unknown chapter '%s'" % (where, b["chapter_id"]))
 
@@ -472,6 +529,49 @@ def validate_graphics_plan(plan: "dict[str, Any]",
             _req(errors, c, "text", str, where)
         if ctype == "hook_title" and isinstance(c.get("text"), str) and len(c["text"].split()) > 9:
             errors.append(where + ": hook card text over 9 words — unreadable in a second")
+    return errors
+
+
+def validate_custom_overlays(data: "dict[str, Any]") -> "list[str]":
+    """overlays_custom.json — the Overlays desk's own cards.
+
+    Deliberately NOT validate_graphics_plan. A custom overlay is addressed by
+    `kit_type` (a key of overlay_kit.RENDERERS) and carries no `type` and no
+    `beat_id`, so the plan validator rejects every one of them — wiring that
+    one in here would refuse every save instead of closing the gap.
+
+    What actually fails at bake time is a kit_type the kit cannot render, so
+    that is what this checks, against RENDERERS itself rather than a copy of
+    its key list (CLAUDE.md: read the dict, don't trust a count in prose).
+    """
+    errors: "list[str]" = []
+    if not _req(errors, data, "overlays", list, "custom"):
+        return errors
+    from .overlay_kit import RENDERERS
+    ids = set()
+    for i, o in enumerate(data["overlays"]):
+        where = "overlays[%d]" % i
+        if not isinstance(o, dict):
+            errors.append(where + ": not an object")
+            continue
+        if _req(errors, o, "id", str, where):
+            if o["id"] in ids:
+                errors.append("%s: duplicate id '%s'" % (where, o["id"]))
+            ids.add(o["id"])
+        if _req(errors, o, "kit_type", str, where) \
+                and o["kit_type"] not in RENDERERS:
+            errors.append("%s: kit_type '%s' is not in the kit"
+                          % (where, o["kit_type"]))
+        # bool is an int subclass — a JSON `true` must not pass as a number
+        for key, floor in (("duration", 0), ("at", -1)):
+            if key in o:
+                v = o[key]
+                if isinstance(v, bool) or not isinstance(v, (int, float)) \
+                        or v <= floor:
+                    errors.append("%s: %s must be a number greater than %d"
+                                  % (where, key, floor))
+        if "beat_id" in o and not isinstance(o["beat_id"], str):
+            errors.append("%s: beat_id should be str" % where)
     return errors
 
 

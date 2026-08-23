@@ -581,6 +581,40 @@ def _custom_path(slug: str) -> Path:
     return work_path(slug) / "overlays_custom.json"
 
 
+def _write_custom(slug: str, custom: "dict") -> None:
+    """The ONE writer for overlays_custom.json.
+
+    Every desk edit lands here so a bad kit_type is refused at SAVE rather
+    than discovered at bake time -- four call sites wrote the file directly
+    and none of them validated, which is how an overlay could carry a
+    kit_type the kit cannot render all the way to a render.
+
+    Only rows that are NEW OR CHANGED are checked. Validating the survivors
+    instead locks the desk: with one bad row already on disk you could no
+    longer delete a DIFFERENT overlay, because the bad one is still in the
+    list -- the guard would refuse every repair except the single delete that
+    happens to remove it. Refuse what is being written, not what is being
+    kept. Duplicate ids stay a whole-list check; they are an invariant of the
+    file, not of a row.
+    """
+    from . import schemas
+    rows = custom.get("overlays")
+    if not isinstance(rows, list):
+        raise IngestError("overlay rejected: 'overlays' must be a list")
+    prior = _load_custom(slug).get("overlays", [])
+    fresh = [o for o in rows if o not in prior]
+    errs = schemas.validate_custom_overlays({"overlays": fresh})
+    seen = set()
+    for o in rows:
+        if isinstance(o, dict) and o.get("id") in seen:
+            errs.append("duplicate id '%s'" % o["id"])
+        elif isinstance(o, dict):
+            seen.add(o.get("id"))
+    if errs:
+        raise IngestError("overlay rejected: " + "; ".join(errs[:4]))
+    _write_json(_custom_path(slug), custom)
+
+
 def _load_custom(slug: str) -> "dict":
     p = _custom_path(slug)
     return json.loads(p.read_text()) if p.exists() else {"overlays": []}
@@ -836,7 +870,7 @@ def _save_overlay_locked(slug, card_id, updates):
             if merged.get("kit_type") in ("chapter", "transition") and dur < 2.5:
                 raise IngestError("chapter cards hold at least 2.5s")
             custom["overlays"][i] = merged
-            _write_json(_custom_path(slug), custom)
+            _write_custom(slug, custom)
             return merged
     raise IngestError("no overlay '%s'" % card_id)
 
@@ -900,7 +934,7 @@ def _new_overlay(slug: str, kit_type: str, beat_id: "str | None" = None,
             "duration": 2.5 if kit_type in ("chapter", "transition") else 3.0}
     card.update(json.loads(json.dumps(_KIT_TEMPLATES[kit_type])))
     custom["overlays"].append(card)
-    _write_json(_custom_path(slug), custom)
+    _write_custom(slug, custom)
     return card
 
 
@@ -923,7 +957,7 @@ def _delete_overlay_locked(slug, card_id):
     keep = [c for c in custom["overlays"] if c["id"] != card_id]
     if len(keep) != len(custom["overlays"]):
         custom["overlays"] = keep
-        _write_json(_custom_path(slug), custom)
+        _write_custom(slug, custom)
         source = "custom"
     else:
         gp_path = work_path(slug) / "graphics_plan.json"
@@ -972,7 +1006,7 @@ def _duplicate_overlay(slug: str, card_id: str) -> "dict":
     card["id"] = "OV%02d" % n
     card["replaces"] = card_id
     custom["overlays"].append(card)
-    _write_json(_custom_path(slug), custom)
+    _write_custom(slug, custom)
     return card
 
 
@@ -2179,7 +2213,24 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     return
                 from . import conform as conform_mod
                 stale_ids = conform_mod._stale_cards(cslug)
-                self._send(200, {"ops": _conform_pending(cslug),
+                # The preview must describe the run that will ACTUALLY
+                # happen. A conform collapses the ledger before executing
+                # (repeated card exports keep only the last; a place later
+                # removed cancels), so the raw ledger overstates the work --
+                # three edits to one card read as three placements when the
+                # run pushes one. Tag each op with the REAL rule rather than
+                # letting the desk re-derive it: that duplication is how a
+                # preview comes to promise what the executor won't do.
+                raw = _conform_pending(cslug)
+                kept = set(id(o) for o in conform_mod._collapse_ops(raw))
+                ops = []
+                for o in raw:
+                    d = dict(o)
+                    d["superseded"] = id(o) not in kept
+                    d["detail"] = conform_mod._op_detail(o)
+                    ops.append(d)
+                self._send(200, {"ops": ops,
+                                 "effective": len(kept),
                                  "stale": len(stale_ids),
                                  "stale_ids": stale_ids})
             elif self.path.startswith("/media/"):

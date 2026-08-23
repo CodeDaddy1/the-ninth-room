@@ -34,7 +34,7 @@ import tempfile
 import wave
 from pathlib import Path
 
-from .ingest import analysis_dir
+from .ingest import analysis_dir, IngestError
 
 # Speech-edge thresholds: 50ms RMS windows; >= 2 consecutive hot windows
 # within the first 250ms past the cut means a voice was interrupted.
@@ -49,9 +49,22 @@ EDGE_WITHIN_SEC = 0.25
 EDGE_REPORT_DB = -26.0
 
 
+def _timeline_map(slug: str) -> "dict":
+    """The audit measures the COMPUTED layout, so it needs a built timeline.
+    A project still at story or footage phase has no map, which is a normal
+    state -- say so plainly instead of throwing a FileNotFoundError traceback
+    at whoever ran the command (crooise, 2026-08-23)."""
+    p = analysis_dir(slug) / "timeline_map.json"
+    if not p.exists():
+        raise IngestError(
+            "%s has no timeline yet -- run `build-timeline %s` first; "
+            "the audit measures the built layout, not the plan" % (slug, slug))
+    return json.loads(p.read_text())
+
+
 def audit_splices(slug: str, log=print) -> "list[dict]":
     out = analysis_dir(slug)
-    tl = json.loads((out / "timeline_map.json").read_text())
+    tl = _timeline_map(slug)
     catalog = json.loads((out / "catalog.json").read_text())
     by_name = {f["name"]: f for f in catalog["files"]}
     wcache: "dict[str, list]" = {}
@@ -137,7 +150,7 @@ def _edge_hot(path: str, t: float, direction: int) -> "float | None":
 def audit_speech_edges(slug: str, log=print) -> "list[dict]":
     """Flag cut edges with measured voice energy just outside the kept audio."""
     out = analysis_dir(slug)
-    tl = json.loads((out / "timeline_map.json").read_text())
+    tl = _timeline_map(slug)
     catalog = json.loads((out / "catalog.json").read_text())
     path_by_name = {f["name"]: f["path"] for f in catalog["files"]}
 

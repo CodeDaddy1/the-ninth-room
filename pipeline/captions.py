@@ -251,6 +251,24 @@ def phrase_png(words: "list[str]", active: int, dest: Path, w: int, h: int,
         else:
             widths.append(probe.textlength(word, font=_wf(i)))
 
+    # An emoji that Apple Color Emoji cannot rasterise comes back as None.
+    # Keeping it as a zero-width token left its word_gap behind on BOTH sides,
+    # so the caption rendered a visible double space where the glyph should
+    # have been. A token that cannot be drawn should not occupy layout at all:
+    # drop it, and remap the keyword index so the wrong word is not
+    # highlighted. (Deferred kit defect, closed 2026-08-23.)
+    drop = {i for i in emoji_imgs if emoji_imgs[i] is None}
+    if drop:
+        keep = [i for i in range(len(words)) if i not in drop]
+        if active in drop:
+            active = -1
+        elif isinstance(active, int) and active >= 0:
+            active = keep.index(active)
+        words = [words[i] for i in keep]
+        widths = [widths[i] for i in keep]
+        emoji_imgs = {keep.index(i): im for i, im in emoji_imgs.items()
+                      if i in keep}
+
     # Wrap into lines that fit between the side insets.
     lines, cur, cur_w = [], [], 0.0
     for i, word in enumerate(words):

@@ -348,6 +348,14 @@ def _fit(text: str, base: int, per_char: "int | None" = None,
     What breaks if this is wrong: a long lower third runs past the frame edge
     and the last word is cut in half — invisible in a plan, obvious on screen.
     """
+    # A non-positive base emits font-size:0px — invisible copy that looks
+    # like a bake failure and reads as "the card didn't render". Every current
+    # call site passes a positive literal, so this only bites once a size
+    # becomes caller-driven or Edit-Room-exposed. (Deferred kit defect, closed
+    # 2026-08-23.)
+    if base <= 0:
+        raise ValueError("_fit: base size must be positive, got %r" % base)
+
     # font_scale multiplies the COMPUTED size, then the fit re-checks the
     # budget at the scaled size — a 2x headline still may not run off the
     # frame; it wraps or shrinks from its scaled target instead.
@@ -473,6 +481,11 @@ def _arch(width: int, outline: str = CYAN, light: str = YELLOW,
     What breaks if this is wrong: the head stops being a semicircle and the
     mark reads as a generic rounded rectangle.
     """
+    # Below 8px the 8u grid rounds every feature to zero and the mark becomes
+    # an empty box — the brand's own logo, silently absent. (Deferred kit
+    # defect, closed 2026-08-23.)
+    if width < 8:
+        raise ValueError("_arch: width must be at least 8px, got %r" % width)
     u = width / 8.0
     h = int(u * 10)
     r = int(u * 4)

@@ -69,8 +69,16 @@ def cmd_produce(args) -> int:
 
 def cmd_audit(args) -> int:
     from . import audit
-    problems = audit.audit_splices(args.slug)
-    audit.audit_speech_edges(args.slug)
+    from .ingest import IngestError
+    try:
+        problems = audit.audit_splices(args.slug)
+        audit.audit_speech_edges(args.slug)
+    except IngestError as e:
+        # exit 2 = could not run. Exit 1 already means "ran, found severe
+        # problems", and a caller gating a build on the audit must be able to
+        # tell those apart.
+        print("[audit] %s" % e)
+        return 2
     return 1 if any(p["severe"] for p in problems) else 0
 
 
