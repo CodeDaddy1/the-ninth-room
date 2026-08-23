@@ -278,6 +278,44 @@ def _run_editplan(slug, log, set_pct):
     set_pct(100)
 
 
+SCOUT_PROMPT = (
+    "Scout ideas for The Ninth Room. Read .claude/agents/scout.md and act "
+    "as that agent: search the web for episode-worthy places and hooks, "
+    "and write/update work/_scout/ideas.json with sourced candidates. "
+    "Channel-level -- no per-project work, no conforms, no renders, no "
+    "DaVinci Resolve. The engine is running on :8765; leave it alone.")
+
+
+def _run_scout(slug, log, set_pct):
+    """The Ideas desk's Scout button (UX overhaul, 2026-08-23). Channel-
+    level: `slug` is the _scout workspace, not a project. Proof of work is
+    ideas.json changing, same as every other dispatched agent."""
+    import subprocess
+    ideas_path = work_path("_scout") / "ideas.json"
+    before = ideas_path.stat().st_mtime if ideas_path.exists() else None
+    log("[scout] dispatching the idea scout")
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p", SCOUT_PROMPT,
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("scout session exited %d -- see the log" % rc)
+    after = ideas_path.stat().st_mtime if ideas_path.exists() else None
+    if after is None or after == before:
+        raise RuntimeError("session finished but ideas.json did not "
+                           "change -- read the log")
+    log("[scout] new ideas on the Ideas desk")
+    set_pct(100)
+
+
 def _run_render(slug, log, set_pct):
     from . import deliver
     deliver.render_master(slug, log=log, set_pct=set_pct)
@@ -293,6 +331,7 @@ KINDS = {
     "story": ("Story pitches — three directions", _run_story),
     "editplan": ("Build the cut — plan from the approved direction",
                  _run_editplan),
+    "scout": ("Scout — episode ideas with sources", _run_scout),
 }
 
 

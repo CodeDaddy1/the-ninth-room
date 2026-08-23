@@ -2437,8 +2437,13 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/job/start":
                 from . import jobs as jobs_mod
                 try:
-                    job = jobs_mod.start(body.get("kind", ""),
-                                         self._slug_b(body))
+                    # scout is channel-level: its workspace is work/_scout,
+                    # which the slug regex rejects (leading underscore is
+                    # reserved) -- so the kind names its own workspace
+                    job = jobs_mod.start(
+                        body.get("kind", ""),
+                        "_scout" if body.get("kind") == "scout"
+                        else self._slug_b(body))
                     self._send(200, {"ok": True, "job": job})
                 except jobs_mod.JobError as e:
                     self._send(400, {"error": str(e)})
