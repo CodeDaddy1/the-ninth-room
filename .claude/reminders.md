@@ -306,24 +306,6 @@ console settings, recordings, decisions). Check items off when done.
   re-implemented here from what comes back — and both must obey "no filled
   plates, one yellow moment per frame," which the studied video does not.
   Only you can open the Claude Design brief.
-
-- [ ] **BT94's ending and the coverage gate cannot both win — only you can pick**
-  (added 2026-08-24, from the `_compare_room` coverage room). BT94's beat note
-  records your round-2 verdict: B136, the low-angle push-in on the rearing
-  giant ground sloth, was moved to that beat's **tail** so the beat ENDS on the
-  Slothzilla shot, leading into the reveal at the same mount. That placement —
-  6.1s + 2.21s of an 8.6s beat, ending at 8.31 — is exactly what
-  `schemas.coverage_notes` flags as covering the landing, and the coverage job
-  hard-fails while that finding exists. So the shot is currently **out of the
-  plan entirely**, filed in `work/_compare_room/trash.json` against
-  **BT94 @6.1/2.21** so a restore puts it back precisely where you put it.
-  Three ways out, and the choice is yours: (a) your verdict wins and the gate
-  gets a per-beat exception — an `allow_landing: true` on the cover, or a
-  `beat_close` justification the checker exempts; (b) the gate wins and BT94
-  ends on faces instead; (c) the shot moves to the head of BT58/BT59 so the
-  mount still leads into the reveal without touching a landing. Nobody but you
-  can say whether ending that beat on the sloth was the point or a preference.
-
 - [ ] **Make the cast name-boards — this is a physical build, not a render**
   (added 2026-08-24, from the Mark Rober film study). The strongest single
   steal in `docs/film-studies/mark-rober.md` for an ensemble family channel:

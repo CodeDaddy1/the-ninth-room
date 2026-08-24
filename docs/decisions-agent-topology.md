@@ -48,3 +48,34 @@ refined one-shot at b-roll coverage on this material. It does not say a
 review loop is worthless for a craft with a fuzzier bar — but reopening
 it needs a fresh comparison of the same shape, pre-registered the same
 way, not an argument.
+
+---
+
+# BT94: the gate wins, and no exception mechanism gets built
+
+**Decided 2026-08-24 by Caleb: "remove bt94".**
+
+The open question was whether a cover may end a beat. Caleb's round-2
+verdict had moved B136 — the low-angle push-in on the rearing giant
+ground sloth — to BT94's tail so the beat ENDS on it, cutting into the
+reveal at the same mount. `coverage_notes` flags exactly that as
+covering the landing, and the coverage job hard-fails while the finding
+stands, so the shot sat out of the plan in `work/_compare_room/`.
+
+Three ways out were on the table: (a) his verdict wins via a per-beat
+exception, (b) the gate wins and BT94 ends on faces, (c) the shot moves
+to the head of BT58/BT59. **He chose (b).**
+
+So: **the landing rule holds with no escape hatch.** No `allow_landing`
+flag, no `beat_close` justification, no human-only exceptions file. The
+last fifth of a beat belongs to the face, full stop, and a cover that
+wants it loses.
+
+This is the second time today the same principle decided a design: a
+rule a cover can escape by declaring the rule inapplicable is not a
+rule. `process` earns no relaxation of the craft rules for the same
+reason.
+
+B136 remains in `work/_compare_room/trash.json` against BT94 @6.1/2.21,
+so a restore would put it back exactly where it was — but nothing is
+waiting on that, and hmns's shipped cut is untouched.
