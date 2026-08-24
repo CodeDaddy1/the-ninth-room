@@ -238,3 +238,37 @@ console settings, recordings, decisions). Check items off when done.
   C spoken underline). Pick/iterate in Claude Design; the winner gets
   ported into pipeline/captions.py as the punchline style. Until then,
   punchline episodes bake selected-only at the current look.
+
+- [ ] **Only you can settle which crooise story the publish package describes**
+  (added 2026-08-24). `work/crooise/publish.md` is written from
+  `edit_plan.json` — the scorecard spine (S2, "First Impressions, Out of
+  Five"), which is what the beats, the graphics plan and `thumbnail_v1.png`
+  all actually build. But `story_feedback.json`'s latest round (round 3,
+  2026-08-23 18:18) approves **S8, "But the Floor Is Moving"** — the
+  engineering angle off `research.json`. The edit plan flags the same conflict
+  in `notes.which_story_this_follows` and follows the script because S8 is
+  three-quarters voice-over that has not been recorded. If round 3 was meant
+  to supersede the script, then the script, the plan, the thumbnail *and* all
+  three titles are the wrong episode and this package has to be rewritten from
+  S8. One word from you either way.
+- [ ] **Mark the winning crooise title after upload day.** `work/_channel/titles.json`
+  now holds the three options with `chosen: null`. Set the winner to `true`
+  once it is live — that ledger is the only record of which title *kind*
+  (gap / noun / question) actually earns clicks on this channel, and future
+  publish packages read it. It is empty of history until you start marking.
+- [ ] **The HMNS coelacanth card asserts a fact your footage never states**
+  (added 2026-08-24). `graphics_plan.json` CARD38 (BT73, kit `lower_third`)
+  reads "Called extinct, then caught alive in 1938 · *Latimeria chalumnae*".
+  That is the reveal S1's hook promises, and `edit_plan.json`'s notes flag it
+  as VO section CH8.S10 — written in `script.json`, **not recorded, and with
+  no `research.json` behind it**. The card is on solid ground historically,
+  but accuracy is the brand: run the research job before this bakes, or pull
+  CARD38 and let BT73's on-camera line ("a very prehistoric fish that still
+  exists today") carry the beat alone. Recording CH8.S10 closes the hook's
+  loop properly and makes the card redundant either way.
+
+- **Sign off brand/taste.md** (added 2026-08-24): 20+ taste statements
+  mined from your recorded verdicts, marked UNSIGNED DRAFT. Read it,
+  strike or amend statements, then replace the header line with
+  "Signed off by Caleb <date>" — no doctrine or showrunner review may
+  cite it until then.
