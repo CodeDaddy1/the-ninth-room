@@ -599,22 +599,135 @@ def _run_render(slug, log, set_pct):
     set_pct(100)
 
 
+def _run_snapcuts(slug, log, set_pct):
+    """Tighten cuts: move speech-clipping edges to acoustic troughs. The
+    CLI verb, promoted to a job so the Review desk can reach it — and so
+    the CHAIN can enforce the order this session got wrong once: proxies
+    render from the ASSEMBLED timeline, so a snap that is not followed by
+    assemble never reaches review playback (found live, 2026-08-23)."""
+    if not (work_path(slug) / "edit_plan.json").exists():
+        raise RuntimeError("no cut yet -- Build the cut first")
+    from . import snap_cuts
+    set_pct(10)
+    snap_cuts.snap(slug, log=log)
+    set_pct(100)
+
+
+# Labels are user-facing (tray, notifications): desk vocabulary — clip,
+# preview, render — never internal jargon (P1 copy pass, 2026-08-23).
 KINDS = {
-    "ingest": ("Ingest — transcribe, takes, b-roll", _run_ingest),
-    "assemble": ("Assemble — timeline + proxies", _run_assemble),
-    "reproxy": ("Re-proxy changed beats", _run_reproxy),
-    "render": ("Render master — Resolve render queue", _run_render),
-    "fixer": ("Fixer round — flagged beats to re-review", _run_fixer),
-    "story": ("Story pitches — three directions", _run_story),
-    "editplan": ("Build the cut — plan from the approved direction",
-                 _run_editplan),
-    "script": ("Write the script — timed sections from the approved "
-               "direction", _run_script),
-    "research": ("Research — sourced facts about the place", _run_research),
-    "graphics": ("Suggest graphics — cards recommended per clip",
-                 _run_graphics),
-    "scout": ("Scout — episode ideas with sources", _run_scout),
+    "ingest": ("Analyze footage — transcripts, takes, b-roll", _run_ingest),
+    "assemble": ("Assemble — timeline + review previews", _run_assemble),
+    "reproxy": ("Rebuild previews", _run_reproxy),
+    "render": ("Render master", _run_render),
+    "fixer": ("Auto-fix — rework the flagged clips", _run_fixer),
+    "story": ("Pitch stories — three directions", _run_story),
+    "editplan": ("Build the cut", _run_editplan),
+    "script": ("Write the script", _run_script),
+    "research": ("Research the place", _run_research),
+    "graphics": ("Suggest graphics — cards for the clips", _run_graphics),
+    "scout": ("Scout ideas", _run_scout),
+    "snapcuts": ("Tighten cuts — edges onto clean audio", _run_snapcuts),
 }
+
+# Mechanical followers. A creative decision stays a button; everything
+# mechanical that must follow it fires on its own (Caleb, 2026-08-23).
+# Only DONE jobs chain — a failure stops the line and says so.
+CHAIN = {
+    "editplan": "assemble",
+    "graphics": "reproxy",
+    "snapcuts": "assemble",
+}
+
+
+AUTOINGEST_DELAY = 20.0     # seconds of upload silence = the batch settled
+_UPLOAD_TS: "dict" = {}     # slug -> epoch of that slug's newest upload
+
+
+def autoingest_decision(stamp: float, latest: float,
+                        slug_jobs: "list") -> str:
+    """Pure verdict for one debounce timer firing: 'start', 'rearm', or
+    'skip'. Extracted so the race rules are testable without threads.
+
+    - a NEWER upload superseded this timer -> skip (its own timer runs);
+    - an ingest already queued/running -> rearm (it may miss this batch's
+      newest file, so check again later rather than double-queue);
+    - an ingest that STARTED after the batch's last upload has already
+      analyzed it (the teleprompter fires one explicitly) -> skip;
+    - otherwise -> start.
+    """
+    if latest > stamp:
+        return "skip"
+    for j in slug_jobs:
+        if j.get("kind") != "ingest":
+            continue
+        if j.get("state") in ("queued", "running"):
+            return "rearm"
+        if (j.get("state") == "done"
+                and (j.get("started_ts") or 0) >= stamp):
+            return "skip"
+    return "start"
+
+
+def _autoingest_fire(slug: str, stamp: float) -> None:
+    verdict = autoingest_decision(stamp, _UPLOAD_TS.get(slug, stamp),
+                                  jobs(slug))
+    if verdict == "start":
+        try:
+            start("ingest", slug)
+        except JobError:
+            pass
+    elif verdict == "rearm":
+        threading.Timer(30.0, _autoingest_fire,
+                        args=(slug, _UPLOAD_TS.get(slug, stamp))).start()
+
+
+def note_upload(slug: str) -> None:
+    """Called by the upload endpoint after each stored file. When the
+    batch settles (no new file for AUTOINGEST_DELAY), analysis starts on
+    its own -- drop footage, walk away (P1, 2026-08-23). NINTH_AUTOINGEST=0
+    disables."""
+    if os.environ.get("NINTH_AUTOINGEST") == "0":
+        return
+    ts = time.time()
+    _UPLOAD_TS[slug] = ts
+    t = threading.Timer(AUTOINGEST_DELAY, _autoingest_fire, args=(slug, ts))
+    t.daemon = True
+    t.start()
+
+
+def _notify(title: str, body: str) -> None:
+    """A real macOS notification from the engine — it works with the
+    browser closed, which a tab-bound notification cannot. Gated to
+    darwin and NINTH_NOTIFY != "0" (the SaaS path keeps this off).
+    Never raises: a broken osascript must not fail a finished job."""
+    import subprocess
+    import sys
+    if sys.platform != "darwin" or os.environ.get("NINTH_NOTIFY") == "0":
+        return
+    try:
+        script = 'display notification "%s" with title "%s"' % (
+            body.replace('\\', '').replace('"', "'")[:180],
+            title.replace('"', "'")[:60])
+        subprocess.run(["osascript", "-e", script], capture_output=True,
+                       timeout=10)
+    except Exception:
+        pass
+
+
+def _after_done(job: "dict", log) -> None:
+    """Enqueue the finished job's mechanical follower, if it has one.
+    start() already refuses a duplicate queued/running follower for the
+    slug, so the chain cannot double-enqueue — a refusal is logged and
+    swallowed, never raised (the finished job stays done)."""
+    follower = CHAIN.get(job["kind"])
+    if not follower:
+        return
+    try:
+        start(follower, job["slug"])
+        log("[chain] %s done -> %s queued" % (job["kind"], follower))
+    except JobError as e:
+        log("[chain] %s follower not queued: %s" % (job["kind"], e))
 
 
 def _worker():
@@ -627,10 +740,15 @@ def _worker():
             _, fn = KINDS[job["kind"]]
             fn(job["slug"], log, lambda p: _update(jid, pct=int(p)))
             _update(jid, state="done", pct=100, ended_ts=int(time.time()))
+            _notify("%s — done" % KINDS[job["kind"]][0].split(" — ")[0],
+                    job["slug"])
+            _after_done(job, log)
         except Exception as e:  # the tray must show the failure, never hang
             log("[job] FAILED: %s: %s" % (type(e).__name__, e))
             _update(jid, state="failed", error=str(e)[:300],
                     ended_ts=int(time.time()))
+            _notify("%s — failed" % KINDS[job["kind"]][0].split(" — ")[0],
+                    "%s: %s" % (job["slug"], str(e)[:140]))
 
 
 def start(kind: str, slug: str) -> "dict":

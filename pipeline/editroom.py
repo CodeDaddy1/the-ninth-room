@@ -1205,38 +1205,39 @@ def _project_row(slug: str) -> "dict":
                                  "page, or open the footage folder and copy "
                                  "them in.")
     elif not ingested:
-        phase, nxt = "ingest", ("Footage is in (%d clips). Press Ingest — "
-                                "transcription, take analysis, b-roll "
-                                "catalog run as an engine job." % len(footage))
+        phase, nxt = "ingest", ("Footage is in (%d clips). Analysis starts "
+                                "on its own when the batch settles — or "
+                                "press Analyze footage." % len(footage))
     elif not plan and not stories:
-        phase, nxt = "story", ('Tell Claude: “pitch stories for %s” '
-                               '— the story designer writes three '
-                               'directions to the Story tab.' % slug)
+        phase, nxt = "story", ("Answer the brief on the Story desk, then "
+                               "Pitch stories — three directions arrive "
+                               "for your review.")
     elif not plan and not approved:
-        phase, nxt = "story", ("Story pitches are on the Story tab — "
-                               "approve one, or send direction notes for a "
+        phase, nxt = "story", ("Story pitches are on the Story desk — "
+                               "approve one, or send direction for a "
                                "fresh round.")
     elif not plan:
-        phase, nxt = "story", ('Direction approved. Tell Claude: '
-                               '“write the edit plan for %s”.' % slug)
+        phase, nxt = "story", ("Approved. Build the cut on the Story desk "
+                               "— assembly follows on its own.")
     elif not (tl and prox):
-        phase, nxt = "assembly", ("Press Assemble — the timeline and review "
-                                  "proxies build in story order as an "
-                                  "engine job.")
+        phase, nxt = "assembly", ("The cut is written. Assemble builds the "
+                                  "timeline and review previews (it chains "
+                                  "automatically after Build the cut).")
     elif prox and (n_appr + n_flag) < prox:
-        phase, nxt = "review", ("Work the review queue — approve what "
-                                "ships; the broll / sfx / cards buttons "
-                                "edit the beat directly.")
+        phase, nxt = "review", ("Work the Review queue — approve what "
+                                "ships; b-roll, sound and graphics edit "
+                                "each clip directly.")
     elif n_queue:
-        phase, nxt = "review", ("%d beat(s) in the queue. Approve them, "
-                                "then Conform to Resolve pushes every "
-                                "queued edit and stale card." % n_queue)
+        phase, nxt = "review", ("%d clip(s) still in the queue. Clear "
+                                "them, then Conform to Resolve pushes "
+                                "every edit and stale card." % n_queue)
     elif not masters:
-        phase, nxt = "master", ('Every shot approved. Tell Claude: '
-                                '“produce the master for %s”.' % slug)
+        phase, nxt = "master", ("Every clip approved. Render the master "
+                                "from the Export desk.")
     else:
-        phase, nxt = "master", ("Master rendered: %s. Any later change: "
-                                "tell Claude to re-produce." % masters[-1].name)
+        phase, nxt = "master", ("Master rendered: %s. A later change "
+                                "re-renders from the Export desk."
+                                % masters[-1].name)
     progress = None
     prog_p = work / "ingest_progress.json"
     if prog_p.exists():
@@ -2608,6 +2609,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 name = qs.get("name", [""])[0]
                 n = int(self.headers.get("Content-Length") or 0)
                 result = _save_upload(uslug, name, self.rfile, n)
+                # local import: jobs_mod is imported LATER in this same
+                # function scope for the job routes, so the bare name here
+                # is an unassigned local (found live: every upload 500'd)
+                from . import jobs as _jobs_auto
+                _jobs_auto.note_upload(uslug)
                 log("[upload] %s <- %s%s%s"
                     % (uslug, result["stored"],
                        " (still -> %s)" % result["as"] if result.get("as") else "",
