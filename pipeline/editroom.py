@@ -1279,7 +1279,8 @@ def _project_row(slug: str) -> "dict":
             script_status = {"exists": True, "vo_total": 0, "vo_recorded": 0}
     return {"slug": slug, "phase": phase, "next": nxt,
             "footage": len(footage), "ingested": ingested,
-            "stories": bool(stories), "plan": plan, "proxies": prox,
+            "stories": bool(stories), "approved": approved,
+            "plan": plan, "proxies": prox,
             "master": masters[-1].name if masters else None,
             "progress": progress, "script": script_status,
             "review": {"approved": n_appr, "flagged": n_flag,
@@ -1733,6 +1734,16 @@ def _save_story_feedback(slug: str, choice: "str | None", notes: str,
             raise IngestError("pick one of the pitched options to approve")
     path = work / "story_feedback.json"
     fb = json.loads(path.read_text()) if path.exists() else {"rounds": []}
+    # Idempotent approve: re-approving the already-approved option is a
+    # no-op, not a new round. Found live 2026-08-23 — the desk gave no
+    # post-approval state, Caleb clicked six times, and six identical
+    # rounds landed in the file.
+    last = fb["rounds"][-1] if fb["rounds"] else None
+    if (decision == "approve" and last
+            and last.get("decision") == "approve"
+            and last.get("choice") == choice
+            and not (notes or "").strip()):
+        return fb
     fb["rounds"].append({"ts": int(time.time()),
                          "round": (stories or {}).get("round"),
                          "choice": choice, "notes": (notes or "").strip(),
