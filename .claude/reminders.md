@@ -82,7 +82,7 @@ console settings, recordings, decisions). Check items off when done.
   Privacy & Security ▸ **Files and Folders** ▸ DaVinci Resolve ▸ enable
   "Desktop Folder" (or grant **Full Disk Access** to DaVinci Resolve, which
   covers every future footage location). Verified 2026-08-18: Resolve cannot
-  open `~/Desktop/Curated Curiosities/DJI/...` at all (`io.open` → BLOCKED),
+  open `~/Footage/Curated Curiosities/DJI/...` at all (`io.open` → BLOCKED),
   so `ImportMedia`/`ImportTimelineFromFile` return nil for that footage while
   files under `~/Projects/` import fine. **Workaround already in place:** the
   pipeline copies footage into the repo's `work/<slug>/footage/`, which
@@ -147,12 +147,12 @@ console settings, recordings, decisions). Check items off when done.
   Operation not permitted). System Settings ▸ Privacy & Security ▸ Files and
   Folders (or Full Disk Access) ▸ your terminal app ▸ Desktop. Until then:
   hmns audio work (trough rescue, speech-edge audit, re-proxy) is blocked —
-  its footage symlinks into ~/Desktop/Curated Curiosities. The audit now says
+  its footage symlinks into ~/Footage/Curated Curiosities. The audit now says
   "N of M edges UNMEASURABLE" instead of silently passing. After granting,
   run: `rebake hmns` then `audit hmns` for the sighted rescue. (2026-08-23)
 
 - [ ] **Back up work/ + the Desktop footage before shipping HMNS.** Neither
-  the 62 GB in ~/Desktop/Curated Curiosities nor work/hmns has a second copy
+  the 62 GB in ~/Footage/Curated Curiosities nor work/hmns has a second copy
   anywhere (footage/artifacts are gitignored by design). One rsync to an
   external drive before conform/re-cut runs on the episode that matters.
   (2026-08-23)
@@ -192,7 +192,7 @@ console settings, recordings, decisions). Check items off when done.
 - [ ] **Only you can grant this: Claude Code cannot read `~/Desktop`, so no
   fixer round can re-proxy an hmns beat.** Every source clip in
   `work/hmns/footage/` is a symlink into
-  `~/Desktop/Curated Curiosities/DJI/05-17-26 - HMNS/`, and ffmpeg run from
+  `~/Footage/Curated Curiosities/DJI/05-17-26 - HMNS/`, and ffmpeg run from
   the session gets `Operation not permitted` on all of them — the cards bake
   fine (Chrome + local files), the proxies cannot render. Grant the Claude
   Code app Full Disk Access (System Settings → Privacy & Security → Full Disk
@@ -323,3 +323,57 @@ console settings, recordings, decisions). Check items off when done.
   ends on faces instead; (c) the shot moves to the head of BT58/BT59 so the
   mount still leads into the reveal without touching a landing. Nobody but you
   can say whether ending that beat on the sloth was the point or a preference.
+
+- [ ] **Make the cast name-boards — this is a physical build, not a render**
+  (added 2026-08-24, from the Mark Rober film study). The strongest single
+  steal in `docs/film-studies/mark-rober.md` for an ensemble family channel:
+  he introduces his four characters at 9:30 with **hand-lettered wooden
+  boards standing in the actual yard**, one per character, each with a real
+  measured number on a small hanging tag — delivered as a 2x2 quad-split. Not
+  a lower third. The same trick carries his labelled nut-buffet (4:04, 9:16),
+  the re-lettered correction board (13:51) and a Sharpie "manual override"
+  block held to camera (16:05). This is Beau Miles' "the progress graphic is a
+  real object" rule confirmed by a creator with a hundred times the budget,
+  and it means the cast graphic is lit by the same sun as the family.
+  For us: three boards — **Caleb, Alma, Sofia** — in chalk on ply or slate, in
+  Cyanotype's register (navy ground, chalk type, one yellow accent, no filled
+  plate), plus a couple of blanks for per-episode labels. Then they travel in
+  the kit bag to every location. The kit's `lower_third` stays for when there
+  is no board. Only you can build them, and only you can decide whether they
+  get the Archway on them — if they do, that artwork comes from
+  `brand/design-system/channel-assets/`, not a redraw.
+
+- [ ] **Brief Claude Design: the `hold` screen and a `hold_is_the_number` stat
+  mode** (added 2026-08-24, from the Mark Rober film study). Two kit
+  behaviours the study earns and we cannot invent here (CLAUDE.md rule 6).
+  (a) **`hold`** — a bare navy ground used as punctuation, in three measured
+  durations: a ~2.2s *hinge* to change time with a small chalk aside entering
+  at ~55% of it (evidence 0:21.56, aside at 0:22.77 for 0.96s), a ~2.8s
+  type-free *curtain* before a montage (3:25.58), and a ~3.3s *reveal* hold
+  under the single most important sentence of the episode (13:43.07 — he
+  delivers the biggest fact in the film on pure black with nothing on it).
+  (b) **`hold_is_the_number`** — a `stat` mode where the yellow moment lasts
+  *exactly* the interval being claimed. At 17:00.89 a card reads "300
+  milliseconds", then a flash **is** the demonstration. Note the honesty catch
+  that makes this ours to get right: his flash measures **0.208s**, not 0.300.
+  If we ship it, it is frame-accurate or the claim changes.
+  Only you can open the Claude Design brief.
+
+- [ ] **`workflow-shakedown` has no `story_brief.json` and no `research.json`**
+  (added 2026-08-24, from the round-1 story pitch). The three directions each
+  had to declare their own target length because no brief assigned one — S1
+  85s, S2 135s, S3 110s — so approving a pitch also silently approves a
+  runtime nobody set. Only you can fill the Planner questionnaire. The
+  research gap is the harder one: every VO chapter that would carry a fact is
+  currently marked "needs sourcing", including the actual reason a glasswing's
+  wings read as transparent — S1 budgets a whole 12s chapter to it. Nothing
+  can be scripted into a claim until that file exists.
+
+- [ ] **Shoot a ninth-room line on the next visit.** All 139 seconds of HMNS footage in
+  `workflow-shakedown` — eight clips — contain no on-camera moment where
+  anyone names the thing that wasn't on the map. The three candidates the pitch found
+  — the airlock between the doors, the specimen drawers you may open yourself,
+  and the lobby amethyst everyone walks past — are all carried by picture plus
+  voice-over, which is honest but leaves the brand promise resting on
+  narration. One sentence said out loud, in the room, fixes it. Only you can
+  shoot it.

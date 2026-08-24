@@ -71,10 +71,18 @@ mirrors these endpoints and must move with it.
 - Never overwrite or delete an exported `.mov` under `work/<slug>/exports/`;
   Resolve holds them open. New content gets a new `_vN` name.
 - Never delete `~/Projects/curated-curiosities` (the symlink) or anything
-  under `~/Desktop/Curated Curiosities` (62 GB of source footage).
+  under `~/Footage/Curated Curiosities` (62 GB of source footage).
 - Bridge Lua is `%`-interpolated and forbids backslash escapes. Templates
   must contain no literal `%`.
 - Anything needing Caleb's own hands goes in `.claude/reminders.md`.
+
+> **Moved 2026-08-24.** The library now lives at `~/Footage/Curated
+> Curiosities`; `~/Desktop/Curated Curiosities` is a symlink to it so
+> Resolve's stored absolute paths still resolve. The move was forced by
+> TCC: the launchd engine (`/usr/bin/python3`) has no Full Disk Access,
+> so every read of a Desktop path returned EPERM and ingest died at 2%.
+> TCC judges the RESOLVED target, not the path traversed — which is why
+> the compatibility symlink works.
 
 ## What to return
 
