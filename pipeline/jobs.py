@@ -918,9 +918,11 @@ def _dispatch_json(prompt, log, set_pct, what):
                         if tl.strip():
                             log(tl)
         elif etype == "result":
-            usage = {"tokens": ((ev.get("usage") or {}).get("input_tokens", 0)
-                                + (ev.get("usage") or {}).get(
-                                    "output_tokens", 0)),
+            u = ev.get("usage") or {}
+            usage = {"tokens": (u.get("input_tokens", 0)
+                                + u.get("output_tokens", 0)
+                                + u.get("cache_read_input_tokens", 0)
+                                + u.get("cache_creation_input_tokens", 0)),
                      "usd": ev.get("total_cost_usd", 0),
                      "ms": ev.get("duration_ms", 0)}
     rc = proc.wait()
@@ -965,7 +967,9 @@ def _run_room(slug, log, set_pct):
         raise RuntimeError("the room left an invalid board: %s" % errs[0])
     tasks = board.fold(slug).get("tasks", {})
     states = {}
-    for card in tasks.values():
+    for tid, card in tasks.items():
+        if tid.startswith("_"):
+            continue  # cost pseudo-tasks are bookkeeping, not work
         states[card["status"]] = states.get(card["status"], 0) + 1
     log("[room] board: %s · %.2f USD this run"
         % (", ".join("%d %s" % (v, k) for k, v in sorted(states.items()))
@@ -1063,6 +1067,9 @@ CHAIN = {
     # (politely, as a logged chain skip) once any human verdict exists
     "assemble": "retention",
     "coverage": "assemble",
+    # a room that changed the cut needs the timeline rebuilt; one that
+    # didn't costs a fully-cached assemble — cheap either way
+    "room": "assemble",
 }
 
 

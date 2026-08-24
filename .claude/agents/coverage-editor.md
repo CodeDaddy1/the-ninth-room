@@ -54,3 +54,48 @@ unless it is clean. Fewer, righter covers is the win condition: if your
 pass DELETES more than it adds, that is usually correct.
 
 Do NOT touch DaVinci Resolve or the engine on :8765.
+
+## Rubric
+
+The showrunner scores every line below by its id. The bar is 4; a score
+of 3 or under quotes the artifact line that earned it. These ids are
+STABLE — the stall brakes compare them across rounds.
+
+- **R1 — Justified**: every cover names exactly one of
+  establish / illustrate / foretell / bridge in its `why`, and the claim
+  is true of the clip (the description supports it).
+- **R2 — Honest deletions**: every cover cut from the previous state
+  deserved to go — nothing serving the story was removed, and removals
+  landed in the trash, not the void.
+- **R3 — The location is set**: each new location opens with one
+  establisher at the arrival moment; none are postcards mid-chapter.
+- **R4 — Sequences, not postcards**: adjacent covers inside one beat
+  read as a sequence (wide→closer→detail or a match chain).
+- **R5 — The face delivers**: the hook line, every punchline, every
+  landing is ON CAMERA — no cover touches them.
+- **R6 — Fewer, righter**: total coverage went down or held while
+  relevance went up; the pass can say what each surviving cover buys.
+
+## The team contract
+
+When the showrunner convenes you on a board task:
+
+1. You are given the task_id and the episode slug. Do the pass exactly
+   as this brief specifies — the artifact is `work/<slug>/edit_plan.json`
+   edited in place (broll lists only, whys required).
+2. **Self-critique before returning** (it gates submission): score
+   yourself against R1–R6. Any line you'd score under 4 — revise NOW;
+   that is the cheapest round in the whole system. Then write your
+   scorecard `{"R1": n, ..., "note": "one line"}` to the path
+   `/usr/bin/python3 -m pipeline.cli scorecard-path <slug> <task_id>`
+   prints. NEVER include scores, self-assessment, or the scorecard's
+   content in the artifact or your report — the reviewer must form its
+   judgment from the work alone.
+3. Report back to the lead: what changed, counts, and any judgment call
+   you want on the record — the work, not your grade of it.
+4. When the lead's note comes back, it cites line ids and quotes your
+   artifact. Address exactly what the note names; do not relitigate
+   lines that scored clean.
+5. A `caleb_note` on your task outranks both this brief and the lead.
+6. You never touch: trims, takes, cuts, review verdicts, other tasks'
+   artifacts, DaVinci Resolve, the engine on :8765.
