@@ -272,3 +272,54 @@ console settings, recordings, decisions). Check items off when done.
   strike or amend statements, then replace the header line with
   "Signed off by Caleb <date>" — no doctrine or showrunner review may
   cite it until then.
+
+- [ ] **Roatan CH2 and CH5 have no establishing footage, and no edit can fix it**
+  (added 2026-08-24). The coverage pass on `testing` audited all 90 clips in
+  `work/testing/analysis/broll.json`: exactly **five** are Roatan-on-land and
+  long enough to cut (B013 macaws, B014 bridge POV, B015 bridge wide, B067
+  island road, B069 jungle trail). Everything else is the ship, Galveston,
+  food or a later port. So "Welcome to Roatan" (CH2) and "The Heist Crew"
+  (CH5) open with nothing but a face, and **the heist crew itself — the
+  monkeys the episode is named for — has no footage at all**, nor do the
+  kinkajou, parrots, coati, mangoes or chili, all of which are named on the
+  word. Staying on the face is the right call for the cut we have, but only
+  you can decide whether that is the episode you want to ship or whether this
+  needs a relink (is there Roatan card footage that never got ingested?) or a
+  reshoot. Check the footage folder against what you remember filming before
+  you answer — a missing-import is the cheaper explanation.
+
+- [ ] **Two overlay screens need a Claude Design brief before any code**
+  (added 2026-08-24, from `docs/film-studies/johnny-harris.md`). The study
+  produced exactly two techniques we have no screen for, and
+  `CLAUDE.md` rule 6 says the design system decides first, not the
+  pipeline:
+  (a) **the sourced-quote card** — a quote in brand type with a smaller
+  attribution line beneath naming the source and how we know it. This is
+  the visual form of "accuracy is the brand" that we currently do not
+  have; it would let a plaque, a guide or a sign be quoted with its
+  receipts on screen. Evidence: 10:32 in the studied video.
+  (b) **a persistent-actor rail** — Caleb, Alma and Sofia resident at the
+  frame edge carrying live state (who's ahead on a bet, who guessed what),
+  the way that video parks faction badges for its whole runtime. We have
+  `scoreboard`, `streak` and `vote` but nothing that *stays*.
+  Both must be designed in the *The Ninth Room Design System* project and
+  re-implemented here from what comes back — and both must obey "no filled
+  plates, one yellow moment per frame," which the studied video does not.
+  Only you can open the Claude Design brief.
+
+- [ ] **BT94's ending and the coverage gate cannot both win — only you can pick**
+  (added 2026-08-24, from the `_compare_room` coverage room). BT94's beat note
+  records your round-2 verdict: B136, the low-angle push-in on the rearing
+  giant ground sloth, was moved to that beat's **tail** so the beat ENDS on the
+  Slothzilla shot, leading into the reveal at the same mount. That placement —
+  6.1s + 2.21s of an 8.6s beat, ending at 8.31 — is exactly what
+  `schemas.coverage_notes` flags as covering the landing, and the coverage job
+  hard-fails while that finding exists. So the shot is currently **out of the
+  plan entirely**, filed in `work/_compare_room/trash.json` against
+  **BT94 @6.1/2.21** so a restore puts it back precisely where you put it.
+  Three ways out, and the choice is yours: (a) your verdict wins and the gate
+  gets a per-beat exception — an `allow_landing: true` on the cover, or a
+  `beat_close` justification the checker exempts; (b) the gate wins and BT94
+  ends on faces instead; (c) the shot moves to the head of BT58/BT59 so the
+  mount still leads into the reveal without touching a landing. Nobody but you
+  can say whether ending that beat on the sloth was the point or a preference.
