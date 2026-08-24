@@ -632,6 +632,53 @@ def _run_rendercards(slug, log, set_pct):
     set_pct(100)
 
 
+PUBLISH_PROMPT = (
+    "Write the publish package for The Ninth Room episode %(slug)s. Read "
+    ".claude/agents/publish-writer.md and act as that agent: read the "
+    "episode's script/story and the brand voice docs, write "
+    "work/%(slug)s/publish.md exactly in the format the brief specifies "
+    "(title options with honest scores, description, tags), and append "
+    "the options to work/_channel/titles.json. Do NOT touch DaVinci "
+    "Resolve or the engine on :8765.")
+
+
+def _run_publish(slug, log, set_pct):
+    """Upload-day package as a job (P9, 2026-08-24). Dispatch-and-verify:
+    the proof is publish.md existing with all three sections."""
+    import subprocess
+    work = work_path(slug)
+    if not ((work / "edit_plan.json").exists()
+            or (work / "script.json").exists()):
+        raise RuntimeError("nothing to publish yet -- build the cut first")
+    log("[publish] dispatching the publish writer")
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p",
+         PUBLISH_PROMPT % {"slug": slug},
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("publish session exited %d -- see the log" % rc)
+    md_path = work / "publish.md"
+    if not md_path.exists():
+        raise RuntimeError("session finished but publish.md was not "
+                           "written -- read the log")
+    md = md_path.read_text()
+    for section in ("# Title options", "# Description", "# Tags"):
+        if section not in md:
+            raise RuntimeError("publish.md is missing '%s' -- the package "
+                               "is incomplete" % section)
+    log("[publish] package written -- copy it from the Export desk")
+    set_pct(100)
+
+
 # Labels are user-facing (tray, notifications): desk vocabulary — clip,
 # preview, render — never internal jargon (P1 copy pass, 2026-08-23).
 KINDS = {
@@ -648,6 +695,8 @@ KINDS = {
     "scout": ("Scout ideas", _run_scout),
     "snapcuts": ("Tighten cuts — edges onto clean audio", _run_snapcuts),
     "rendercards": ("Render all cards", _run_rendercards),
+    "publish": ("Publish package — titles, description, tags",
+                _run_publish),
 }
 
 # Mechanical followers. A creative decision stays a button; everything

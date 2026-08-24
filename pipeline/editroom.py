@@ -922,6 +922,96 @@ from .checklist_kit import CHECKLIST_TEMPLATES as _CHECKLIST_TEMPLATES
 _KIT_TEMPLATES.update(_CHECKLIST_TEMPLATES)
 
 
+def _bake_thumbnail(slug: str, beat_id: str, at: float,
+                    title: str, kicker: str = "",
+                    log=print) -> "dict":
+    """The YouTube thumbnail, composed in the Studio and baked here
+    (P9, 2026-08-24): a real frame from the chosen clip, the Cyanotype
+    scrim, the arch, display type with ONE yellow line. 1280x720 exactly.
+    Versioned like every deliverable — thumbnails are iterated, and the
+    uploaded one must never be silently replaced."""
+    from .graphics import CHROME
+    from . import overlay_kit as kit
+    work = work_path(slug)
+    title = (title or "").strip()
+    if not title:
+        raise IngestError("a thumbnail needs its title line")
+    prox = sorted((work / "proxies").glob("%s.*.mp4" % beat_id)) \
+        if (work / "proxies").is_dir() else []
+    if not prox:
+        raise IngestError("no preview for %s -- assemble first" % beat_id)
+    deliver = work / "deliverables"
+    deliver.mkdir(exist_ok=True)
+    tmp = work / "captions" / "tmp"
+    tmp.mkdir(parents=True, exist_ok=True)
+    frame = tmp / "thumb_frame.jpg"
+    r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
+                        "-ss", str(max(0.0, float(at))), "-i", str(prox[0]),
+                        "-frames:v", "1", str(frame)],
+                       capture_output=True, timeout=60)
+    if r.returncode != 0 or not frame.exists():
+        raise IngestError("could not pull the frame: %s"
+                          % r.stderr.decode()[:120])
+    import base64
+    b64 = base64.b64encode(frame.read_bytes()).decode()
+    lines = [ln.strip() for ln in title.split("\n") if ln.strip()][:2]
+    # the LAST line carries the yellow — the thing to look at
+    spans = []
+    for i, ln in enumerate(lines):
+        color = kit.YELLOW if i == len(lines) - 1 and len(lines) > 1 \
+            else kit.CHALK
+        spans.append('<div style="color:%s">%s</div>' % (color, kit._e(ln)))
+    if len(lines) == 1:
+        spans = ['<div style="color:%s">%s</div>'
+                 % (kit.CHALK, kit._e(lines[0]))]
+    eyebrow = ""
+    if kicker.strip():
+        eyebrow = ('<div style="display:flex;align-items:center;gap:12px;'
+                   'margin-bottom:18px"><div style="width:56px;height:4px;'
+                   'background:%s"></div><span style="font-family:%s;'
+                   'font-size:30px;font-weight:800;letter-spacing:.2em;'
+                   'text-transform:uppercase;color:%s">%s</span></div>'
+                   % (kit.CYAN, kit.FONT_DISPLAY, kit.CYAN,
+                      kit._e(kicker.strip())))
+    html = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
+        'html,body{margin:0;width:1280px;height:720px;overflow:hidden}'
+        '</style></head><body>'
+        '<div style="position:relative;width:1280px;height:720px;'
+        'background:#0B2340">'
+        '<img src="data:image/jpeg;base64,%(b64)s" style="position:absolute;'
+        'inset:0;width:100%%;height:100%%;object-fit:cover">'
+        '<div style="position:absolute;inset:0;background:'
+        'linear-gradient(90deg, rgba(11,35,64,.92) 0%%,'
+        'rgba(11,35,64,.55) 42%%, rgba(11,35,64,0) 75%%)"></div>'
+        '<div style="position:absolute;left:64px;top:0;bottom:0;'
+        'display:flex;flex-direction:column;justify-content:center;'
+        'max-width:640px">%(eyebrow)s'
+        '<div style="font-family:%(font)s;font-size:88px;line-height:1.02;'
+        'font-weight:800;letter-spacing:-.03em;'
+        'text-shadow:0 0 6px rgba(4,16,32,.9),0 6px 28px rgba(4,16,32,.85)">'
+        '%(spans)s</div></div>'
+        '</div></body></html>'
+        % {"b64": b64, "eyebrow": eyebrow, "font": kit.FONT_DISPLAY,
+           "spans": "".join(spans)})
+    page = tmp / "thumb.html"
+    page.write_text(html)
+    v = 1
+    while (deliver / ("thumbnail_v%d.png" % v)).exists():
+        v += 1
+    out = deliver / ("thumbnail_v%d.png" % v)
+    r = subprocess.run([CHROME, "--headless=new", "--disable-gpu",
+                        "--force-device-scale-factor=1",
+                        "--window-size=1280,720", "--hide-scrollbars",
+                        "--screenshot=" + str(out), "file://" + str(page)],
+                       capture_output=True, timeout=60)
+    if r.returncode != 0 or not out.exists():
+        raise IngestError("thumbnail bake failed: %s"
+                          % r.stderr.decode()[:120])
+    log("[thumb] %s -> %s" % (slug, out.name))
+    return {"file": out.name}
+
+
 def _project_title(slug: str) -> str:
     """The episode's human name (P6, 2026-08-24). Precedence: Caleb's
     override (title.txt) -> the approved story option's title -> the
@@ -3010,6 +3100,20 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     self._slug_q(), qs.get("beat_id", [""])[0])})
             elif self.path.startswith("/api/trash"):
                 self._send(200, {"entries": _trash_list(self._slug_q())})
+            elif self.path.startswith("/api/sound/beds"):
+                from . import sfx as sfx_mod
+                bslug = self._slug_q()
+                lib = sorted(str(f.relative_to(sfx_mod.SFX_DIR))
+                             for f in sfx_mod.SFX_DIR.rglob("*")
+                             if f.is_file() and f.suffix.lower()
+                             in (".mp3", ".wav", ".m4a", ".aac", ".ogg"))
+                self._send(200, {"beds": sfx_mod.beds(bslug),
+                                 "library": lib})
+            elif self.path.startswith("/api/publish"):
+                pslug = self._slug_q()
+                pp = work_path(pslug) / "publish.md"
+                self._send(200, {"exists": pp.exists(),
+                                 "md": pp.read_text() if pp.exists() else ""})
             elif self.path.startswith("/api/search"):
                 qs = self._qs()
                 self._send(200, {"hits": _search_all(
@@ -3295,6 +3399,27 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                       float(body.get("duration", 4)),
                                       float(body.get("src_s", 0)), log=log)
                 self._send(200, {"ok": True, "placed": entry})
+            elif self.path == "/api/sound/bed":
+                from . import sfx as sfx_mod
+                from . import jobs as jobs_mod2
+                bslug = self._slug_b(body)
+                rows = sfx_mod.save_bed(bslug, str(body.get("chapter_id", "")),
+                                        body.get("file"),
+                                        float(body.get("gain_db", 0) or 0))
+                # the bed re-keys its chapter's beats; previews rebuild as a
+                # job (many beats — never inline in a request)
+                try:
+                    jobs_mod2.start("reproxy", bslug)
+                except jobs_mod2.JobError:
+                    pass
+                self._send(200, {"ok": True, "beds": rows})
+            elif self.path == "/api/thumbnail":
+                out = _bake_thumbnail(self._slug_b(body),
+                                      body.get("beat_id", ""),
+                                      float(body.get("at", 0) or 0),
+                                      str(body.get("title", "")),
+                                      str(body.get("kicker", "")), log=log)
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/project/title":
                 tslug = self._slug_b(body)
                 txt = str(body.get("title", "")).strip()[:120]

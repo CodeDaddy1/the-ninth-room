@@ -368,3 +368,146 @@ def cues_by_beat(slug: str) -> "dict":
     for c in cues(slug):
         out.setdefault(c["beat_id"], []).append(c)
     return out
+
+
+# --- music beds (P9, 2026-08-24) -------------------------------------------
+# A bed is per CHAPTER: one licensed track under a whole chapter's beats,
+# ducked under speech by a deterministic envelope computed from whisper's
+# word times — no sidechain guesswork, fully reproducible. Storage:
+# work/<slug>/sound.json {"beds": [{"chapter_id", "file", "gain_db"}]}.
+# The bed rides the SAME per-beat cue mixer sfx uses, with two extensions
+# the renderer understands: src_ms (seek into the track so the music
+# continues seamlessly across cuts) and vol_expr (the duck envelope).
+
+BED_DUCK_DB = -18.0   # under speech
+BED_UP_DB = -10.0     # in the gaps
+BED_RAMP_S = 0.3
+BED_GAP_MIN_S = 1.0   # a pause shorter than this never lifts the bed
+
+
+def _sound_path(slug: str):
+    return work_path(slug) / "sound.json"
+
+
+def beds(slug: str) -> "list":
+    p = _sound_path(slug)
+    if p.exists():
+        return json.loads(p.read_text()).get("beds", [])
+    return []
+
+
+def save_bed(slug: str, chapter_id: str, file: "str | None",
+             gain_db: float = 0.0) -> "list":
+    """Set or clear one chapter's bed. `file` is brand/sfx-relative and
+    must exist (renders never touch the network); None clears."""
+    if file is not None and not (SFX_DIR / file).exists():
+        raise SfxError("no such track in the library: %s" % file)
+    with _SFX_LOCK:
+        rows = [b for b in beds(slug) if b.get("chapter_id") != chapter_id]
+        if file is not None:
+            rows.append({"chapter_id": chapter_id, "file": file,
+                         "gain_db": float(gain_db)})
+        p = _sound_path(slug)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"beds": rows}, indent=2,
+                                  ensure_ascii=False))
+        os.replace(tmp, p)
+        return rows
+
+
+def duck_expr(gaps: "list", duck_db: float = BED_DUCK_DB,
+              up_db: float = BED_UP_DB, ramp: float = BED_RAMP_S) -> str:
+    """The ffmpeg volume expression for one beat's duck envelope.
+
+    PURE so the arithmetic is testable: level = duck + (up-duck) *
+    coverage(t), where each speech GAP (a, b) contributes a trapezoid
+    that ramps over `ramp` seconds and the sum is clamped at 1. With the
+    usual 0-3 gaps per beat the expression stays short; a beat with no
+    gaps ducks flat and needs no expression at all (caller uses plain
+    volume then).
+    """
+    duck = 10.0 ** (duck_db / 20.0)
+    up = 10.0 ** (up_db / 20.0)
+    if not gaps:
+        return "%.6f" % duck
+    terms = []
+    for a, b in gaps:
+        terms.append("min(1,max(0,(t-%.3f)/%.3f))*min(1,max(0,(%.3f-t)/%.3f))"
+                     % (a, ramp, b, ramp))
+    coverage = "min(1,%s)" % "+".join(terms)
+    return "%.6f+%.6f*%s" % (duck, up - duck, coverage)
+
+
+def speech_gaps(rel_words: "list", beat_dur: float,
+                gap_min: float = BED_GAP_MIN_S) -> "list":
+    """PURE: the silences of one beat, in beat-relative seconds, from its
+    word times [(s, e), ...] sorted. Head and tail count as gaps too."""
+    gaps = []
+    cursor = 0.0
+    for ws, we in rel_words:
+        if ws - cursor >= gap_min:
+            gaps.append((cursor, ws))
+        cursor = max(cursor, we)
+    if beat_dur - cursor >= gap_min:
+        gaps.append((cursor, beat_dur))
+    return gaps
+
+
+def bed_cues_by_beat(slug: str) -> "dict":
+    """Expand chapter beds into per-beat mixer cues: each beat of a bedded
+    chapter gets the track seeked to the beat's offset WITHIN the chapter
+    (the music flows across cuts) with its own duck envelope."""
+    rows = beds(slug)
+    if not rows:
+        return {}
+    work = work_path(slug)
+    out_dir = work / "analysis"
+    try:
+        tl = json.loads((out_dir / "timeline_map.json").read_text())
+        plan = json.loads((work / "edit_plan.json").read_text())
+        catalog = json.loads((out_dir / "catalog.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    file_by_name = {f["name"]: f for f in catalog.get("files", [])}
+    chapter_of = {b["id"]: b.get("chapter_id") for b in plan.get("beats", [])}
+    bed_by_chapter = {b["chapter_id"]: b for b in rows}
+    words_cache: "dict" = {}
+    out: "dict" = {}
+    chapter_clock: "dict" = {}
+    for beat in tl.get("beats", []):
+        ch = chapter_of.get(beat["id"])
+        bed = bed_by_chapter.get(ch)
+        dur = beat["record_e"] - beat["record_s"]
+        if bed is None:
+            continue
+        offset = chapter_clock.get(ch, 0.0)
+        chapter_clock[ch] = offset + dur
+        # beat-relative word spans, mapped through the kept segments
+        rel = []
+        f = file_by_name.get(beat.get("file"))
+        if f and f.get("words_file"):
+            wf = f["words_file"]
+            if wf not in words_cache:
+                try:
+                    words_cache[wf] = json.loads(
+                        (out_dir / wf).read_text())
+                except (OSError, ValueError):
+                    words_cache[wf] = []
+            acc = 0.0
+            for seg in beat.get("segments", []):
+                for wd in words_cache[wf]:
+                    if seg["src_s"] - 0.05 <= wd["s"] <= seg["src_e"] + 0.05:
+                        rel.append((acc + wd["s"] - seg["src_s"],
+                                    acc + wd["e"] - seg["src_s"]))
+                acc += seg["src_e"] - seg["src_s"]
+        gaps = speech_gaps(sorted(rel), dur)
+        out.setdefault(beat["id"], []).append({
+            "id": "bed-%s" % beat["id"], "beat_id": beat["id"],
+            "file": bed["file"], "at_ms": 0,
+            "src_ms": int(offset * 1000),
+            "dur_ms": int(dur * 1000),
+            "gain_db": float(bed.get("gain_db", 0.0)),
+            "vol_expr": duck_expr(gaps),
+            "kind": "bed",
+        })
+    return out

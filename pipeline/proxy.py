@@ -58,6 +58,8 @@ def _load(slug: str) -> "tuple":
             cards_by_beat.setdefault(c["beat_id"], []).append(c)
     from . import sfx as sfx_mod
     cues_by_beat = sfx_mod.cues_by_beat(slug)
+    for bid, bed_cues in sfx_mod.bed_cues_by_beat(slug).items():
+        cues_by_beat.setdefault(bid, []).extend(bed_cues)
     return tl, catalog, caps, cards_by_beat, cues_by_beat
 
 
@@ -105,7 +107,11 @@ def beat_spec(beat: "dict", caption_text: str, cards: "list",
                       animate_mod)
     if cues:
         spec["sfx"] = [{"file": c["file"], "at_ms": c["at_ms"],
-                        "gain_db": c["gain_db"]} for c in cues]
+                        "gain_db": c["gain_db"],
+                        # bed fields; absent on plain cues so old keys hold
+                        **({"src_ms": c["src_ms"],
+                            "vol_expr": c["vol_expr"]}
+                           if "vol_expr" in c else {})} for c in cues]
     if slug and cards:
         sigs = {}
         gdir = work_path(slug) / "graphics"
@@ -249,11 +255,27 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
         from . import sfx as sfx_mod
         mix_ins = []
         for c in cues:
-            inputs += ["-i", str(sfx_mod.SFX_DIR / c["file"])]
+            if "src_ms" in c:  # a bed: seek into the track so music flows
+                inputs += ["-ss", "%.3f" % (int(c["src_ms"]) / 1000.0),
+                           "-i", str(sfx_mod.SFX_DIR / c["file"])]
+            else:
+                inputs += ["-i", str(sfx_mod.SFX_DIR / c["file"])]
             lbl = "sc%d" % len(mix_ins)
-            fc.append("[%d:a]aformat=sample_rates=48000:channel_layouts=stereo,"
-                      "volume=%.1fdB,adelay=%d:all=1[%s]"
-                      % (idx, float(c["gain_db"]), max(0, int(c["at_ms"])), lbl))
+            chain = ("[%d:a]aformat=sample_rates=48000:channel_layouts=stereo"
+                     % idx)
+            if c.get("dur_ms"):
+                chain += ",atrim=0:%.3f" % (int(c["dur_ms"]) / 1000.0)
+            if c.get("vol_expr"):
+                # the duck envelope: volume follows speech, computed not
+                # side-chained, so two renders of one beat are identical
+                chain += (",volume=volume='%s':eval=frame"
+                          % c["vol_expr"])
+                if float(c.get("gain_db", 0)):
+                    chain += ",volume=%.1fdB" % float(c["gain_db"])
+            else:
+                chain += ",volume=%.1fdB" % float(c["gain_db"])
+            chain += ",adelay=%d:all=1[%s]" % (max(0, int(c["at_ms"])), lbl)
+            fc.append(chain)
             mix_ins.append(lbl)
             idx += 1
         fc.append("[aud]%samix=inputs=%d:duration=first:normalize=0[amix]"

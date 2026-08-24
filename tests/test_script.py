@@ -125,6 +125,11 @@ class ScriptJobGuards(unittest.TestCase):
             jobs._run_graphics("ep", lambda *a: None, lambda p: None)
         self.assertIn("already planned", str(cm.exception))
 
+    def test_publish_without_a_cut_refuses(self):
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_publish("ep", lambda *a: None, lambda p: None)
+        self.assertIn("nothing to publish", str(cm.exception))
+
     def test_the_prompt_carries_the_brief_and_the_contract(self):
         (self.tmp / "story_brief.json").write_text(
             json.dumps({"target_minutes": 20, "chapters": 7}))
