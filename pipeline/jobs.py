@@ -788,6 +788,13 @@ def start(kind: str, slug: str) -> "dict":
         from . import conform as conform_mod, resolve_api
         if conform_mod.status(slug).get("state") == "running":
             raise JobError("a conform is running — render after it")
+    if kind == "assemble":
+        # a running conform reads timeline_map + the card ledger; an
+        # assemble rewriting them mid-push tears it (P3 gate finding 8).
+        # Surgery's retry timer re-queues once the conform lands.
+        from . import conform as conform_mod
+        if conform_mod.status(slug).get("state") == "running":
+            raise JobError("a conform is running — assemble after it")
         if resolve_api.rendering_in_progress():
             raise JobError("Resolve is already rendering — wait for it")
     if kind == "story":

@@ -25,6 +25,7 @@ Resolve snap clips a frame off.
 from __future__ import annotations
 
 import json
+import os
 from fractions import Fraction
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
@@ -336,7 +337,11 @@ def plan_beats(slug: str) -> "dict":
     }
     if len(trough_cache) != trough_cache_size:
         troughs.save_cache(out, trough_cache)
-    (out / "timeline_map.json").write_text(json.dumps(tl_map, indent=2))
+    # atomic: a conform or proxy build reading mid-write must never see a
+    # torn file (P3 gate finding 8)
+    _tmp = out / "timeline_map.json.tmp"
+    _tmp.write_text(json.dumps(tl_map, indent=2))
+    os.replace(_tmp, out / "timeline_map.json")
     return tl_map
 
 

@@ -387,30 +387,39 @@ def _broll_detach(slug: str, beat_id: str, clip_id: str, at: float,
         tmp = tm_path.with_suffix(".tm.tmp")
         tmp.write_text(json.dumps(tm, indent=2))
         os.replace(tmp, tm_path)
-    from . import proxy as proxy_mod
-    proxy_mod.build(slug, only_beats=[beat_id], log=log)
-    _conform_append(slug, "broll_remove", beat_id, gone)
-    _mark_edited(slug, beat_id)
+    # trash BEFORE the slow proxy rebuild: an ffmpeg failure must not
+    # commit the removal while losing its undo entry (gate F11)
     _trash_add(slug, "broll", {
         "beat_id": beat_id, "clip_id": clip_id,
         "at": round(gone["record_s"] - beat["record_s"], 3),
         "duration": gone.get("duration"), "src_s": gone.get("src_s", 0)})
+    from . import proxy as proxy_mod
+    proxy_mod.build(slug, only_beats=[beat_id], log=log)
+    _conform_append(slug, "broll_remove", beat_id, gone)
+    _mark_edited(slug, beat_id)
     return gone
 
 
 TRASH_CAP = 7
+_TRASH_LOCK = threading.Lock()
 
 
 def _trash_add(slug: str, kind: str, payload: "dict") -> None:
     """Removals are recoverable: the last few removed covers/cards land in
     trash.json with a Restore verb (P3, 2026-08-23). Capped — this is an
-    undo, not an archive."""
-    work = work_path(slug)
-    path = work / "trash.json"
-    data = json.loads(path.read_text()) if path.exists() else {"entries": []}
-    data["entries"].append(dict(payload, kind=kind, ts=int(time.time())))
-    data["entries"] = data["entries"][-TRASH_CAP:]
-    _write_json(path, data)
+    undo, not an archive. Every entry carries a unique uid: two deletions
+    in the same SECOND are ordinary, and a (ts, kind) restore key deleted
+    both (P3 gate finding 1, verified data loss)."""
+    with _TRASH_LOCK:
+        work = work_path(slug)
+        path = work / "trash.json"
+        data = json.loads(path.read_text()) if path.exists() else {"entries": []}
+        uid = "%d-%04d" % (int(time.time()), (data.get("seq", 0) % 10000))
+        data["seq"] = data.get("seq", 0) + 1
+        data["entries"].append(dict(payload, kind=kind,
+                                    ts=int(time.time()), uid=uid))
+        data["entries"] = data["entries"][-TRASH_CAP:]
+        _write_json(path, data)
 
 
 def _trash_list(slug: str) -> "list":
@@ -420,34 +429,67 @@ def _trash_list(slug: str) -> "list":
     return json.loads(path.read_text()).get("entries", [])
 
 
-def _trash_restore(slug: str, ts: int, kind: str) -> "dict":
-    """Re-insert one trashed entry through the SAME validated write path
-    its kind normally uses — a restore that bypassed validation would be
-    the only door to an invalid plan."""
+def _trash_pop(slug: str, uid: str) -> None:
+    """Drop exactly ONE entry by identity, re-reading the file so entries
+    trashed during a slow restore (an ffmpeg proxy build) survive
+    (P3 gate finding 5)."""
+    with _TRASH_LOCK:
+        path = work_path(slug) / "trash.json"
+        data = json.loads(path.read_text()) if path.exists() else {"entries": []}
+        data["entries"] = [e for e in data["entries"] if e.get("uid") != uid]
+        _write_json(path, data)
+
+
+def _trash_restore(slug: str, uid: str, kind: str = "") -> "dict":
+    """Re-insert ONE trashed entry (by uid — never by second-resolution
+    timestamp, P3 gate finding 1) through a VALIDATED write path. The
+    b-roll branch validates the whole plan after the attach and rolls it
+    back on errors (finding 2: _broll_attach clamps but never validates,
+    so a restore could violate one-use-per-clip and brick assemble), and
+    refuses when the beat has shrunk so far the clamp would produce a
+    different cover than the one removed (finding 3: a 4s cover restored
+    as a 0.2s flash frame reported as success)."""
     work = work_path(slug)
-    path = work / "trash.json"
-    data = json.loads(path.read_text()) if path.exists() else {"entries": []}
-    entry = next((e for e in data["entries"]
-                  if e.get("ts") == ts and e.get("kind") == kind), None)
+    entries = _trash_list(slug)
+    entry = next((e for e in entries if e.get("uid") == uid), None)
     if entry is None:
         raise IngestError("that entry is no longer in the trash")
+    kind = entry.get("kind", kind)
     if kind == "broll":
+        want_at = float(entry.get("at", 0))
+        want_dur = float(entry["duration"])
         restored = _broll_attach(slug, entry["beat_id"], entry["clip_id"],
-                                 float(entry.get("at", 0)),
-                                 float(entry["duration"]),
+                                 want_at, want_dur,
                                  float(entry.get("src_s", 0)))
+        # the attach clamps against the CURRENT beat — if the clip landed
+        # meaningfully elsewhere/shorter, the beat changed since removal
+        got_at = float(restored.get("record_s", 0))  # absolute; compare dur
+        if abs(float(restored.get("duration", 0)) - want_dur) > 0.25:
+            _broll_detach(slug, entry["beat_id"], entry["clip_id"], 0,
+                          record_s=restored.get("record_s"))
+            raise IngestError("the clip has changed since this cover was "
+                              "removed — place it again by hand")
+        from . import schemas
+        plan, takes, broll = _plan_takes_broll(slug)
+        errs = schemas.validate_edit_plan(plan, takes, broll)
+        if errs:
+            _broll_detach(slug, entry["beat_id"], entry["clip_id"], 0,
+                          record_s=restored.get("record_s"))
+            raise IngestError("restore refused: %s" % errs[0])
     elif kind == "custom_card":
         card = entry["card"]
-        custom = _load_custom(slug)
-        if any(c["id"] == card["id"] for c in custom["overlays"]):
-            raise IngestError("a card with id %s exists again — restore "
-                              "would collide" % card["id"])
-        custom["overlays"].append(card)
-        from . import schemas
-        errs = schemas.validate_custom_overlays(custom)
-        if errs:
-            raise IngestError("cannot restore %s: %s" % (card["id"], errs[0]))
-        _write_custom(slug, custom)
+        with _PLAN_LOCK:  # every other custom writer holds it (gate F6)
+            custom = _load_custom(slug)
+            if any(c["id"] == card["id"] for c in custom["overlays"]):
+                raise IngestError("a card with id %s exists again — restore "
+                                  "would collide" % card["id"])
+            custom["overlays"].append(card)
+            from . import schemas
+            errs = schemas.validate_custom_overlays(custom)
+            if errs:
+                raise IngestError("cannot restore %s: %s"
+                                  % (card["id"], errs[0]))
+            _write_custom(slug, custom)
         restored = card
     elif kind == "card":
         card = entry["card"]
@@ -468,7 +510,11 @@ def _trash_restore(slug: str, ts: int, kind: str) -> "dict":
             ep_path = work / "edit_plan.json"
             ep = json.loads(ep_path.read_text()) if ep_path.exists() else None
             where = "cards[%d]" % (len(plan["cards"]) - 1)
-            errs = [e for e in schemas.validate_graphics_plan(plan, ep)
+            # beat_lens too: a card whose `at` overruns its re-assembled
+            # beat composites into NO proxy while landing mid-next-beat in
+            # Resolve (gate F7 — the exact divergence schemas documents)
+            errs = [e for e in schemas.validate_graphics_plan(
+                        plan, ep, beat_lens=_beat_lens(slug))
                     if card["id"] in e or where in e]
             if errs:
                 raise IngestError("cannot restore %s: %s"
@@ -479,9 +525,7 @@ def _trash_restore(slug: str, ts: int, kind: str) -> "dict":
         restored = card
     else:
         raise IngestError("unknown trash kind '%s'" % kind)
-    data["entries"] = [e for e in data["entries"]
-                       if not (e.get("ts") == ts and e.get("kind") == kind)]
-    _write_json(path, data)
+    _trash_pop(slug, uid)
     return restored
 
 
@@ -510,7 +554,8 @@ def _beat_alternates(slug: str, beat_id: str) -> "list":
         if t["id"] == beat.get("take_id"):
             continue
         ratio = difflib.SequenceMatcher(
-            None, base.lower(), t.get("transcript", "").lower()).ratio()
+            None, (base or "").lower(),
+            (t.get("transcript") or "").lower()).ratio()
         out.append({"id": t["id"], "file": t.get("file"),
                     "transcript": t.get("transcript", ""),
                     "duration": t.get("duration"),
@@ -521,14 +566,19 @@ def _beat_alternates(slug: str, beat_id: str) -> "list":
 
 
 def _reset_review(slug: str, beat_id: str) -> None:
-    """Surgery invalidates the verdict: the clip returns to the queue."""
+    """Surgery invalidates the VERDICT: the clip returns to the queue.
+    The note survives — a flag's reason is the reviewer's words and may
+    still apply to the new take (gate F11: deleting the whole entry
+    destroyed irrecoverable text)."""
     with _REVIEW_LOCK:
         path = work_path(slug) / "review.json"
         if not path.exists():
             return
         data = json.loads(path.read_text())
-        if beat_id in data:
-            del data[beat_id]
+        entry = data.get(beat_id)
+        if entry and "status" in entry:
+            entry.pop("status", None)
+            entry["ts"] = int(time.time())
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(data, indent=2))
             os.replace(tmp, path)
@@ -539,13 +589,33 @@ def _queue_reassemble(slug: str) -> bool:
     the b-roll verbs use is not enough — the timeline must rebuild
     (proxies render from timeline_map; found live when snap-cuts silently
     missed review playback). Assemble is enqueued; P1's notification says
-    when it lands."""
+    when it lands.
+
+    A QUEUED assemble will read the fresh plan when it starts — fine. A
+    RUNNING one read the plan before this edit and will not contain it
+    (P3 gate finding 4: the silent stale-review no-op) — arm a retry
+    timer that keeps trying until a fresh assemble queues."""
     from . import jobs as jobs_mod
     try:
         jobs_mod.start("assemble", slug)
         return True
     except jobs_mod.JobError:
-        return False  # already queued/running — it will pick this up
+        running = any(j.get("kind") == "assemble"
+                      and j.get("state") == "running"
+                      for j in jobs_mod.jobs(slug))
+        if running:
+            def _retry(attempt=0):
+                try:
+                    jobs_mod.start("assemble", slug)
+                except jobs_mod.JobError:
+                    if attempt < 60:  # give a long assemble ten minutes
+                        t = threading.Timer(10.0, _retry, args=(attempt + 1,))
+                        t.daemon = True
+                        t.start()
+            t = threading.Timer(10.0, _retry)
+            t.daemon = True
+            t.start()
+        return False  # queued already, or the retry timer owns it
 
 
 def _beat_swap(slug: str, beat_id: str, take_id: str) -> "dict":
@@ -564,22 +634,50 @@ def _beat_swap(slug: str, beat_id: str, take_id: str) -> "dict":
         if beat.get("take_id") == take_id:
             raise IngestError("the cut already uses that take")
         take = by_id[take_id]
-        old = {"take_id": beat.get("take_id"), "trim": beat.get("trim")}
+        old = {k: beat.get(k) for k in ("take_id", "trim", "cuts",
+                                        "punches", "broll")}
         beat["take_id"] = take_id
         beat["trim"] = {"s": round(float(take["s"]), 3),
                         "e": round(float(take["e"]), 3)}
+        # cuts/punches belong to the OLD performance — stale times over a
+        # new take are wrong even when they happen to validate (gate F9)
+        beat.pop("cuts", None)
+        beat.pop("punches", None)
+        # covers past the new take's span would be silently dropped at
+        # assemble while still validating as coverage — drop them HERE,
+        # loudly, into the trash
+        span = float(take["e"]) - float(take["s"])
+        kept, dropped = [], []
+        for br in beat.get("broll", []) or []:
+            if float(br.get("at", 0)) + float(br.get("duration", 0)) <= span + 0.05:
+                kept.append(br)
+            else:
+                dropped.append(br)
+        if dropped:
+            beat["broll"] = kept
         errs = schemas.validate_edit_plan(plan, takes, broll)
         if errs:
-            beat["take_id"], beat["trim"] = old["take_id"], old["trim"]
+            for k, v in old.items():
+                if v is None:
+                    beat.pop(k, None)
+                else:
+                    beat[k] = v
             raise IngestError("swap refused: %s" % errs[0])
         ep_path = work_path(slug) / "edit_plan.json"
         tmp = ep_path.with_suffix(".ep.tmp")
         tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
         os.replace(tmp, ep_path)
+    for br in dropped:
+        _trash_add(slug, "broll", {"beat_id": beat_id,
+                                   "clip_id": br.get("clip_id"),
+                                   "at": br.get("at"),
+                                   "duration": br.get("duration"),
+                                   "src_s": br.get("src_s", 0)})
     _reset_review(slug, beat_id)
     assembling = _queue_reassemble(slug)
     return {"beat_id": beat_id, "take_id": take_id,
-            "trim": beat["trim"], "assembling": assembling}
+            "trim": beat["trim"], "assembling": assembling,
+            "covers_dropped": len(dropped)}
 
 
 def _beat_trim(slug: str, beat_id: str, d_in: float, d_out: float) -> "dict":
@@ -3034,8 +3132,7 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, dict(out, ok=True))
             elif self.path == "/api/trash/restore":
                 restored = _trash_restore(self._slug_b(body),
-                                          int(body.get("ts", 0)),
-                                          str(body.get("kind", "")))
+                                          str(body.get("uid", "")))
                 self._send(200, {"ok": True, "restored": restored})
             elif self.path == "/api/broll/remove":
                 rs = body.get("record_s")

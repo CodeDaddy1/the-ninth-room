@@ -59,6 +59,9 @@ class SurgeryBase(unittest.TestCase):
         (self.tmp / "analysis").mkdir()
         (self.tmp / "edit_plan.json").write_text(json.dumps(_plan()))
         (self.tmp / "analysis" / "takes.json").write_text(json.dumps(_takes()))
+        (self.tmp / "analysis" / "broll.json").write_text(json.dumps(
+            {"clips": [{"id": "B001", "file": "b1.mov", "duration": 8.0},
+                       {"id": "B002", "file": "b2.mov", "duration": 8.0}]}))
         self._wp = editroom.work_path
         editroom.work_path = lambda slug: self.tmp
         self._start = jobs.start
@@ -83,12 +86,15 @@ class SwapTake(SurgeryBase):
         self.assertTrue(out["assembling"])
         self.assertEqual(self.queued, ["assemble"])
 
-    def test_swap_resets_the_verdict(self):
+    def test_swap_resets_the_verdict_but_keeps_the_note(self):
+        """Gate F11: the verdict is invalid after surgery, but the note is
+        the reviewer's words and may still apply to the new take."""
         (self.tmp / "review.json").write_text(json.dumps(
-            {"BT01": {"status": "approved"}}))
+            {"BT01": {"status": "flagged", "note": "opens mid-word"}}))
         editroom._beat_swap("ep", "BT01", "T3")
         review = json.loads((self.tmp / "review.json").read_text())
-        self.assertNotIn("BT01", review)
+        self.assertNotIn("status", review["BT01"])
+        self.assertEqual(review["BT01"]["note"], "opens mid-word")
 
     def test_unknown_take_and_same_take_refuse(self):
         for tid, want in (("T9", "unknown take"), ("T1", "already uses")):
@@ -138,8 +144,40 @@ class TheTrash(SurgeryBase):
 
     def test_restoring_a_vanished_entry_refuses(self):
         with self.assertRaises(Exception) as cm:
-            editroom._trash_restore("ep", 12345, "broll")
+            editroom._trash_restore("ep", "1-0001")
         self.assertIn("no longer", str(cm.exception))
+
+    def test_same_second_siblings_survive_a_restore(self):
+        """Gate F1 (verified data loss): two deletions in one second are
+        ordinary; restoring one must not evaporate the other."""
+        (self.tmp / "graphics_plan.json").write_text(json.dumps(
+            {"slug": "ep", "cards": []}))
+        card = {"id": "CARD01", "type": "section", "kit_type": "lower_third",
+                "beat_id": "BT01", "at": 0.5, "duration": 3.0,
+                "animation": "slide_up", "text": "x"}
+        editroom._trash_add("ep", "card", {"card": card})
+        editroom._trash_add("ep", "card", {"card": dict(card, id="CARD02")})
+        entries = editroom._trash_list("ep")
+        self.assertEqual(entries[0]["ts"], entries[1]["ts"])
+        self.assertNotEqual(entries[0]["uid"], entries[1]["uid"])
+        editroom._trash_restore("ep", entries[0]["uid"])
+        left = editroom._trash_list("ep")
+        self.assertEqual([e["uid"] for e in left], [entries[1]["uid"]])
+
+    def test_swap_drops_overrun_covers_into_the_trash(self):
+        """Gate F9: a cover past the new take's span would be silently
+        dropped at assemble while validating as coverage — it moves to the
+        trash instead, loudly."""
+        plan = _plan()
+        plan["beats"][0]["broll"] = [
+            {"clip_id": "B001", "at": 0.5, "duration": 1.0, "src_s": 0},
+            {"clip_id": "B002", "at": 5.8, "duration": 2.0, "src_s": 0}]
+        (self.tmp / "edit_plan.json").write_text(json.dumps(plan))
+        out = editroom._beat_swap("ep", "BT01", "T3")  # T3 span = 6.0s
+        self.assertEqual(out["covers_dropped"], 1)
+        b = self.plan()["beats"][0]
+        self.assertEqual([c["clip_id"] for c in b["broll"]], ["B001"])
+        self.assertEqual(editroom._trash_list("ep")[-1]["clip_id"], "B002")
 
     def test_a_plan_card_restore_revalidates(self):
         """An invalid card (unknown beat) must NOT come back."""
@@ -149,9 +187,9 @@ class TheTrash(SurgeryBase):
             "id": "CARD01", "type": "section", "kit_type": "lower_third",
             "beat_id": "BT99", "at": 0.5, "duration": 3.0,
             "animation": "slide_up", "text": "x"}})
-        ts = editroom._trash_list("ep")[-1]["ts"]
+        uid = editroom._trash_list("ep")[-1]["uid"]
         with self.assertRaises(Exception):
-            editroom._trash_restore("ep", ts, "card")
+            editroom._trash_restore("ep", uid)
         gp = json.loads((self.tmp / "graphics_plan.json").read_text())
         self.assertEqual(gp["cards"], [])
 
