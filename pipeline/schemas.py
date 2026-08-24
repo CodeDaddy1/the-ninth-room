@@ -168,6 +168,30 @@ COVER_MIN_S = 1.8        # below this a cutaway cannot be read
 COVER_MAX_RATIO = 0.6    # an on-camera beat stays an on-camera beat
 COVER_LANDING = 0.2      # the last fifth belongs to the face
 
+# The b-roll grammar's justifications, in the brief's order. A cover's
+# `why` must LEAD with one of these words — the fifth, `process`, came
+# from the Beau Miles study (2026-08-24): the first four are all defined
+# against a spoken line, so footage of the work advancing had no legal
+# reason to exist and R1 obliged an editor to DELETE it.
+COVER_WHYS = ("establish", "illustrate", "foretell", "bridge", "process")
+
+
+def why_kind(why: "Any") -> "str | None":
+    """The justification a `why` claims, or None if it names none.
+
+    Pure, and forgiving of format: the briefs' worked examples use a
+    colon (`illustrate: the donut awning`) and editors in the field have
+    written a dash (`illustrate - the donut awning`). Both are the same
+    claim, and a checker that accepted one and not the other would be
+    grading punctuation. Only the leading word is read — everything
+    after it is the clause a human judges.
+    """
+    head = str(why or "").strip().lower().split()
+    if not head:
+        return None
+    word = "".join(ch for ch in head[0] if ch.isalpha())
+    return word if word in COVER_WHYS else None
+
 
 def coverage_notes(plan: "dict[str, Any]") -> "list[str]":
     """The b-roll craft rules, checked mechanically (2026-08-24 — the
@@ -178,8 +202,13 @@ def coverage_notes(plan: "dict[str, Any]") -> "list[str]":
     Checks: sub-COVER_MIN_S covers; beat coverage past COVER_MAX_RATIO;
     a cover inside the landing (last COVER_LANDING of the beat); more
     than 3 covers on one beat; any cover on a `peak` beat; a missing
-    `why`. VO-covered beats (vo_* takes) are exempt from the ratio and
-    landing rules — there the b-roll IS the picture.
+    `why`, or one naming no justification from COVER_WHYS. VO-covered
+    beats (vo_* takes) are exempt from the ratio and landing rules —
+    there the b-roll IS the picture.
+
+    `process` earns NO exemption of its own (2026-08-24). Inside a beat
+    anchored to a spoken take the landing still belongs to the face, and
+    an exemption a cover could grant itself by naming it is not a bar.
     """
     notes: "list[str]" = []
     for b in plan.get("beats", []):
@@ -203,10 +232,19 @@ def coverage_notes(plan: "dict[str, Any]") -> "list[str]":
                 notes.append("%s: %s runs %.1fs — under %.1fs a cutaway "
                              "cannot be read"
                              % (b["id"], c.get("clip_id"), d, COVER_MIN_S))
-            if not str(c.get("why", "")).strip():
+            why = str(c.get("why", "")).strip()
+            if not why:
                 notes.append("%s: %s has no why — a cover that cannot "
                              "say its purpose has none"
                              % (b["id"], c.get("clip_id")))
+            elif why_kind(why) is None:
+                # a why that names no justification is a preference with
+                # a sentence in front of it; R1 used to be the reviewer's
+                # judgment call, and this is the arithmetic half of it
+                notes.append("%s: %s says %r — a why must LEAD with one "
+                             "of %s"
+                             % (b["id"], c.get("clip_id"), why[:40],
+                                "/".join(COVER_WHYS)))
             if dur > 0 and not is_vo:
                 end = float(c.get("at", 0)) + d
                 if end > dur * (1 - COVER_LANDING) + 0.05:

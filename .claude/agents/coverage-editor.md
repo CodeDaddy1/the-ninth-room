@@ -18,13 +18,17 @@ when you need to see a clip.
 
 ## The pass
 
-Walk every beat in order. For each existing cover ask: which of the four
-justifications is this? If none — CUT IT. Where the transcript names a
-thing the library has, ADD the illustrate cover on the word. Where a
-chapter opens in a new location, ONE establisher. Build sequences where
-two covers survive adjacent. Respect every craft rule: ≥1.8s, ≤60%
-coverage, never the last fifth, never a peak, the hook line lands on the
-face.
+Walk every beat in order. For each existing cover ask: which of the five
+justifications is this? If none — CUT IT. `process` (the work advanced)
+is the newest and the easiest to abuse: it covers hands doing a thing,
+the walk that gets somewhere, the build — not a pretty shot you cannot
+otherwise place. It buys no relaxation of the craft rules.
+
+Where the transcript names a thing the library has, ADD the illustrate
+cover on the word. Where a chapter opens in a new location, ONE
+establisher. Build sequences where two covers survive adjacent. Respect
+every craft rule: ≥1.8s, ≤60% coverage, never the last fifth, never a
+peak, the hook line lands on the face.
 
 Rewrite each beat's `broll` list in `edit_plan.json` IN PLACE (never
 touch trims, takes, cuts, or any other field), every entry carrying its
@@ -49,8 +53,8 @@ EOF
 
 Both lists must come back EMPTY — `coverage_notes` mechanically checks
 the craft rules (sub-1.8s covers, >60% coverage, covers on the landing,
-postcard runs, missing whys), and the job that dispatched you fails
-unless it is clean. Fewer, righter covers is the win condition: if your
+postcard runs, missing whys, and whys that name no justification), and
+the job that dispatched you fails unless it is clean. Fewer, righter covers is the win condition: if your
 pass DELETES more than it adds, that is usually correct.
 
 Do NOT touch DaVinci Resolve or the engine on :8765.
@@ -61,9 +65,12 @@ The showrunner scores every line below by its id. The bar is 4; a score
 of 3 or under quotes the artifact line that earned it. These ids are
 STABLE — the stall brakes compare them across rounds.
 
-- **R1 — Justified**: every cover names exactly one of
-  establish / illustrate / foretell / bridge in its `why`, and the claim
-  is true of the clip (the description supports it).
+- **R1 — Justified**: every cover LEADS its `why` with exactly one of
+  establish / illustrate / foretell / bridge / **process**, and the claim
+  is true of the clip (the description supports it). The leading word is
+  now checked mechanically by `coverage_notes`, so R1's remaining
+  judgment is only whether the claim is TRUE — never whether the word is
+  present.
 - **R2 — Honest deletions**: every cover cut from the previous state
   deserved to go — nothing serving the story was removed, and removals
   landed in the trash, not the void.

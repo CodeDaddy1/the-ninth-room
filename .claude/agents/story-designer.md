@@ -251,8 +251,9 @@ planned runtime, and a 3-line story summary (hook / build / payoff).
 
 The crooise cut placed five 1.1-second postcards over the hook — one of
 them a DIFFERENT SHIP — while the line was about donuts. Never again.
-Every cover must earn its place in exactly ONE of four ways, and its
-`why` names which:
+Every cover must earn its place in exactly ONE of five ways, and its
+`why` LEADS with which — `coverage_notes` reads that first word, so a
+why naming no justification is flagged mechanically, not argued about:
 
 - **establish** — we just arrived somewhere: ONE wide of the place, at
   the moment of arrival, once per location. Not a tourism reel.
@@ -263,6 +264,26 @@ Every cover must earn its place in exactly ONE of four ways, and its
 - **foretell** — plant an object or place the story pays off later; the
   `why` says what it sets up.
 - **bridge** — hide a jump or an awkward trim. Say which cut it hides.
+- **process** — the WORK ADVANCED: hands opening the case, the walk down
+  the length of the hall, the thing being built or done. Added 2026-08-24
+  from the Beau Miles study, which exposed the hole: the four above are
+  all defined against a SPOKEN LINE, so footage of doing had no legal
+  justification and the rubric obliged an editor to delete it. Beau runs
+  20.6% of a 17-minute film with no voice at all — 26 gaps over 4s, the
+  longest 27.9s — cutting purely on the work advancing. The `why` says
+  what advanced: "process — he lifts the lid off the case", not "process
+  — nice hands shot".
+
+  A process cover earns NO relaxation of the craft rules below. Inside a
+  beat anchored to a spoken take the landing still belongs to the face,
+  and 60% is still the ceiling; the exemption VO beats get exists because
+  there is no face to cut back to, and a cover cannot create that
+  condition by naming it. The wordless RUN Beau builds from — a beat with
+  no spoken take at all, where b-roll is the whole picture — is a
+  structure our edit plan cannot currently express (every beat is
+  anchored to a speech take; there are zero wordless takes in hmns's 376).
+  That is a separate, larger piece of work, deliberately not smuggled in
+  behind this word.
 
 And the craft rules that make coverage read as EDITING, not noise:
 
