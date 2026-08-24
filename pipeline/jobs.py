@@ -885,6 +885,52 @@ def _run_diagnose(slug, log, set_pct, arg=None):
     set_pct(100)
 
 
+def _run_coverage(slug, log, set_pct):
+    """The b-roll pass (2026-08-24, Caleb: "supportive of the story, not
+    a bombardment of noise"). Dispatch-and-verify with a MECHANICAL bar:
+    the session must leave validate_edit_plan AND coverage_notes empty,
+    or the job fails — craft is checked, not trusted. Beats whose covers
+    changed get their verdicts reset (notes survive); assemble chains."""
+    import json
+    work = work_path(slug)
+    plan_path = work / "edit_plan.json"
+    if not plan_path.exists():
+        raise RuntimeError("no cut yet -- Build the cut first")
+    if not (work / "analysis" / "broll.json").exists():
+        raise RuntimeError("no b-roll catalog -- analyze footage first")
+    before = {b["id"]: json.dumps(b.get("broll") or [], sort_keys=True)
+              for b in json.loads(plan_path.read_text()).get("beats", [])}
+    log("[coverage] dispatching the coverage editor")
+    _dispatch(
+        "Run the b-roll pass on The Ninth Room episode %s. Read "
+        ".claude/agents/coverage-editor.md and act as that agent: re-edit "
+        "every cover in work/%s/edit_plan.json against the b-roll grammar "
+        "(the four justifications, required why), prove both checkers "
+        "empty before finishing. Do NOT touch DaVinci Resolve or the "
+        "engine on :8765." % (slug, slug),
+        log, set_pct, "coverage")
+    from . import schemas
+    plan = json.loads(plan_path.read_text())
+    takes = json.loads((work / "analysis" / "takes.json").read_text())
+    broll = json.loads((work / "analysis" / "broll.json").read_text())
+    errs = schemas.validate_edit_plan(plan, takes, broll)
+    if errs:
+        raise RuntimeError("the pass broke the plan: %s" % errs[0])
+    notes = schemas.coverage_notes(plan)
+    if notes:
+        raise RuntimeError("the pass left craft violations: %s (+%d more)"
+                           % (notes[0], len(notes) - 1))
+    changed = [b["id"] for b in plan.get("beats", [])
+               if json.dumps(b.get("broll") or [], sort_keys=True)
+               != before.get(b["id"], "[]")]
+    from . import editroom
+    for bid in changed:
+        editroom._reset_review(slug, bid)
+    log("[coverage] %d beats re-covered -- their verdicts reset (notes "
+        "kept); assembling next" % len(changed))
+    set_pct(100)
+
+
 # Labels are user-facing (tray, notifications): desk vocabulary — clip,
 # preview, render — never internal jargon (P1 copy pass, 2026-08-23).
 KINDS = {
@@ -911,6 +957,8 @@ KINDS = {
     "perf": ("Analyze channel stats", _run_perf),
     "retro": ("Episode retro — lessons into Ideas", _run_retro),
     "diagnose": ("Diagnose a failed job", _run_diagnose),
+    "coverage": ("B-roll pass — covers that serve the story",
+                 _run_coverage),
 }
 
 # Mechanical followers. A creative decision stays a button; everything
@@ -924,6 +972,7 @@ CHAIN = {
     # retention pass runs on a FRESH cut only — its own guards refuse
     # (politely, as a logged chain skip) once any human verdict exists
     "assemble": "retention",
+    "coverage": "assemble",
 }
 
 

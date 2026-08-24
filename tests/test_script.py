@@ -168,6 +168,11 @@ class ScriptJobGuards(unittest.TestCase):
                                arg="J000")
         self.assertIn("FAILED job id", str(cm.exception))
 
+    def test_coverage_without_a_cut_refuses(self):
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_coverage("ep", lambda *a: None, lambda p: None)
+        self.assertIn("no cut yet", str(cm.exception))
+
     def test_the_prompt_carries_the_brief_and_the_contract(self):
         (self.tmp / "story_brief.json").write_text(
             json.dumps({"target_minutes": 20, "chapters": 7}))

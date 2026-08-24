@@ -164,6 +164,63 @@ MAX_SPLIT_SEC = 3.0
 MAX_HOOK_SEC = 15.0
 
 
+COVER_MIN_S = 1.8        # below this a cutaway cannot be read
+COVER_MAX_RATIO = 0.6    # an on-camera beat stays an on-camera beat
+COVER_LANDING = 0.2      # the last fifth belongs to the face
+
+
+def coverage_notes(plan: "dict[str, Any]") -> "list[str]":
+    """The b-roll craft rules, checked mechanically (2026-08-24 — the
+    crooise cut put five 1.1s postcards over the hook). ADVISORY, not part
+    of validate_edit_plan: existing plans must not brick surgery writes.
+    The coverage job requires this list empty; the desk may show it.
+
+    Checks: sub-COVER_MIN_S covers; beat coverage past COVER_MAX_RATIO;
+    a cover inside the landing (last COVER_LANDING of the beat); more
+    than 3 covers on one beat; any cover on a `peak` beat; a missing
+    `why`. VO-covered beats (vo_* takes) are exempt from the ratio and
+    landing rules — there the b-roll IS the picture.
+    """
+    notes: "list[str]" = []
+    for b in plan.get("beats", []):
+        covers = b.get("broll") or []
+        if not covers:
+            continue
+        trim = b.get("trim") or {}
+        dur = float(trim.get("e", 0)) - float(trim.get("s", 0))
+        is_vo = str(b.get("take_id", "")).startswith("vo_")
+        if b.get("peak") and covers:
+            notes.append("%s: a peak beat is covered — the face delivers"
+                         % b["id"])
+        if len(covers) > 3 and not is_vo:
+            notes.append("%s: %d covers on one beat — that is a "
+                         "bombardment" % (b["id"], len(covers)))
+        total = 0.0
+        for c in covers:
+            d = float(c.get("duration", 0))
+            total += d
+            if d < COVER_MIN_S:
+                notes.append("%s: %s runs %.1fs — under %.1fs a cutaway "
+                             "cannot be read"
+                             % (b["id"], c.get("clip_id"), d, COVER_MIN_S))
+            if not str(c.get("why", "")).strip():
+                notes.append("%s: %s has no why — a cover that cannot "
+                             "say its purpose has none"
+                             % (b["id"], c.get("clip_id")))
+            if dur > 0 and not is_vo:
+                end = float(c.get("at", 0)) + d
+                if end > dur * (1 - COVER_LANDING) + 0.05:
+                    notes.append("%s: %s covers the landing — the last "
+                                 "fifth belongs to the face"
+                                 % (b["id"], c.get("clip_id")))
+        if dur > 0 and not is_vo and total / dur > COVER_MAX_RATIO + 0.01:
+            notes.append("%s: %.0f%% covered — past %.0f%% an on-camera "
+                         "beat stops being one"
+                         % (b["id"], 100 * total / dur,
+                            100 * COVER_MAX_RATIO))
+    return notes
+
+
 def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
                        broll: "dict[str, Any]") -> "list[str]":
     """edit_plan.json — the story-designer's output, cross-checked against

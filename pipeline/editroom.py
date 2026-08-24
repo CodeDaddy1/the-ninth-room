@@ -2056,6 +2056,43 @@ def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
 _FAV_LOCK = threading.Lock()
 
 
+def _broll_suggest(slug: str, beat_id: str, limit: int = 8) -> "list":
+    """Covers ranked for THIS clip (2026-08-24): the catalog scored by
+    description-vs-transcript similarity, minus every clip the plan
+    already uses anywhere (the once-only rule means a used clip is not
+    actually available). The drawer shows these above the raw search —
+    the fluid path to a cover that illustrates the line."""
+    import difflib
+    work = work_path(slug)
+    plan = json.loads((work / "edit_plan.json").read_text()) \
+        if (work / "edit_plan.json").exists() else {"beats": []}
+    beat = next((b for b in plan.get("beats", []) if b["id"] == beat_id),
+                None)
+    if beat is None:
+        raise IngestError("beat '%s' not in the cut" % beat_id)
+    takes = {}
+    tp = work / "analysis" / "takes.json"
+    if tp.exists():
+        takes = {t["id"]: t for t in
+                 json.loads(tp.read_text()).get("takes", [])}
+    text = (takes.get(beat.get("take_id"), {}).get("transcript") or "").lower()
+    used = {c.get("clip_id") for b in plan.get("beats", [])
+            for c in (b.get("broll") or [])}
+    out = []
+    for c in _broll_catalog(slug):
+        if c["id"] in used:
+            continue
+        desc = (c.get("description") or "").lower()
+        score = difflib.SequenceMatcher(None, text, desc).ratio()
+        # token overlap matters more than sequence for description prose
+        tw = set(w for w in text.split() if len(w) > 3)
+        dw = set(w for w in desc.split() if len(w) > 3)
+        overlap = len(tw & dw) / max(len(tw | dw), 1)
+        out.append(dict(c, score=round(0.4 * score + 0.6 * overlap, 3)))
+    out.sort(key=lambda x: -x["score"])
+    return out[:limit]
+
+
 def _search_all(q: str, limit: int = 40) -> "list":
     """Cross-episode transcript + b-roll search (P7, 2026-08-24): "that
     time Sofia said the thing about the octopus" -> the exact take,
@@ -3094,6 +3131,10 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, _state(self._slug_q()))
             elif self.path.startswith("/api/overlays"):
                 self._send(200, _overlays_state(self._slug_q()))
+            elif self.path.startswith("/api/broll/suggest"):
+                qs = self._qs()
+                self._send(200, {"suggestions": _broll_suggest(
+                    self._slug_q(), qs.get("beat_id", [""])[0])})
             elif self.path.startswith("/api/beat/alternates"):
                 qs = self._qs()
                 self._send(200, {"alternates": _beat_alternates(

@@ -130,7 +130,8 @@ Write `work/<slug>/edit_plan.json`:
       "chapter_id": "CH1",
       "take_id": "T04",
       "trim": {"s": 12.4, "e": 21.0},
-      "broll": [{"clip_id": "B012", "at": 1.5, "duration": 2.8}],
+      "broll": [{"clip_id": "B012", "at": 1.5, "duration": 2.8,
+                 "why": "illustrate: the monkey he's describing"}],
       "transition_in": "cut"
     }
   ],
@@ -239,7 +240,44 @@ planned runtime, and a 3-line story summary (hook / build / payoff).
    stays linear; the hook is the licensed flash-forward, visually marked.
 2. **Protect every payoff moment.** Mark beats `"peak": true` — a landing, a
    reveal, the payoff: 15–30s, no b-roll, no cards, no punches, no silence
-   cuts inside. Fast tissue elsewhere: aim for a visual change every ~4s.
+   cuts inside. Pace elsewhere comes from the B-ROLL GRAMMAR below — a
+   visual change only ever happens FOR a reason, never on a timer.
 3. **Plan a loop-question chorus.** One question tied to the hook's open
    loop, asked across the day, 3–5 answers as recurring beats, closed in the
    finale.
+
+## The b-roll grammar (2026-08-24 — Caleb's note: "supportive of the
+## story, not a bombardment of noise")
+
+The crooise cut placed five 1.1-second postcards over the hook — one of
+them a DIFFERENT SHIP — while the line was about donuts. Never again.
+Every cover must earn its place in exactly ONE of four ways, and its
+`why` names which:
+
+- **establish** — we just arrived somewhere: ONE wide of the place, at
+  the moment of arrival, once per location. Not a tourism reel.
+- **illustrate** — cut to the thing being NAMED, within about a second
+  of the word. The donut line gets the donut awning. If the library
+  doesn't have the thing, stay on the face — a wrong cutaway is worse
+  than none.
+- **foretell** — plant an object or place the story pays off later; the
+  `why` says what it sets up.
+- **bridge** — hide a jump or an awkward trim. Say which cut it hides.
+
+And the craft rules that make coverage read as EDITING, not noise:
+
+- **Legibility**: no cover under 1.8s. Working range 2.5–4.5s.
+- **Let it land**: never cover the last fifth of a beat, a punchline, a
+  reaction, or anything marked `peak`. The face delivers; b-roll never
+  delivers.
+- **Breathe**: at most ~60% of any on-camera beat covered; after two
+  consecutive covers, return to the face before covering again.
+- **Sequences, not postcards**: two or more covers inside one beat must
+  be a SEQUENCE — wide → closer → detail of the same subject, or a
+  match chain — never unrelated inserts.
+- **The hook preview** (rule 1) is still a montage, but a LEGIBLE one:
+  each shot ≥1.8s, in chapter order, each the chapter's single most
+  anticipated image, and the hook LINE lands on the face.
+
+`why` is REQUIRED on every broll entry. If you cannot write the why in
+one honest clause, the cover does not belong.
