@@ -53,14 +53,26 @@ class TheChain(unittest.TestCase):
             jobs._after_done({"kind": kind, "slug": "ep"}, lambda *a: None)
             self.assertEqual(self.calls, [], kind)
 
-    def test_a_refused_follower_is_swallowed_not_raised(self):
+    def test_an_already_queued_follower_is_chain_ok(self):
+        """P0 policy: an in-flight follower satisfies the chain's INTENT."""
         def refuse(kind, slug):
-            raise jobs.JobError("already queued")
+            raise jobs.JobError("assemble is already queued for ep")
         jobs.start = refuse
         logged = []
         jobs._after_done({"kind": "editplan", "slug": "ep"},
                          lambda m: logged.append(m))
-        self.assertTrue(any("not queued" in m for m in logged))
+        self.assertTrue(any("already in flight" in m for m in logged))
+
+    def test_a_guard_refusal_is_chain_failed_and_logged(self):
+        """A conform-window refusal is a REAL failure now — visible and
+        re-runnable, never a silent log line (the crooise lesson)."""
+        def refuse(kind, slug):
+            raise jobs.JobError("a conform is running — assemble after it")
+        jobs.start = refuse
+        logged = []
+        jobs._after_done({"kind": "editplan", "slug": "ep"},
+                         lambda m: logged.append(m))
+        self.assertTrue(any("FAILED" in m for m in logged))
 
     def test_every_chain_entry_names_real_kinds(self):
         for kind, follower in jobs.CHAIN.items():

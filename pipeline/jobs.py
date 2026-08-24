@@ -1053,19 +1053,101 @@ def _notify(title: str, body: str) -> None:
         pass
 
 
+def _set_chain(job: "dict", follower: str, state: str,
+               error: "str | None" = None) -> None:
+    """Per-follower chain state on the finished job's record (P0 of the
+    team plan): pending -> ok | failed, visible in the tray and
+    re-runnable — the crooise assemble that silently never ran."""
+    jid = job.get("id")
+    if jid not in _jobs:
+        return  # unit tests drive _after_done with bare dicts
+    with _LOCK:
+        chain = dict(_jobs[jid].get("chain") or {})
+        chain[follower] = state
+        _jobs[jid]["chain"] = chain
+        if error:
+            _jobs[jid]["chain_error"] = error[:300]
+        _persist()
+
+
 def _after_done(job: "dict", log) -> None:
-    """Enqueue the finished job's mechanical follower, if it has one.
-    start() already refuses a duplicate queued/running follower for the
-    slug, so the chain cannot double-enqueue — a refusal is logged and
-    swallowed, never raised (the finished job stays done)."""
+    """Enqueue the finished job's mechanical follower, if it has one,
+    tracking per-follower state. An already-queued/running follower
+    satisfies the chain's INTENT (ok); any other refusal or raise is
+    chain_failed — visible, notified, and re-runnable from the tray."""
     follower = CHAIN.get(job["kind"])
     if not follower:
         return
+    _set_chain(job, follower, "pending")
     try:
         start(follower, job["slug"])
+        _set_chain(job, follower, "ok")
         log("[chain] %s done -> %s queued" % (job["kind"], follower))
     except JobError as e:
-        log("[chain] %s follower not queued: %s" % (job["kind"], e))
+        if "already" in str(e):
+            _set_chain(job, follower, "ok")
+            log("[chain] %s follower already in flight: %s"
+                % (job["kind"], e))
+        else:
+            _set_chain(job, follower, "failed", str(e))
+            log("[chain] %s -> %s FAILED: %s" % (job["kind"], follower, e))
+            _notify("Chain failed", "%s -> %s: %s"
+                    % (job["kind"], follower, str(e)[:100]))
+    except Exception as e:
+        _set_chain(job, follower, "failed", "%s: %s" % (type(e).__name__, e))
+        log("[chain] %s -> %s BROKE: %s" % (job["kind"], follower, e))
+        _notify("Chain failed", "%s -> %s: %s"
+                % (job["kind"], follower, str(e)[:100]))
+
+
+def rechain(jid: str) -> "dict":
+    """Re-run a job's failed chain followers. Idempotent by construction:
+    ok followers are skipped, and start()'s duplicate guard turns an
+    in-flight follower into ok rather than a double-queue — safe to click
+    on a bad day."""
+    job = _jobs.get(jid)
+    if job is None:
+        raise JobError("no job '%s'" % jid)
+    chain = dict(job.get("chain") or {})
+    if not chain:
+        raise JobError("that job has no chain")
+    for follower, state in chain.items():
+        if state == "ok":
+            continue
+        _set_chain(job, follower, "pending")
+        try:
+            start(follower, job["slug"])
+            _set_chain(job, follower, "ok")
+        except JobError as e:
+            if "already" in str(e):
+                _set_chain(job, follower, "ok")
+            else:
+                _set_chain(job, follower, "failed", str(e))
+    return _jobs[jid]
+
+
+CHAIN_REAP_S = 900
+
+
+def _reap_chains() -> None:
+    """A process death between chain_pending and its resolution orphans
+    the state forever — the same hole the claim reaper closes. Old
+    pending -> failed with a reaped note, still re-runnable."""
+    now = time.time()
+    with _LOCK:
+        dirty = False
+        for job in _jobs.values():
+            chain = job.get("chain") or {}
+            for follower, state in list(chain.items()):
+                if state == "pending" \
+                        and now - (job.get("ended_ts") or now) > CHAIN_REAP_S:
+                    chain[follower] = "failed"
+                    job["chain"] = chain
+                    job["chain_error"] = ("reaped: the engine died before "
+                                          "the chain resolved")
+                    dirty = True
+        if dirty:
+            _persist()
 
 
 def _worker():
@@ -1092,8 +1174,10 @@ def _worker():
                 # the follower's enqueue must never flip THIS job to failed
                 log("[chain] follower enqueue broke: %s" % chain_err)
         except Exception as e:  # the tray must show the failure, never hang
+            import traceback as _tb
             log("[job] FAILED: %s: %s" % (type(e).__name__, e))
             _update(jid, state="failed", error=str(e)[:300],
+                    traceback=_tb.format_exc()[-2000:],
                     ended_ts=int(time.time()))
             _notify("%s — failed" % KINDS[job["kind"]][0].split(" — ")[0],
                     "%s: %s" % (job["slug"], str(e)[:140]))
@@ -1108,6 +1192,8 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
         from . import conform as conform_mod, resolve_api
         if conform_mod.status(slug).get("state") == "running":
             raise JobError("a conform is running — render after it")
+        if resolve_api.rendering_in_progress():
+            raise JobError("Resolve is already rendering — wait for it")
     if kind == "assemble":
         # a running conform reads timeline_map + the card ledger; an
         # assemble rewriting them mid-push tears it (P3 gate finding 8).
@@ -1115,8 +1201,6 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
         from . import conform as conform_mod
         if conform_mod.status(slug).get("state") == "running":
             raise JobError("a conform is running — assemble after it")
-        if resolve_api.rendering_in_progress():
-            raise JobError("Resolve is already rendering — wait for it")
     if kind == "story":
         if not (work_path(slug) / "analysis" / "catalog.json").exists():
             raise JobError("ingest first — the designer needs transcripts")
@@ -1153,6 +1237,7 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
 
 
 def jobs(slug: "str | None" = None) -> "list":
+    _reap_chains()
     with _LOCK:
         rows = [_jobs[i] for i in reversed(_order)]
     if slug:

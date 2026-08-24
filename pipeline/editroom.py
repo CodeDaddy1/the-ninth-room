@@ -3536,6 +3536,13 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/idea/start":
                 r = _start_project_from_idea(str(body.get("id", "")))
                 self._send(200, dict(r, ok=True))
+            elif self.path == "/api/job/rechain":
+                from . import jobs as jobs_mod
+                try:
+                    job = jobs_mod.rechain(str(body.get("id", "")))
+                    self._send(200, {"ok": True, "job": job})
+                except jobs_mod.JobError as e:
+                    self._send(400, {"error": str(e)})
             elif self.path == "/api/job/start":
                 from . import jobs as jobs_mod
                 try:
