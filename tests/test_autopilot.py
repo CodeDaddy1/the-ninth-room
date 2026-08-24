@@ -115,6 +115,14 @@ class AutoIngestDecision(unittest.TestCase):
         self.assertEqual(
             jobs.autoingest_decision(100.0, 100.0, done), "start")
 
+    def test_a_same_second_covering_ingest_still_counts(self):
+        """Review F4: started_ts is a float now — an ingest starting at
+        100.95 covers an upload stamped 100.8, where int truncation to
+        100 used to fire a spurious duplicate run."""
+        done = [{"kind": "ingest", "state": "done", "started_ts": 100.95}]
+        self.assertEqual(
+            jobs.autoingest_decision(100.8, 100.8, done), "skip")
+
     def test_other_kinds_never_affect_the_verdict(self):
         others = [{"kind": "assemble", "state": "running"}]
         self.assertEqual(

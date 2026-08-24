@@ -394,6 +394,207 @@ def _broll_detach(slug: str, beat_id: str, clip_id: str, at: float,
     return gone
 
 
+TRASH_CAP = 7
+
+
+def _trash_add(slug: str, kind: str, payload: "dict") -> None:
+    """Removals are recoverable: the last few removed covers/cards land in
+    trash.json with a Restore verb (P3, 2026-08-23). Capped — this is an
+    undo, not an archive."""
+    work = work_path(slug)
+    path = work / "trash.json"
+    data = json.loads(path.read_text()) if path.exists() else {"entries": []}
+    data["entries"].append(dict(payload, kind=kind, ts=int(time.time())))
+    data["entries"] = data["entries"][-TRASH_CAP:]
+    _write_json(path, data)
+
+
+def _trash_list(slug: str) -> "list":
+    path = work_path(slug) / "trash.json"
+    if not path.exists():
+        return []
+    return json.loads(path.read_text()).get("entries", [])
+
+
+def _trash_restore(slug: str, ts: int, kind: str) -> "dict":
+    """Re-insert one trashed entry through the SAME validated write path
+    its kind normally uses — a restore that bypassed validation would be
+    the only door to an invalid plan."""
+    work = work_path(slug)
+    path = work / "trash.json"
+    data = json.loads(path.read_text()) if path.exists() else {"entries": []}
+    entry = next((e for e in data["entries"]
+                  if e.get("ts") == ts and e.get("kind") == kind), None)
+    if entry is None:
+        raise IngestError("that entry is no longer in the trash")
+    if kind == "broll":
+        restored = _broll_attach(slug, entry["beat_id"], entry["clip_id"],
+                                 float(entry.get("at", 0)),
+                                 float(entry["duration"]),
+                                 float(entry.get("src_s", 0)))
+    elif kind == "card":
+        card = entry["card"]
+        with _PLAN_LOCK:
+            gp_path = work / "graphics_plan.json"
+            if not gp_path.exists():
+                raise IngestError("no graphics plan to restore into")
+            plan = json.loads(gp_path.read_text())
+            if any(c["id"] == card["id"] for c in plan["cards"]):
+                raise IngestError("a card with id %s exists again — restore "
+                                  "would collide" % card["id"])
+            plan["cards"].append(card)
+            from . import schemas
+            errs = [e for e in schemas.validate_graphics_plan(plan)
+                    if card["id"] in e]
+            if errs:
+                raise IngestError("cannot restore %s: %s"
+                                  % (card["id"], errs[0]))
+            tmp = gp_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+            os.replace(tmp, gp_path)
+        restored = card
+    else:
+        raise IngestError("unknown trash kind '%s'" % kind)
+    data["entries"] = [e for e in data["entries"]
+                       if not (e.get("ts") == ts and e.get("kind") == kind)]
+    _write_json(path, data)
+    return restored
+
+
+def _plan_takes_broll(slug: str) -> "tuple":
+    work = work_path(slug)
+    plan = json.loads((work / "edit_plan.json").read_text())
+    takes = json.loads((work / "analysis" / "takes.json").read_text())
+    broll_p = work / "analysis" / "broll.json"
+    broll = json.loads(broll_p.read_text()) if broll_p.exists() else {"clips": []}
+    return plan, takes, broll
+
+
+def _beat_alternates(slug: str, beat_id: str) -> "list":
+    """The other takes of this moment, ranked by transcript similarity to
+    the take the cut currently uses — the swap verb's menu."""
+    import difflib
+    plan, takes, _ = _plan_takes_broll(slug)
+    beat = next((b for b in plan["beats"] if b["id"] == beat_id), None)
+    if beat is None:
+        raise IngestError("beat '%s' not in the cut" % beat_id)
+    by_id = {t["id"]: t for t in takes.get("takes", [])}
+    cur = by_id.get(beat.get("take_id"))
+    base = (cur or {}).get("transcript", "")
+    out = []
+    for t in takes.get("takes", []):
+        if t["id"] == beat.get("take_id"):
+            continue
+        ratio = difflib.SequenceMatcher(
+            None, base.lower(), t.get("transcript", "").lower()).ratio()
+        out.append({"id": t["id"], "file": t.get("file"),
+                    "transcript": t.get("transcript", ""),
+                    "duration": t.get("duration"),
+                    "s": t.get("s"), "e": t.get("e"),
+                    "similarity": round(ratio, 3)})
+    out.sort(key=lambda x: -x["similarity"])
+    return out[:6]
+
+
+def _reset_review(slug: str, beat_id: str) -> None:
+    """Surgery invalidates the verdict: the clip returns to the queue."""
+    with _REVIEW_LOCK:
+        path = work_path(slug) / "review.json"
+        if not path.exists():
+            return
+        data = json.loads(path.read_text())
+        if beat_id in data:
+            del data[beat_id]
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2))
+            os.replace(tmp, path)
+
+
+def _queue_reassemble(slug: str) -> bool:
+    """Swap and trim change beat DURATIONS, so the single-beat re-proxy
+    the b-roll verbs use is not enough — the timeline must rebuild
+    (proxies render from timeline_map; found live when snap-cuts silently
+    missed review playback). Assemble is enqueued; P1's notification says
+    when it lands."""
+    from . import jobs as jobs_mod
+    try:
+        jobs_mod.start("assemble", slug)
+        return True
+    except jobs_mod.JobError:
+        return False  # already queued/running — it will pick this up
+
+
+def _beat_swap(slug: str, beat_id: str, take_id: str) -> "dict":
+    """Use a different take for this clip — no auto-fix session for a
+    one-take opinion (P3, 2026-08-23). The new take starts at its natural
+    span; Tighten cuts can polish the edges after."""
+    from . import schemas
+    with _EDITPLAN_LOCK:
+        plan, takes, broll = _plan_takes_broll(slug)
+        by_id = {t["id"]: t for t in takes.get("takes", [])}
+        if take_id not in by_id:
+            raise IngestError("unknown take '%s'" % take_id)
+        beat = next((b for b in plan["beats"] if b["id"] == beat_id), None)
+        if beat is None:
+            raise IngestError("beat '%s' not in the cut" % beat_id)
+        if beat.get("take_id") == take_id:
+            raise IngestError("the cut already uses that take")
+        take = by_id[take_id]
+        old = {"take_id": beat.get("take_id"), "trim": beat.get("trim")}
+        beat["take_id"] = take_id
+        beat["trim"] = {"s": round(float(take["s"]), 3),
+                        "e": round(float(take["e"]), 3)}
+        errs = schemas.validate_edit_plan(plan, takes, broll)
+        if errs:
+            beat["take_id"], beat["trim"] = old["take_id"], old["trim"]
+            raise IngestError("swap refused: %s" % errs[0])
+        ep_path = work_path(slug) / "edit_plan.json"
+        tmp = ep_path.with_suffix(".ep.tmp")
+        tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+        os.replace(tmp, ep_path)
+    _reset_review(slug, beat_id)
+    assembling = _queue_reassemble(slug)
+    return {"beat_id": beat_id, "take_id": take_id,
+            "trim": beat["trim"], "assembling": assembling}
+
+
+def _beat_trim(slug: str, beat_id: str, d_in: float, d_out: float) -> "dict":
+    """Nudge this clip's in/out points. Small steps only — a trim is a
+    haircut, not a re-edit; anything bigger is a swap or a session."""
+    from . import schemas
+    d_in, d_out = float(d_in), float(d_out)
+    if abs(d_in) > 2.0 or abs(d_out) > 2.0:
+        raise IngestError("trim steps are capped at 2.0s per nudge")
+    with _EDITPLAN_LOCK:
+        plan, takes, broll = _plan_takes_broll(slug)
+        beat = next((b for b in plan["beats"] if b["id"] == beat_id), None)
+        if beat is None:
+            raise IngestError("beat '%s' not in the cut" % beat_id)
+        trim = dict(beat.get("trim") or {})
+        if "s" not in trim or "e" not in trim:
+            raise IngestError("this clip has no trim to nudge")
+        new_s = round(trim["s"] + d_in, 3)
+        new_e = round(trim["e"] + d_out, 3)
+        if new_s < 0:
+            raise IngestError("in point cannot go below the file start")
+        if new_e - new_s < 0.5:
+            raise IngestError("a clip under half a second is a flash frame")
+        old = dict(trim)
+        beat["trim"] = {"s": new_s, "e": new_e}
+        errs = schemas.validate_edit_plan(plan, takes, broll)
+        if errs:
+            beat["trim"] = old
+            raise IngestError("trim refused: %s" % errs[0])
+        ep_path = work_path(slug) / "edit_plan.json"
+        tmp = ep_path.with_suffix(".ep.tmp")
+        tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+        os.replace(tmp, ep_path)
+    _reset_review(slug, beat_id)
+    assembling = _queue_reassemble(slug)
+    return {"beat_id": beat_id, "trim": beat["trim"],
+            "assembling": assembling}
+
+
 def _mark_edited(slug: str, beat_id: str) -> None:
     # Back into the queue as edited (decision 05) - unless the beat is
     # FLAGGED, which is already at the top and must not be demoted (the
@@ -2641,7 +2842,10 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 # function scope for the job routes, so the bare name here
                 # is an unassigned local (found live: every upload 500'd)
                 from . import jobs as _jobs_auto
-                _jobs_auto.note_upload(uslug)
+                # a re-dropped duplicate stores nothing — it must not stamp
+                # the batch and trigger a pointless re-analysis (review F5)
+                if not result.get("duplicate"):
+                    _jobs_auto.note_upload(uslug)
                 log("[upload] %s <- %s%s%s"
                     % (uslug, result["stored"],
                        " (still -> %s)" % result["as"] if result.get("as") else "",

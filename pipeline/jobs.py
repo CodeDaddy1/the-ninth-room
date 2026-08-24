@@ -678,8 +678,10 @@ def _autoingest_fire(slug: str, stamp: float) -> None:
         except JobError:
             pass
     elif verdict == "rearm":
-        threading.Timer(30.0, _autoingest_fire,
-                        args=(slug, _UPLOAD_TS.get(slug, stamp))).start()
+        t = threading.Timer(30.0, _autoingest_fire,
+                            args=(slug, _UPLOAD_TS.get(slug, stamp)))
+        t.daemon = True
+        t.start()
 
 
 def note_upload(slug: str) -> None:
@@ -708,7 +710,7 @@ def _notify(title: str, body: str) -> None:
     try:
         script = 'display notification "%s" with title "%s"' % (
             body.replace('\\', '').replace('"', "'")[:180],
-            title.replace('"', "'")[:60])
+            title.replace('\\', '').replace('"', "'")[:60])
         subprocess.run(["osascript", "-e", script], capture_output=True,
                        timeout=10)
     except Exception:
@@ -734,7 +736,9 @@ def _worker():
     while True:
         jid = _QUEUE.get()
         job = _jobs[jid]
-        _update(jid, state="running", started_ts=int(time.time()))
+        # float on purpose: an ingest starting in the same second as the
+        # upload it covers must still compare AFTER it (review F4)
+        _update(jid, state="running", started_ts=time.time())
         log = _job_log(jid)
         try:
             _, fn = KINDS[job["kind"]]
@@ -742,7 +746,11 @@ def _worker():
             _update(jid, state="done", pct=100, ended_ts=int(time.time()))
             _notify("%s — done" % KINDS[job["kind"]][0].split(" — ")[0],
                     job["slug"])
-            _after_done(job, log)
+            try:
+                _after_done(job, log)
+            except Exception as chain_err:  # review F1: a persist error in
+                # the follower's enqueue must never flip THIS job to failed
+                log("[chain] follower enqueue broke: %s" % chain_err)
         except Exception as e:  # the tray must show the failure, never hang
             log("[job] FAILED: %s: %s" % (type(e).__name__, e))
             _update(jid, state="failed", error=str(e)[:300],

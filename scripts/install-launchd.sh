@@ -61,9 +61,20 @@ cat > "$PLIST" <<PLIST
 PLIST
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-sleep 2
-if curl -s -o /dev/null http://127.0.0.1:8765/api/projects; then
+# bootout returns before the job fully unloads; an instant bootstrap of the
+# same label intermittently fails (review F2) — retry with a settle gap
+ok=""
+for i in 1 2 3; do
+  if launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null; then ok=1; break; fi
+  sleep 1
+done
+[ -n "$ok" ] || { echo "launchctl bootstrap kept failing — try: launchctl bootstrap gui/$(id -u) $PLIST"; exit 1; }
+up=""
+for i in 1 2 3 4 5; do
+  if curl -s --max-time 5 -o /dev/null http://127.0.0.1:8765/api/projects; then up=1; break; fi
+  sleep 2
+done
+if [ -n "$up" ]; then
   echo "engine is up at http://127.0.0.1:8765 and will restart itself."
   echo "log: $LOG"
 else
