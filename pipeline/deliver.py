@@ -74,6 +74,27 @@ def checklist(slug: str) -> "dict":
                           "you make one — check this off when it does"),
                  "fix": None, "manual": True})
 
+    # the QC gate's measured rows (P10): rendered when the report covers
+    # the CURRENT master; a stale report says so instead of lying green
+    qc_p = work / "qc_report.json"
+    if qc_p.exists():
+        try:
+            qc = json.loads(qc_p.read_text())
+        except ValueError:
+            qc = {}
+        masters_now = sorted(m.name for m in
+                             (work / "deliverables").glob("*.mp4")
+                             if not m.name.startswith("_tmp"))
+        current = masters_now[-1] if masters_now else None
+        if qc.get("master") == current:
+            rows.extend(dict(r, fix=None) for r in qc.get("rows", []))
+        elif current:
+            rows.append({"id": "qc_stale", "label": "QC the master",
+                         "ok": False,
+                         "detail": "the report covers %s — re-run QC for "
+                                   "%s" % (qc.get("master"), current),
+                         "fix": None})
+
     stale = conform_mod._stale_cards(slug)
     pend = editroom._conform_pending(slug)
     cstate = conform_mod.status(slug).get("state")

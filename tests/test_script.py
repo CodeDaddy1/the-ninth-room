@@ -130,6 +130,44 @@ class ScriptJobGuards(unittest.TestCase):
             jobs._run_publish("ep", lambda *a: None, lambda p: None)
         self.assertIn("nothing to publish", str(cm.exception))
 
+    def test_retention_refuses_once_humans_reviewed(self):
+        (self.tmp / "edit_plan.json").write_text("{}")
+        (self.tmp / "proxies").mkdir()
+        (self.tmp / "proxies" / "BT01.abc.mp4").write_bytes(b"x")
+        (self.tmp / "review.json").write_text(json.dumps(
+            {"BT01": {"status": "approved"}}))
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_retention("ep", lambda *a: None, lambda p: None)
+        self.assertIn("humans are already reviewing", str(cm.exception))
+
+    def test_retention_ignores_its_own_earlier_flags(self):
+        """A re-assemble after a swap must not be blocked by the FIRST
+        retention pass's own flags — only human entries gate."""
+        (self.tmp / "edit_plan.json").write_text("{}")
+        (self.tmp / "proxies").mkdir()
+        (self.tmp / "proxies" / "BT01.abc.mp4").write_bytes(b"x")
+        (self.tmp / "review.json").write_text(json.dumps(
+            {"BT01": {"status": "flagged", "by": "retention-editor"}}))
+        # passes the guard and would dispatch — prove it by the explode
+        with self.assertRaises(AssertionError):
+            jobs._run_retention("ep", lambda *a: None, lambda p: None)
+
+    def test_qcgate_without_a_master_refuses(self):
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_qcgate("ep", lambda *a: None, lambda p: None)
+        self.assertIn("no master", str(cm.exception))
+
+    def test_perf_without_stats_refuses(self):
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_perf("_channel", lambda *a: None, lambda p: None)
+        self.assertIn("no stats", str(cm.exception))
+
+    def test_diagnose_wants_a_failed_job(self):
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_diagnose("ep", lambda *a: None, lambda p: None,
+                               arg="J000")
+        self.assertIn("FAILED job id", str(cm.exception))
+
     def test_the_prompt_carries_the_brief_and_the_contract(self):
         (self.tmp / "story_brief.json").write_text(
             json.dumps({"target_minutes": 20, "chapters": 7}))

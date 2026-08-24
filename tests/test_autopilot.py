@@ -39,13 +39,16 @@ class TheChain(unittest.TestCase):
     def test_every_creative_kind_chains_to_its_mechanical_follower(self):
         for kind, follower in (("editplan", "assemble"),
                                ("graphics", "reproxy"),
-                               ("snapcuts", "assemble")):
+                               ("snapcuts", "assemble"),
+                               # the one auto-dispatched session (P10) —
+                               # its own guards keep it first-pass-only
+                               ("assemble", "retention")):
             self.calls[:] = []
             jobs._after_done({"kind": kind, "slug": "ep"}, lambda *a: None)
             self.assertEqual(self.calls, [(follower, "ep")], kind)
 
     def test_unchained_kinds_enqueue_nothing(self):
-        for kind in ("ingest", "assemble", "reproxy", "story", "script"):
+        for kind in ("ingest", "reproxy", "story", "script", "retention"):
             self.calls[:] = []
             jobs._after_done({"kind": kind, "slug": "ep"}, lambda *a: None)
             self.assertEqual(self.calls, [], kind)

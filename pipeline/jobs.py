@@ -679,6 +679,212 @@ def _run_publish(slug, log, set_pct):
     set_pct(100)
 
 
+def _dispatch(prompt, log, set_pct, what):
+    """One headless session, streamed to the job log — the shared tail
+    every agent job used to copy by hand."""
+    import subprocess
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p", prompt,
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("%s session exited %d -- see the log"
+                           % (what, rc))
+
+
+def _run_retention(slug, log, set_pct):
+    """The first pass (P10): pacing flags waiting in the queue before
+    Caleb opens it. Auto-chained after assemble, so the guards keep it
+    cheap and polite: no cut or no proxies -> refuse; ANY human verdict
+    already on file -> refuse (first pass only — after that, re-review
+    is human territory and a session would be noise)."""
+    import json
+    work = work_path(slug)
+    if not (work / "edit_plan.json").exists():
+        raise RuntimeError("no cut yet")
+    if not any((work / "proxies").glob("BT*.mp4")) \
+            if (work / "proxies").is_dir() else True:
+        raise RuntimeError("no previews yet -- assemble first")
+    rv = work / "review.json"
+    if rv.exists():
+        entries = json.loads(rv.read_text())
+        if any(e.get("status") and e.get("by") != "retention-editor"
+               for e in entries.values()):
+            raise RuntimeError("humans are already reviewing -- the first "
+                               "pass only runs on a fresh cut")
+    log("[retention] dispatching the retention editor")
+    _dispatch(
+        "Run the retention pass on The Ninth Room episode %s. Read "
+        ".claude/agents/retention-editor.md and act as that agent (the "
+        "job-kind-retention section): read the cut and file pacing flags "
+        "into work/%s/review.json exactly in the desk's shape, never "
+        "touching an entry a human wrote. Do NOT touch DaVinci Resolve "
+        "or the engine on :8765." % (slug, slug),
+        log, set_pct, "retention")
+    set_pct(100)
+
+
+def _run_hook(slug, log, set_pct):
+    if not (work_path(slug) / "edit_plan.json").exists():
+        raise RuntimeError("no cut yet")
+    log("[hook] dispatching the hook doctor")
+    _dispatch(
+        "Doctor the hook of The Ninth Room episode %s. Read "
+        ".claude/agents/retention-editor.md and act as that agent's hook "
+        "doctor: score the cold open, pitch two alternates from existing "
+        "takes (cite take ids), write it as BT01's review note. Do NOT "
+        "touch DaVinci Resolve or the engine on :8765." % slug,
+        log, set_pct, "hook")
+    set_pct(100)
+
+
+def _run_qcgate(slug, log, set_pct):
+    """Mechanical ship gate (P10): MEASURED checks on the newest master —
+    no session, no vibes. Writes work/<slug>/qc_report.json; the Export
+    checklist renders the rows."""
+    import json
+    import re as re_mod
+    import subprocess
+    work = work_path(slug)
+    masters = sorted((work / "deliverables").glob("*.mp4")) \
+        if (work / "deliverables").is_dir() else []
+    masters = [m for m in masters if not m.name.startswith("_tmp")]
+    if not masters:
+        raise RuntimeError("no master yet -- render first")
+    m = masters[-1]
+    rows = []
+    set_pct(10)
+    # duration vs the assembled timeline
+    tl_p = work / "analysis" / "timeline_map.json"
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json",
+         "-show_format", "-show_streams", str(m)],
+        capture_output=True, text=True, timeout=120)
+    info = json.loads(probe.stdout or "{}")
+    dur = float(info.get("format", {}).get("duration", 0) or 0)
+    vstream = next((st for st in info.get("streams", [])
+                    if st.get("codec_type") == "video"), {})
+    if tl_p.exists():
+        tl = json.loads(tl_p.read_text())
+        want = max((b["record_e"] for b in tl.get("beats", [])), default=0)
+        ok = abs(dur - want) < 2.0
+        rows.append({"id": "qc_duration", "label": "Master length matches "
+                     "the cut", "ok": ok,
+                     "detail": "%.1fs vs %.1fs planned" % (dur, want)})
+    rows.append({"id": "qc_resolution", "label": "Resolution",
+                 "ok": int(vstream.get("width", 0)) >= 1920,
+                 "detail": "%sx%s" % (vstream.get("width"),
+                                      vstream.get("height"))})
+    set_pct(40)
+    # loudness: broadcast-ish window for YouTube (-16 +/- 3 LUFS)
+    loud = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-i", str(m), "-map", "a",
+         "-af", "ebur128", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=1800)
+    mI = re_mod.findall(r"I:\s+(-?[\d.]+) LUFS", loud.stderr)
+    if mI:
+        lufs = float(mI[-1])
+        rows.append({"id": "qc_loudness", "label": "Loudness",
+                     "ok": -19.0 <= lufs <= -13.0,
+                     "detail": "%.1f LUFS (target -16 +/- 3)" % lufs})
+    set_pct(80)
+    # dead air / black at the head (a broken conform's classic tell)
+    black = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-t", "5", "-i", str(m),
+         "-vf", "blackdetect=d=1.0", "-an", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=300)
+    rows.append({"id": "qc_head", "label": "No black at the head",
+                 "ok": "black_start:0" not in black.stderr,
+                 "detail": ("opens on black" if "black_start:0"
+                            in black.stderr else "picture from frame one")})
+    report = {"master": m.name, "ts": int(time.time()), "rows": rows}
+    _write = work / "qc_report.json"
+    tmp = _write.with_suffix(".tmp")
+    tmp.write_text(json.dumps(report, indent=2))
+    os.replace(tmp, _write)
+    bad = [r for r in rows if not r["ok"]]
+    log("[qc] %d checks, %d failing" % (len(rows), len(bad)))
+    set_pct(100)
+
+
+def _run_perf(slug, log, set_pct):
+    """Channel-level (slug ignored like scout): the analyst reads the
+    stats drop and writes insights.json for the Ideas desk."""
+    stats = work_path("_channel") / "stats"
+    if not stats.is_dir() or not any(stats.glob("*.csv")):
+        raise RuntimeError("no stats yet -- export CSVs from YouTube "
+                           "Studio into work/_channel/stats/")
+    log("[perf] dispatching the performance analyst")
+    _dispatch(
+        "Analyze the channel stats for The Ninth Room. Read "
+        ".claude/agents/performance-analyst.md and act as that agent "
+        "(the YouTube export drop contract): read work/_channel/stats/, "
+        "write work/_channel/insights.json in the specified shape. Do "
+        "NOT touch DaVinci Resolve or the engine on :8765.",
+        log, set_pct, "perf")
+    if not (work_path("_channel") / "insights.json").exists():
+        raise RuntimeError("session finished but insights.json was not "
+                           "written -- read the log")
+    set_pct(100)
+
+
+def _run_retro(slug, log, set_pct):
+    work = work_path(slug)
+    masters = sorted((work / "deliverables").glob("*.mp4")) \
+        if (work / "deliverables").is_dir() else []
+    if not masters:
+        raise RuntimeError("nothing shipped yet -- the retro follows the "
+                           "publish")
+    stats = work_path("_channel") / "stats"
+    if not stats.is_dir() or not any(stats.glob("*.csv")):
+        raise RuntimeError("no stats yet -- export CSVs from YouTube "
+                           "Studio into work/_channel/stats/")
+    log("[retro] dispatching the episode retro")
+    _dispatch(
+        "Run the retro for The Ninth Room episode %s. Read "
+        ".claude/agents/episode-retro.md and act as that agent. Do NOT "
+        "touch DaVinci Resolve or the engine on :8765." % slug,
+        log, set_pct, "retro")
+    set_pct(100)
+
+
+def _run_diagnose(slug, log, set_pct, arg=None):
+    """The pipeline doctor: reads a FAILED job's log and writes the
+    one-sentence cause. `arg` is the failed job's id."""
+    jid = arg or ""
+    target = _jobs.get(jid)
+    if target is None or target.get("state") != "failed":
+        raise RuntimeError("diagnose wants a FAILED job id")
+    log_path = LOG_DIR / ("%s.log" % jid)
+    if not log_path.exists():
+        raise RuntimeError("that job left no log")
+    log("[doctor] dispatching on %s (%s)" % (jid, target.get("kind")))
+    _dispatch(
+        "A Ninth Room engine job failed. Read "
+        ".claude/agents/pipeline-doctor.md and act as that agent. The "
+        "job: kind=%s slug=%s. Its log: %s. Write "
+        "work/%s/diagnosis.md with the one-sentence cause on line 1. "
+        "Fix only what the brief calls safely fixable."
+        % (target.get("kind"), slug, log_path, slug),
+        log, set_pct, "diagnose")
+    d = work_path(slug) / "diagnosis.md"
+    if d.exists():
+        first = d.read_text().strip().splitlines()
+        if first:
+            _update(jid, error=(target.get("error", "") or "")[:120]
+                    + " · doctor: " + first[0][:150])
+            _notify("Diagnosis", first[0][:160])
+    set_pct(100)
+
+
 # Labels are user-facing (tray, notifications): desk vocabulary — clip,
 # preview, render — never internal jargon (P1 copy pass, 2026-08-23).
 KINDS = {
@@ -697,6 +903,14 @@ KINDS = {
     "rendercards": ("Render all cards", _run_rendercards),
     "publish": ("Publish package — titles, description, tags",
                 _run_publish),
+    "retention": ("Retention pass — pacing flags before you review",
+                  _run_retention),
+    "hook": ("Hook doctor — score the cold open, pitch alternates",
+             _run_hook),
+    "qcgate": ("QC the master — measured ship checks", _run_qcgate),
+    "perf": ("Analyze channel stats", _run_perf),
+    "retro": ("Episode retro — lessons into Ideas", _run_retro),
+    "diagnose": ("Diagnose a failed job", _run_diagnose),
 }
 
 # Mechanical followers. A creative decision stays a button; everything
@@ -706,6 +920,10 @@ CHAIN = {
     "editplan": "assemble",
     "graphics": "reproxy",
     "snapcuts": "assemble",
+    # the one auto-dispatched session, by explicit P10 decision: the
+    # retention pass runs on a FRESH cut only — its own guards refuse
+    # (politely, as a logged chain skip) once any human verdict exists
+    "assemble": "retention",
 }
 
 
@@ -811,7 +1029,11 @@ def _worker():
         log = _job_log(jid)
         try:
             _, fn = KINDS[job["kind"]]
-            fn(job["slug"], log, lambda p: _update(jid, pct=int(p)))
+            if job.get("arg"):
+                fn(job["slug"], log, lambda p: _update(jid, pct=int(p)),
+                   arg=job["arg"])
+            else:
+                fn(job["slug"], log, lambda p: _update(jid, pct=int(p)))
             _update(jid, state="done", pct=100, ended_ts=int(time.time()))
             _notify("%s — done" % KINDS[job["kind"]][0].split(" — ")[0],
                     job["slug"])
@@ -828,7 +1050,7 @@ def _worker():
                     "%s: %s" % (job["slug"], str(e)[:140]))
 
 
-def start(kind: str, slug: str) -> "dict":
+def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
     if kind not in KINDS:
         raise JobError("unknown job kind '%s'" % kind)
     if not (work_path(slug)).is_dir():
@@ -869,6 +1091,8 @@ def start(kind: str, slug: str) -> "dict":
         job = {"id": jid, "kind": kind, "slug": slug,
                "label": KINDS[kind][0], "state": "queued", "pct": 0,
                "note": "", "queued_ts": int(time.time())}
+        if arg:
+            job["arg"] = str(arg)
         _jobs[jid] = job
         _order.append(jid)
         _persist()

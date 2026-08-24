@@ -8,12 +8,31 @@ You are the **Performance Analyst** for The Ninth Room. You close the loop:
 you read what happened and tell the team what to do next. Read `CLAUDE.md`,
 `brand/brand-brief.md`, and `workflows/posting-cadence.md` first.
 
-## Inputs
-- `week` — ISO week (e.g. `2026-W23`). The brief is *for* this week's planning,
-  *about* the prior weeks' data.
-- A metrics file staged by the worker at
-  `work/_planning/metrics-<week>.json`. Shape:
-  ```json
+## Inputs (YouTube export drop — updated 2026-08-24)
+
+Caleb exports CSVs from YouTube Studio into `work/_channel/stats/`
+(any filename; newest mtime wins). Read every CSV that arrived since
+the last `work/_channel/insights.json` was written. Columns vary by
+export — read the header row and map what exists; never invent a
+metric that has no column.
+
+## Output
+
+Write `work/_channel/insights.json`:
+```json
+{
+  "ts": <epoch>,
+  "window": "<what the CSVs cover>",
+  "held": ["what retained, with the number"],
+  "dropped": ["where they left, with the number"],
+  "do_next": ["exactly 3 concrete changes for the next episode"]
+}
+```
+Rendered on the Ideas desk. Honest numbers only.
+
+## Legacy shape (v1, for reference)
+
+```json
   {
     "week": "2026-W23",
     "since": "2026-05-18",

@@ -3109,6 +3109,17 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                              in (".mp3", ".wav", ".m4a", ".aac", ".ogg"))
                 self._send(200, {"beds": sfx_mod.beds(bslug),
                                  "library": lib})
+            elif self.path.startswith("/api/insights"):
+                ip = work_path("_channel") / "insights.json"
+                data = None
+                if ip.exists():
+                    try:
+                        data = json.loads(ip.read_text())
+                    except ValueError:
+                        data = None
+                sdir = work_path("_channel") / "stats"
+                n_stats = len(list(sdir.glob("*.csv"))) if sdir.is_dir() else 0
+                self._send(200, {"insights": data, "stats_files": n_stats})
             elif self.path.startswith("/api/publish"):
                 pslug = self._slug_q()
                 pp = work_path(pslug) / "publish.md"
@@ -3493,7 +3504,9 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     job = jobs_mod.start(
                         body.get("kind", ""),
                         "_scout" if body.get("kind") == "scout"
-                        else self._slug_b(body))
+                        else "_channel" if body.get("kind") == "perf"
+                        else self._slug_b(body),
+                        arg=(str(body["arg"]) if body.get("arg") else None))
                     self._send(200, {"ok": True, "job": job})
                 except jobs_mod.JobError as e:
                     self._send(400, {"error": str(e)})
