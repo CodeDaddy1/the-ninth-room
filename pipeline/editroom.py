@@ -391,6 +391,10 @@ def _broll_detach(slug: str, beat_id: str, clip_id: str, at: float,
     proxy_mod.build(slug, only_beats=[beat_id], log=log)
     _conform_append(slug, "broll_remove", beat_id, gone)
     _mark_edited(slug, beat_id)
+    _trash_add(slug, "broll", {
+        "beat_id": beat_id, "clip_id": clip_id,
+        "at": round(gone["record_s"] - beat["record_s"], 3),
+        "duration": gone.get("duration"), "src_s": gone.get("src_s", 0)})
     return gone
 
 
@@ -432,6 +436,19 @@ def _trash_restore(slug: str, ts: int, kind: str) -> "dict":
                                  float(entry.get("at", 0)),
                                  float(entry["duration"]),
                                  float(entry.get("src_s", 0)))
+    elif kind == "custom_card":
+        card = entry["card"]
+        custom = _load_custom(slug)
+        if any(c["id"] == card["id"] for c in custom["overlays"]):
+            raise IngestError("a card with id %s exists again — restore "
+                              "would collide" % card["id"])
+        custom["overlays"].append(card)
+        from . import schemas
+        errs = schemas.validate_custom_overlays(custom)
+        if errs:
+            raise IngestError("cannot restore %s: %s" % (card["id"], errs[0]))
+        _write_custom(slug, custom)
+        restored = card
     elif kind == "card":
         card = entry["card"]
         with _PLAN_LOCK:
@@ -444,8 +461,15 @@ def _trash_restore(slug: str, ts: int, kind: str) -> "dict":
                                   "would collide" % card["id"])
             plan["cards"].append(card)
             from . import schemas
-            errs = [e for e in schemas.validate_graphics_plan(plan)
-                    if card["id"] in e]
+            # validate WITH the edit plan (a beat-less call skips the
+            # unknown-beat check entirely) and filter by id AND position:
+            # "unknown beat" errors name cards[N], never the card id —
+            # both gaps found by test_surgery, both restored invalid cards
+            ep_path = work / "edit_plan.json"
+            ep = json.loads(ep_path.read_text()) if ep_path.exists() else None
+            where = "cards[%d]" % (len(plan["cards"]) - 1)
+            errs = [e for e in schemas.validate_graphics_plan(plan, ep)
+                    if card["id"] in e or where in e]
             if errs:
                 raise IngestError("cannot restore %s: %s"
                                   % (card["id"], errs[0]))
@@ -1197,8 +1221,11 @@ def _delete_overlay_locked(slug, card_id):
     custom = _load_custom(slug)
     keep = [c for c in custom["overlays"] if c["id"] != card_id]
     if len(keep) != len(custom["overlays"]):
+        gone_c = [c for c in custom["overlays"] if c["id"] == card_id]
         custom["overlays"] = keep
         _write_custom(slug, custom)
+        if gone_c:
+            _trash_add(slug, "custom_card", {"card": gone_c[0]})
         source = "custom"
     else:
         gp_path = work_path(slug) / "graphics_plan.json"
@@ -1215,6 +1242,8 @@ def _delete_overlay_locked(slug, card_id):
         removed.setdefault("removed_from_plan", []).extend(
             dict(c, removed_ts=int(time.time())) for c in gone)
         _write_json(rm_path, removed)
+        if gone:
+            _trash_add(slug, "card", {"card": gone[0]})
         source = "plan"
     with _BAKE_LOCK:
         # same lock as _export_overlay's sidecar writes — two different
@@ -2648,6 +2677,12 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, _state(self._slug_q()))
             elif self.path.startswith("/api/overlays"):
                 self._send(200, _overlays_state(self._slug_q()))
+            elif self.path.startswith("/api/beat/alternates"):
+                qs = self._qs()
+                self._send(200, {"alternates": _beat_alternates(
+                    self._slug_q(), qs.get("beat_id", [""])[0])})
+            elif self.path.startswith("/api/trash"):
+                self._send(200, {"entries": _trash_list(self._slug_q())})
             elif self.path.startswith("/api/captions"):
                 self._send(200, _captions_state(self._slug_q()))
             elif self.path.startswith("/api/story"):
@@ -2929,6 +2964,19 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                       float(body.get("duration", 4)),
                                       float(body.get("src_s", 0)), log=log)
                 self._send(200, {"ok": True, "placed": entry})
+            elif self.path == "/api/beat/swap":
+                out = _beat_swap(self._slug_b(body), body.get("beat_id", ""),
+                                 body.get("take_id", ""))
+                self._send(200, dict(out, ok=True))
+            elif self.path == "/api/beat/trim":
+                out = _beat_trim(self._slug_b(body), body.get("beat_id", ""),
+                                 body.get("d_in", 0), body.get("d_out", 0))
+                self._send(200, dict(out, ok=True))
+            elif self.path == "/api/trash/restore":
+                restored = _trash_restore(self._slug_b(body),
+                                          int(body.get("ts", 0)),
+                                          str(body.get("kind", "")))
+                self._send(200, {"ok": True, "restored": restored})
             elif self.path == "/api/broll/remove":
                 rs = body.get("record_s")
                 gone = _broll_detach(self._slug_b(body), body["beat_id"],
