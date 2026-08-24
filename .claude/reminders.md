@@ -377,3 +377,13 @@ console settings, recordings, decisions). Check items off when done.
   voice-over, which is honest but leaves the brand promise resting on
   narration. One sentence said out loud, in the room, fixes it. Only you can
   shoot it.
+
+- [ ] **Shoot one plant shot for the ending, on the way in.** (added 2026-08-24,
+  from the `workflow-shakedown` edit plan.) The b-roll library for this shoot is
+  four clips and all four are the same thing: arriving at the butterfly center.
+  So the cut can `establish` (once, over the hook) and it can `process`, but it
+  has no honest `foretell` — nothing in the library plants what the ending pays
+  off, and the plan ships with one cover rather than a why invented to make the
+  count. The fix costs about ten seconds at the door: once you know what the
+  episode is likely to land on, grab a wide of it on the way IN, before anyone
+  reacts to it. Only you can shoot it.
