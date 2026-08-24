@@ -407,6 +407,34 @@ def _save_review(slug: str, beat_id: str, payload: "dict") -> None:
         _save_review_locked(slug, beat_id, payload)
 
 
+def _save_review_bulk(slug: str, beat_ids: "list", status: str) -> int:
+    """One write for a chapter sweep (P2, 2026-08-23). Deliberately only
+    fresh clips: a flagged clip was flagged for a reason and never rides
+    a bulk approve — clear it by hand or run the auto-fix."""
+    if status not in ("approved", "flagged"):
+        raise IngestError("bulk status must be approved or flagged")
+    if not isinstance(beat_ids, list) or not beat_ids             or not all(isinstance(b, str) for b in beat_ids):
+        raise IngestError("beat_ids must be a non-empty list of ids")
+    with _REVIEW_LOCK:
+        work = work_path(slug)
+        path = work / "review.json"
+        data = json.loads(path.read_text()) if path.exists() else {}
+        now = int(time.time())
+        touched = 0
+        for bid in beat_ids:
+            entry = data.get(bid, {})
+            if entry.get("status") in ("flagged", "reworked", "edited"):
+                continue
+            entry["status"] = status
+            entry["ts"] = now
+            data[bid] = entry
+            touched += 1
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, path)
+        return touched
+
+
 def _save_review_locked(slug: str, beat_id: str, payload: "dict") -> None:
     work = work_path(slug)
     path = work / "review.json"
@@ -2634,6 +2662,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     return
                 _save_review(bslug, body["beat_id"], body)
                 self._send(200, {"ok": True})
+            elif self.path == "/api/review/bulk":
+                touched = _save_review_bulk(self._slug_b(body),
+                                            body.get("beat_ids"),
+                                            body.get("status", ""))
+                self._send(200, {"ok": True, "touched": touched})
             elif self.path == "/api/overlay/html":
                 html = _preview_html(body["card"],
                                      int(body.get("w", 1920)),
