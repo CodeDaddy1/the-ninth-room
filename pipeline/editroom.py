@@ -922,6 +922,128 @@ from .checklist_kit import CHECKLIST_TEMPLATES as _CHECKLIST_TEMPLATES
 _KIT_TEMPLATES.update(_CHECKLIST_TEMPLATES)
 
 
+def _project_title(slug: str) -> str:
+    """The episode's human name (P6, 2026-08-24). Precedence: Caleb's
+    override (title.txt) -> the approved story option's title -> the
+    title-cased folder name. stories.json is overwritten per round, so an
+    approved id may not resolve — fall through, never guess."""
+    work = work_path(slug)
+    t = work / "title.txt"
+    if t.exists():
+        txt = t.read_text().strip()
+        if txt:
+            return txt[:120]
+    try:
+        fb = json.loads((work / "story_feedback.json").read_text())
+        rounds = fb.get("rounds", [])
+        choice = next((r.get("choice") for r in reversed(rounds)
+                       if r.get("decision") == "approve"), None)
+        if choice:
+            st = json.loads((work / "stories.json").read_text())
+            for o in st.get("options", []):
+                if o.get("id") == choice and o.get("title"):
+                    return str(o["title"])[:120]
+    except (OSError, ValueError):
+        pass
+    return slug.replace("-", " ").title()
+
+
+def _project_poster(slug: str) -> "str | None":
+    """poster.jpg beside the work files: the mid-frame of the first beat's
+    preview, generated once and reused (media-served, cache-busted by
+    mtime). Missing proxies mean no poster — never a placeholder file."""
+    work = work_path(slug)
+    poster = work / "poster.jpg"
+    if poster.exists():
+        return "poster.jpg?v=%d" % poster.stat().st_mtime
+    pdir = work / "proxies"
+    if not pdir.is_dir():
+        return None
+    prox = sorted(pdir.glob("BT*.mp4"))
+    if not prox:
+        return None
+    try:
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
+                        "-ss", "1.0", "-i", str(prox[0]),
+                        "-frames:v", "1", "-vf", "scale=640:-2",
+                        str(poster)], timeout=30, capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if poster.exists():
+        return "poster.jpg?v=%d" % poster.stat().st_mtime
+    return None
+
+
+def _dir_bytes(d: Path) -> int:
+    total = 0
+    if d.is_dir():
+        for f in d.rglob("*"):
+            try:
+                if f.is_file():
+                    total += f.stat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def _project_storage(slug: str) -> "dict":
+    work = work_path(slug)
+    return {"footage": _dir_bytes(work / "footage"),
+            "previews": (_dir_bytes(work / "proxies")
+                         + _dir_bytes(work / "captions")),
+            "renders": (_dir_bytes(work / "deliverables")
+                        + _dir_bytes(work / "exports"))}
+
+
+def _clean_stale_candidates(files_by_beat: "dict", live_ids: "set") -> "list":
+    """PURE selection for the clean verb (testable without a filesystem):
+    per live beat keep only the NEWEST preview file (the current one is
+    always the newest — proxy names change with the spec hash and the old
+    hash lingers); every file of a beat no longer in the cut goes."""
+    doomed = []
+    for bid, files in files_by_beat.items():
+        ordered = sorted(files, key=lambda f: f[1])  # (name, mtime)
+        if bid not in live_ids:
+            doomed.extend(name for name, _ in ordered)
+        else:
+            doomed.extend(name for name, _ in ordered[:-1])
+    return doomed
+
+
+def _clean_stale(slug: str, log=print) -> "dict":
+    """Delete superseded preview files. Exports are NOT touched: they are
+    immutable because Resolve may reference any of them (the Media Offline
+    rule) — preview files are ours alone."""
+    work = work_path(slug)
+    live = set()
+    tm = work / "analysis" / "timeline_map.json"
+    if tm.exists():
+        live = {b["id"] for b in json.loads(tm.read_text()).get("beats", [])}
+    pdir = work / "proxies"
+    by_beat: "dict" = {}
+    if pdir.is_dir():
+        for f in pdir.glob("BT*.mp4"):
+            bid = f.name.split(".")[0]
+            by_beat.setdefault(bid, []).append((f.name, f.stat().st_mtime))
+    doomed = _clean_stale_candidates(by_beat, live)
+    freed = 0
+    for name in doomed:
+        f = pdir / name
+        try:
+            freed += f.stat().st_size
+            f.unlink()
+        except OSError:
+            continue
+    # caption scratch dirs are re-creatable by construction
+    tmpdir = work / "captions" / "tmp"
+    if tmpdir.is_dir():
+        freed += _dir_bytes(tmpdir)
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    log("[clean] %s: %d files, %.1f MB freed"
+        % (slug, len(doomed), freed / 1e6))
+    return {"files": len(doomed), "bytes": freed}
+
+
 def _orientation(slug: str) -> str:
     p = analysis_dir(slug) / "timeline_map.json"
     if p.exists():
@@ -1650,6 +1772,9 @@ def _project_row(slug: str) -> "dict":
         except OSError:
             recut = False
     return {"slug": slug, "phase": phase, "next": nxt,
+            "title": _project_title(slug),
+            "poster": _project_poster(slug),
+            "storage": _project_storage(slug),
             "footage": len(footage), "ingested": ingested,
             "stories": bool(stories), "approved": approved,
             "recut_suggested": recut,
@@ -3117,6 +3242,29 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                       float(body.get("duration", 4)),
                                       float(body.get("src_s", 0)), log=log)
                 self._send(200, {"ok": True, "placed": entry})
+            elif self.path == "/api/project/title":
+                tslug = self._slug_b(body)
+                txt = str(body.get("title", "")).strip()[:120]
+                tp = work_path(tslug) / "title.txt"
+                if txt:
+                    tp.write_text(txt)
+                else:
+                    # empty reverts to the derived title
+                    tp.unlink(missing_ok=True)
+                log("[title] %s -> %r" % (tslug, txt or "(derived)"))
+                self._send(200, {"ok": True,
+                                 "title": _project_title(tslug)})
+            elif self.path == "/api/deliver/check":
+                cslug = self._slug_b(body)
+                sp = work_path(cslug) / "ship.json"
+                data = json.loads(sp.read_text()) if sp.exists() else {}
+                data["backup_confirmed"] = bool(body.get("ok"))
+                data["backup_ts"] = int(time.time())
+                _write_json(sp, data)
+                self._send(200, {"ok": True})
+            elif self.path == "/api/project/clean":
+                out = _clean_stale(self._slug_b(body), log=log)
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/caption/select":
                 out = _select_caption(self._slug_b(body),
                                       body.get("beat_id", ""),

@@ -27,6 +27,53 @@ def checklist(slug: str) -> "dict":
                           "detail": "not assembled yet — ingest, story, "
                                     "then Assemble", "fix": "/studio"}]}
 
+    # the TCC detector (P6, 2026-08-24): the engine tries actually READING
+    # one footage file — a revoked Desktop grant makes every mechanical
+    # stage fail with "Operation not permitted", and this row says so
+    # BEFORE a ship attempt discovers it (the hmns story)
+    fdir = work / "footage"
+    probe_ok, probe_detail = True, "no footage to probe"
+    files = sorted(f for f in fdir.iterdir()
+                   if f.is_file() and not f.name.startswith(".")) \
+        if fdir.is_dir() else []
+    if files:
+        # every file, not just the first: hmns mixes local files with
+        # Desktop symlinks and only the symlinked ones are TCC-blocked —
+        # a first-file probe would lie green
+        bad = None
+        for f in files:
+            try:
+                with open(f, "rb") as fh:
+                    fh.read(1024)
+            except OSError as e:
+                bad = (f.name, e.strerror or str(e))
+                break
+        if bad is None:
+            probe_ok, probe_detail = True, ("all %d files readable"
+                                            % len(files))
+        else:
+            probe_ok = False
+            probe_detail = ("cannot read %s (%s) — re-grant disk access "
+                            "to the engine in System Settings" % bad)
+    rows.append({"id": "footage_readable", "label": "Footage readable",
+                 "ok": probe_ok, "detail": probe_detail, "fix": None})
+
+    ship_p = work / "ship.json"
+    ship = {}
+    if ship_p.exists():
+        try:
+            ship = json.loads(ship_p.read_text())
+        except ValueError:
+            ship = {}
+    rows.append({"id": "backup", "label": "Footage + work backed up",
+                 "ok": bool(ship.get("backup_confirmed")),
+                 "detail": ("confirmed %s" % time.strftime(
+                     "%Y-%m-%d", time.localtime(ship.get("backup_ts", 0)))
+                     if ship.get("backup_confirmed")
+                     else "62GB of a shot day has no second copy until "
+                          "you make one — check this off when it does"),
+                 "fix": None, "manual": True})
+
     stale = conform_mod._stale_cards(slug)
     pend = editroom._conform_pending(slug)
     cstate = conform_mod.status(slug).get("state")
