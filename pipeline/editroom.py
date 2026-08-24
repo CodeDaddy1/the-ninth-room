@@ -1966,6 +1966,55 @@ def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
 _FAV_LOCK = threading.Lock()
 
 
+def _search_all(q: str, limit: int = 40) -> "list":
+    """Cross-episode transcript + b-roll search (P7, 2026-08-24): "that
+    time Sofia said the thing about the octopus" -> the exact take,
+    playable. Case-insensitive substring over every live project's
+    analysis — the corpus is small enough that honesty beats indexing."""
+    q = (q or "").strip().lower()
+    if len(q) < 2:
+        raise IngestError("search needs at least two characters")
+    hits = []
+    for d in sorted(work_path("x").parent.iterdir()):
+        if not d.is_dir() or d.name.startswith("_"):
+            continue
+        slug = d.name
+        title = _project_title(slug)
+        tk = d / "analysis" / "takes.json"
+        if tk.exists():
+            try:
+                takes = json.loads(tk.read_text()).get("takes", [])
+            except ValueError:
+                takes = []
+            for t in takes:
+                txt = (t.get("transcript") or "")
+                if q in txt.lower():
+                    hits.append({"slug": slug, "title": title,
+                                 "kind": "take", "id": t.get("id"),
+                                 "file": t.get("file"),
+                                 "s": t.get("s"), "e": t.get("e"),
+                                 "text": txt[:220]})
+                    if len(hits) >= limit:
+                        return hits
+        br = d / "analysis" / "broll.json"
+        if br.exists():
+            try:
+                clips = json.loads(br.read_text()).get("clips", [])
+            except ValueError:
+                clips = []
+            for c in clips:
+                desc = (c.get("description") or "")
+                if q in desc.lower():
+                    hits.append({"slug": slug, "title": title,
+                                 "kind": "broll", "id": c.get("id"),
+                                 "file": c.get("file"),
+                                 "s": 0, "e": c.get("duration"),
+                                 "text": desc[:220]})
+                    if len(hits) >= limit:
+                        return hits
+    return hits
+
+
 def _favorites(slug: str) -> "list":
     f = work_path(slug) / "favorites.json"
     if not f.exists():
@@ -2961,6 +3010,10 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     self._slug_q(), qs.get("beat_id", [""])[0])})
             elif self.path.startswith("/api/trash"):
                 self._send(200, {"entries": _trash_list(self._slug_q())})
+            elif self.path.startswith("/api/search"):
+                qs = self._qs()
+                self._send(200, {"hits": _search_all(
+                    qs.get("q", [""])[0])})
             elif self.path.startswith("/api/captions"):
                 self._send(200, _captions_state(self._slug_q()))
             elif self.path.startswith("/api/story"):
