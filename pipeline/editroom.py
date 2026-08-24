@@ -567,6 +567,8 @@ _KIT_TEMPLATES = {
 # picker and hover previews already read
 from .vfx_kit import VFX_TEMPLATES as _VFX_TEMPLATES
 _KIT_TEMPLATES.update(_VFX_TEMPLATES)
+from .checklist_kit import CHECKLIST_TEMPLATES as _CHECKLIST_TEMPLATES
+_KIT_TEMPLATES.update(_CHECKLIST_TEMPLATES)
 
 
 def _orientation(slug: str) -> str:
@@ -788,13 +790,14 @@ def _kit_groups() -> "list":
         "Outro": ["takeaway", "next_room", "outro"],
     }
     from .vfx_kit import VFX_GROUPS
-    for g in VFX_GROUPS:
+    from .checklist_kit import CHECKLIST_GROUPS
+    for g in VFX_GROUPS + CHECKLIST_GROUPS:
         named[g["title"]] = g["kits"]
     claimed = {k for ks in named.values() for k in ks}
     groups = [{"title": "Overlays",
                "kits": [k for k in _KIT_TEMPLATES if k not in claimed]}]
-    for title in ("Engagement", "Memes", "Effects", "Transitions",
-                  "Cut furniture", "Outro"):
+    for title in ("Engagement", "Checklist & map", "Memes", "Effects",
+                  "Transitions", "Cut furniture", "Outro"):
         kits = [k for k in named[title] if k in _KIT_TEMPLATES]
         if kits:
             groups.append({"title": title, "kits": kits})
