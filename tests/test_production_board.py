@@ -36,9 +36,9 @@ def rounds_to_card(*score_rounds):
     events = [ev("assigned", "lead", task_id="T1", craft="coverage",
                  title="cover the cut")]
     for i, scores in enumerate(score_rounds):
-        events.append(ev("claimed", "engine", task_id="T1", owner="cov",
+        events.append(ev("claimed", "lead", task_id="T1", owner="cov",
                          ts=1000 + i))
-        events.append(ev("artifact_submitted", "engine", task_id="T1",
+        events.append(ev("artifact_submitted", "lead", task_id="T1",
                          artifact="plan.json", ts=1001 + i))
         for line, sc in scores.items():
             events.append(ev("score", "lead", task_id="T1", line_id=line,
@@ -67,7 +67,7 @@ class WriterClasses(unittest.TestCase):
         errs = schemas.validate_production({"events": [
             ev("assigned", "lead", task_id="T1", craft="coverage",
                title="t"),
-            ev("claimed", "engine", task_id="T1", owner="cov"),
+            ev("claimed", "lead", task_id="T1", owner="cov"),
             ev("score", "lead", task_id="T1", line_id="R1", score=5),
             ev("caleb_note", "caleb", task_id="T1", text="looser"),
         ]})
@@ -123,16 +123,16 @@ class FoldAndReap(unittest.TestCase):
     def test_a_stale_claim_reaps_and_a_fresh_one_does_not(self):
         events = [
             ev("assigned", "lead", task_id="T1", craft="c", title="t"),
-            ev("claimed", "engine", task_id="T1", owner="x", ts=1000),
+            ev("claimed", "lead", task_id="T1", owner="x", ts=1000),
             ev("assigned", "lead", task_id="T2", craft="c", title="t"),
-            ev("claimed", "engine", task_id="T2", owner="y", ts=99000),
+            ev("claimed", "lead", task_id="T2", owner="y", ts=99000),
         ]
         cards = schemas.fold_production(events)
         self.assertEqual(schemas.stale_claims(cards, now=100000), ["T1"])
 
     def test_a_reclaim_reopens(self):
         events = [ev("assigned", "lead", task_id="T1", craft="c", title="t"),
-                  ev("claimed", "engine", task_id="T1", owner="x"),
+                  ev("claimed", "lead", task_id="T1", owner="x"),
                   ev("reclaimed", "engine", task_id="T1")]
         card = schemas.fold_production(events)["tasks"]["T1"]
         self.assertEqual(card["status"], "open")

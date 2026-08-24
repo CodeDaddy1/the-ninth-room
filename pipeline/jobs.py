@@ -885,6 +885,94 @@ def _run_diagnose(slug, log, set_pct, arg=None):
     set_pct(100)
 
 
+def _dispatch_json(prompt, log, set_pct, what):
+    """A headless session via stream-json: assistant text is teed to the
+    job log LIVE, and the final result event's usage comes back — the
+    token/cost numbers the board's cost events need (probed 2026-08-24:
+    input/output/cache tokens, total_cost_usd, durations all present)."""
+    import json as _json
+    import subprocess
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p", prompt,
+         "--output-format", "stream-json", "--verbose",
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    usage = {}
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = _json.loads(line)
+        except ValueError:
+            log(line)
+            continue
+        etype = ev.get("type")
+        if etype == "assistant":
+            for block in (ev.get("message") or {}).get("content", []):
+                if block.get("type") == "text" and block.get("text"):
+                    for tl in block["text"].splitlines():
+                        if tl.strip():
+                            log(tl)
+        elif etype == "result":
+            usage = {"tokens": ((ev.get("usage") or {}).get("input_tokens", 0)
+                                + (ev.get("usage") or {}).get(
+                                    "output_tokens", 0)),
+                     "usd": ev.get("total_cost_usd", 0),
+                     "ms": ev.get("duration_ms", 0)}
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("%s session exited %d -- see the log"
+                           % (what, rc))
+    return usage
+
+
+def _run_room(slug, log, set_pct):
+    """One stage of the production room (team plan P1): reap dead claims,
+    dispatch the showrunner as Team Lead, bill the run onto the board,
+    and refuse to accept an invalid event log back."""
+    import json as _json
+    from . import board
+    if not (work_path(slug) / "footage").is_dir() \
+            and not (work_path(slug) / "edit_plan.json").exists():
+        raise RuntimeError("nothing to produce yet -- add footage first")
+    reaped = board.reap(slug, log=log)
+    if reaped:
+        log("[room] %d task(s) re-opened before convening" % len(reaped))
+    log("[room] dispatching the showrunner")
+    usage = _dispatch_json(
+        "Run the current stage of The Ninth Room episode %s as its "
+        "showrunner. Read .claude/agents/showrunner.md and act as that "
+        "agent: the board is work/%s/production.json; the arithmetic "
+        "checker verb is `/usr/bin/python3 -m pipeline.cli board-check "
+        "%s <task_id> <craft>`; teammate scorecards go to the path "
+        "`/usr/bin/python3 -m pipeline.cli scorecard-path %s <task_id>` "
+        "prints. Stop at the stage boundary or a human gate. Do NOT "
+        "touch DaVinci Resolve or the engine on :8765."
+        % (slug, slug, slug, slug),
+        log, set_pct, "room")
+    board.append(slug, [{"type": "cost", "by": "engine",
+                         "task_id": "_room",
+                         "tokens": usage.get("tokens", 0),
+                         "usd": usage.get("usd", 0),
+                         "ms": usage.get("ms", 0)}], expect_by="engine")
+    from . import schemas
+    errs = schemas.validate_production(board.read(slug))
+    if errs:
+        raise RuntimeError("the room left an invalid board: %s" % errs[0])
+    tasks = board.fold(slug).get("tasks", {})
+    states = {}
+    for card in tasks.values():
+        states[card["status"]] = states.get(card["status"], 0) + 1
+    log("[room] board: %s · %.2f USD this run"
+        % (", ".join("%d %s" % (v, k) for k, v in sorted(states.items()))
+           or "empty", usage.get("usd", 0)))
+    set_pct(100)
+
+
 def _run_coverage(slug, log, set_pct):
     """The b-roll pass (2026-08-24, Caleb: "supportive of the story, not
     a bombardment of noise"). Dispatch-and-verify with a MECHANICAL bar:
@@ -959,6 +1047,8 @@ KINDS = {
     "diagnose": ("Diagnose a failed job", _run_diagnose),
     "coverage": ("B-roll pass — covers that serve the story",
                  _run_coverage),
+    "room": ("Run the room — the showrunner convenes the stage",
+             _run_room),
 }
 
 # Mechanical followers. A creative decision stays a button; everything

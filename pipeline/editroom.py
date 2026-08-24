@@ -3150,6 +3150,12 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                              in (".mp3", ".wav", ".m4a", ".aac", ".ogg"))
                 self._send(200, {"beds": sfx_mod.beds(bslug),
                                  "library": lib})
+            elif self.path.startswith("/api/board"):
+                from . import board as board_mod
+                bslug = self._slug_q()
+                doc = board_mod.read(bslug)
+                self._send(200, {"events": doc.get("events", []),
+                                 "cards": board_mod.fold(bslug)})
             elif self.path.startswith("/api/insights"):
                 ip = work_path("_channel") / "insights.json"
                 data = None
@@ -3484,6 +3490,17 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 log("[title] %s -> %r" % (tslug, txt or "(derived)"))
                 self._send(200, {"ok": True,
                                  "title": _project_title(tslug)})
+            elif self.path == "/api/board/reply":
+                from . import board as board_mod
+                bslug = self._slug_b(body)
+                evd = {"type": "caleb_note", "by": "caleb",
+                       "task_id": str(body.get("task_id", "")),
+                       "text": str(body.get("text", ""))[:2000]}
+                # rev 3: the taste tap is human-labeled, never inferred
+                if body.get("taste_override"):
+                    evd["taste_override"] = str(body["taste_override"])[:120]
+                board_mod.append(bslug, [evd], expect_by="caleb")
+                self._send(200, {"ok": True})
             elif self.path == "/api/deliver/check":
                 cslug = self._slug_b(body)
                 sp = work_path(cslug) / "ship.json"

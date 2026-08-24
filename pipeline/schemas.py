@@ -756,14 +756,17 @@ STALL_VECTOR_ROUNDS = 3  # min AND sum both non-increasing (noisier signal,
 CLAIM_REAP_MIN = 30
 
 EVENT_CLASS = {
-    # engine-written
+    # engine-written: the outer dispatcher (cost, reclaimed) and the
+    # engine's OWN checker/brake code invoked as a CLI verb — the lead
+    # calls the verb but never authors these events
     "cost": "engine", "checker_result": "engine", "brake": "engine",
-    "reclaimed": "engine", "claimed": "engine",
-    "artifact_submitted": "engine", "calibration": "engine",
-    # lead-written
+    "reclaimed": "engine", "calibration": "engine",
+    # lead-written: the lead session is its teammates' only observer, so
+    # lifecycle events are its to append — one writer, no contention
     "assigned": "lead", "score": "lead", "note": "lead",
     "done": "lead", "blocked": "lead", "stage": "lead",
-    # Caleb's reply box
+    "claimed": "lead", "artifact_submitted": "lead",
+    # Caleb's reply box (appended by the engine on his behalf)
     "caleb_note": "caleb",
 }
 

@@ -82,6 +82,23 @@ def cmd_audit(args) -> int:
     return 1 if any(p["severe"] for p in problems) else 0
 
 
+def cmd_board_check(args) -> int:
+    """The lead's arithmetic verb: engine code runs the craft's bar and
+    appends checker_result (+ brake when a stall trips). The lead calls
+    this but never authors engine-class events itself."""
+    from . import board
+    notes = board.run_checker(args.slug, args.task_id, args.craft)
+    for x in notes:
+        print(x)
+    return 0
+
+
+def cmd_scorecard_path(args) -> int:
+    from . import board
+    print(board.scorecard_path(args.slug, args.task_id))
+    return 0
+
+
 def cmd_snap_cuts(args) -> int:
     from . import snap_cuts
     snap_cuts.snap(args.slug)
@@ -285,6 +302,17 @@ def main(argv=None) -> int:
     p.add_argument("slug")
     p.set_defaults(fn=cmd_audit)
 
+    p = sub.add_parser("board-check",
+                       help="run a craft's arithmetic bar; append the result")
+    p.add_argument("slug")
+    p.add_argument("task_id")
+    p.add_argument("craft")
+    p.set_defaults(fn=cmd_board_check)
+    p = sub.add_parser("scorecard-path",
+                       help="print the out-of-tree scorecard path for a task")
+    p.add_argument("slug")
+    p.add_argument("task_id")
+    p.set_defaults(fn=cmd_scorecard_path)
     p = sub.add_parser("snap-cuts", help="snap explicit cut edges to acoustic silence")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_snap_cuts)
