@@ -738,3 +738,189 @@ def validate_words(data: "list[Any]") -> "list[str]":
                 errors.append(where + ": starts %.2fs before previous word ends" % (prev_end - w["s"]))
             prev_end = max(prev_end, float(w["e"]))
     return errors
+
+
+# --- the production board (team plan P1, 2026-08-24) ------------------------
+# Append-only event log per episode (work/<slug>/production.json), ONE
+# writer per event class: the ENGINE appends cost/checker_result/brake/
+# reclaimed, the LEAD appends assigned/score/note/done/blocked, Caleb's
+# reply box appends caleb_note, and TEAMMATE lifecycle events (claimed/
+# artifact_submitted) are appended by the engine on the teammate's behalf
+# — teammates never touch the file. Cards are fold_production(events):
+# one pure function shared by the engine routes and the Studio desk.
+
+RUBRIC_BAR = 4          # a line at or above this is clean
+STALL_LINE_ROUNDS = 2   # same line below bar AND non-increasing
+STALL_VECTOR_ROUNDS = 3  # min AND sum both non-increasing (noisier signal,
+                         # looser window — Caleb's review, rev 3)
+CLAIM_REAP_MIN = 30
+
+EVENT_CLASS = {
+    # engine-written
+    "cost": "engine", "checker_result": "engine", "brake": "engine",
+    "reclaimed": "engine", "claimed": "engine",
+    "artifact_submitted": "engine", "calibration": "engine",
+    # lead-written
+    "assigned": "lead", "score": "lead", "note": "lead",
+    "done": "lead", "blocked": "lead", "stage": "lead",
+    # Caleb's reply box
+    "caleb_note": "caleb",
+}
+
+
+def validate_production(doc: "dict[str, Any]") -> "list[str]":
+    """Event shapes + the one-writer-per-class rule. A lead-class event
+    claiming the engine writer (or vice versa) is refused — contention is
+    prevented by construction, not by locks."""
+    errors: "list[str]" = []
+    if not isinstance(doc, dict) or not isinstance(doc.get("events"), list):
+        return ["production: not an event document"]
+    for i, e in enumerate(doc["events"]):
+        where = "events[%d]" % i
+        if not isinstance(e, dict):
+            errors.append(where + ": not an object")
+            continue
+        etype = e.get("type")
+        if etype not in EVENT_CLASS:
+            errors.append("%s: unknown type %r" % (where, etype))
+            continue
+        if e.get("by") != EVENT_CLASS[etype]:
+            errors.append("%s: %s events are %s-written, got by=%r"
+                          % (where, etype, EVENT_CLASS[etype], e.get("by")))
+        if not isinstance(e.get("ts"), (int, float)):
+            errors.append(where + ": missing ts")
+        if etype != "stage" and not e.get("task_id"):
+            errors.append("%s: %s needs a task_id" % (where, etype))
+        if etype == "score":
+            if not e.get("line_id"):
+                errors.append(where + ": score needs its rubric line_id")
+            sc = e.get("score")
+            if not isinstance(sc, (int, float)) or not 1 <= sc <= 5:
+                errors.append(where + ": score must be 1-5")
+            elif sc <= 3 and not str(e.get("quoted_artifact_line",
+                                           "")).strip():
+                errors.append("%s: a score of %d must quote the artifact "
+                              "line that earned it" % (where, sc))
+        if etype == "assigned" and not (e.get("craft") and e.get("title")):
+            errors.append(where + ": assigned needs craft and title")
+    return errors
+
+
+def fold_production(events: "list") -> "dict":
+    """events -> cards. THE view: engine routes and the Studio desk both
+    render this fold, so they can never disagree about a card."""
+    tasks: "dict[str, dict]" = {}
+    stage = None
+    for e in events:
+        etype = e.get("type")
+        if etype == "stage":
+            stage = e.get("name")
+            continue
+        tid = e.get("task_id")
+        if not tid:
+            continue
+        card = tasks.setdefault(tid, {
+            "id": tid, "stage": stage, "craft": None, "title": None,
+            "status": "open", "owner": None, "rounds": 0,
+            "notes": [], "score_history": [], "cost": {
+                "sessions": 0, "tokens": 0, "usd": 0.0, "ms": 0},
+            "claimed_ts": None, "artifact": None,
+            "brake": None, "checker": None,
+        })
+        if etype == "assigned":
+            card.update(craft=e.get("craft"), title=e.get("title"),
+                        stage=e.get("stage", stage), status="open")
+        elif etype == "claimed":
+            card.update(status="claimed", owner=e.get("owner"),
+                        claimed_ts=e.get("ts"))
+        elif etype == "reclaimed":
+            card.update(status="open", owner=None, claimed_ts=None)
+        elif etype == "artifact_submitted":
+            card.update(status="in_review", artifact=e.get("artifact"))
+            card["rounds"] += 1
+        elif etype == "score":
+            # scores land per round: the round index is rounds-1
+            while len(card["score_history"]) < card["rounds"]:
+                card["score_history"].append({})
+            if card["rounds"] > 0:
+                card["score_history"][card["rounds"] - 1][e["line_id"]] = \
+                    e.get("score")
+        elif etype in ("note", "caleb_note"):
+            card["notes"].append({"from": e.get("by"),
+                                  "text": e.get("text", ""),
+                                  "taste_override": e.get("taste_override"),
+                                  "ts": e.get("ts")})
+            if etype == "note":
+                card["status"] = "revising"
+        elif etype == "done":
+            card["status"] = "done"
+        elif etype == "blocked":
+            card["status"] = "blocked"
+        elif etype == "brake":
+            card.update(status="blocked", brake=e.get("reason"))
+        elif etype == "checker_result":
+            card["checker"] = {"name": e.get("name"),
+                               "notes": e.get("notes", [])}
+        elif etype == "cost":
+            c = card["cost"]
+            c["sessions"] += 1
+            c["tokens"] += int(e.get("tokens", 0) or 0)
+            c["usd"] += float(e.get("usd", 0) or 0)
+            c["ms"] += int(e.get("ms", 0) or 0)
+    return {"stage": stage, "tasks": tasks}
+
+
+def stalled(card: "dict") -> "str | None":
+    """The two structural brakes, exactly as locked in the plan:
+
+    - same line_id below bar AND non-increasing across
+      STALL_LINE_ROUNDS consecutive rounds (a converging line — 1 then 3
+      — must NOT trip; the stuck 2,2 fires);
+    - the score VECTOR non-improving across STALL_VECTOR_ROUNDS
+      consecutive rounds, where non-improving is testable: min AND sum
+      both non-increasing round over round.
+    """
+    hist = [h for h in card.get("score_history", []) if h]
+    if len(hist) >= STALL_LINE_ROUNDS:
+        window = hist[-STALL_LINE_ROUNDS:]
+        for line in window[0]:
+            scores = [h.get(line) for h in window]
+            if any(s is None for s in scores):
+                continue
+            below = all(s < RUBRIC_BAR for s in scores)
+            rising = any(b > a for a, b in zip(scores, scores[1:]))
+            if below and not rising:
+                return ("line %s below bar and not improving across %d "
+                        "rounds" % (line, STALL_LINE_ROUNDS))
+    if len(hist) >= STALL_VECTOR_ROUNDS:
+        window = hist[-STALL_VECTOR_ROUNDS:]
+        mins = [min(h.values()) for h in window]
+        sums = [sum(h.values()) for h in window]
+        min_flat = all(b <= a for a, b in zip(mins, mins[1:]))
+        sum_flat = all(b <= a for a, b in zip(sums, sums[1:]))
+        if min_flat and sum_flat:
+            return ("score vector not improving across %d rounds"
+                    % STALL_VECTOR_ROUNDS)
+    return None
+
+
+def stale_claims(cards: "dict", now: float,
+                 reap_min: int = CLAIM_REAP_MIN) -> "list[str]":
+    """Task ids whose claim outlived its teammate (a dead session) —
+    the room re-opens each with a `reclaimed` event."""
+    out = []
+    for tid, card in cards.get("tasks", {}).items():
+        if card.get("status") == "claimed" and card.get("claimed_ts") \
+                and now - card["claimed_ts"] > reap_min * 60:
+            out.append(tid)
+    return sorted(out)
+
+
+def artifact_has_self_assessment(text: str) -> bool:
+    """The anchoring leak check (rev 3): a teammate inlining its critique
+    into the artifact would hand the lead the scorecard through the front
+    door. Pure, deliberately blunt — headers or key phrases."""
+    low = (text or "").lower()
+    return any(marker in low for marker in (
+        "self-critique", "self critique", "scorecard", "self-assessment",
+        "self assessment", "my score", "i score myself", "rubric r"))
