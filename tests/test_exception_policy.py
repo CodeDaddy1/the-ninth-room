@@ -50,11 +50,18 @@ class RealWorkerPolicy(unittest.TestCase):
         (self.tmp / "x").mkdir()  # a slug dir so start()'s guard passes
         self._wp = jobs.work_path
         jobs.work_path = lambda slug: self.tmp / "x"
+        # JOBS_PATH is a module constant and _persist() reads it on every
+        # write: without this the suite's fake jobs land in the REAL store
+        # and the engine restores them into Caleb's activity tray on its
+        # next restart ("t_boom FAILED: deliberate"). Found live 2026-08-24.
+        self._jobs_path = jobs.JOBS_PATH
+        jobs.JOBS_PATH = self.tmp / "_jobs.json"
         self._chain = dict(jobs.CHAIN)
         self._added = []
         os.environ["NINTH_NOTIFY"] = "0"
 
     def tearDown(self):
+        jobs.JOBS_PATH = self._jobs_path
         for k in self._added:
             jobs.KINDS.pop(k, None)
         jobs.CHAIN.clear()
@@ -144,3 +151,59 @@ class RealWorkerPolicy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReproxyGuard(unittest.TestCase):
+    """A job whose precondition is missing refuses BEFORE it works.
+
+    The workflow shakedown (2026-08-24) ran reproxy on a project with no
+    cut: proxy.build raised a bare FileNotFoundError on
+    analysis/timeline_map.json at 5%, which reads like a code defect when
+    the honest answer is "there is no cut yet". Previews are per-BEAT, so
+    the cut is the precondition.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "analysis").mkdir(parents=True)
+        self._wp = jobs.work_path
+        jobs.work_path = lambda slug: self.tmp
+
+    def tearDown(self):
+        jobs.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_no_cut_refuses_with_a_sentence_not_a_traceback(self):
+        with self.assertRaises(jobs.JobError) as e:
+            jobs._run_reproxy("x", print, lambda p: None)
+        self.assertIn("no cut", str(e.exception))
+        self.assertIn("assemble", str(e.exception))
+
+    def test_a_cut_lets_it_through_to_the_builder(self):
+        (self.tmp / "analysis" / "timeline_map.json").write_text("{}")
+        reached = []
+        import pipeline.proxy as proxy_mod
+        real = proxy_mod.build
+        proxy_mod.build = lambda slug, log=None: reached.append(slug)
+        try:
+            jobs._run_reproxy("x", print, lambda p: None)
+        finally:
+            proxy_mod.build = real
+        self.assertEqual(reached, ["x"])
+
+
+class StoreIsolation(unittest.TestCase):
+    """The suite must never write the store the engine restores from."""
+
+    def test_the_real_job_store_is_never_the_test_store(self):
+        from pipeline.ingest import PROJECT_ROOT
+        real = PROJECT_ROOT / "work" / "_jobs.json"
+        self.assertEqual(jobs.JOBS_PATH, real,
+                         "a test leaked its JOBS_PATH stub past tearDown")
+        if real.exists():
+            import json as _json
+            doc = _json.loads(real.read_text())
+            rows = doc.get("jobs", []) if isinstance(doc, dict) else doc
+            fakes = [r for r in rows
+                     if str(r.get("kind", "")).startswith("t_")]
+            self.assertEqual(fakes, [], "test jobs are in the real store")

@@ -112,7 +112,15 @@ def _run_assemble(slug, log, set_pct):
 
 
 def _run_reproxy(slug, log, set_pct):
+    """Rebuild the review previews. Previews are per-BEAT, so this needs a
+    cut: `analysis/timeline_map.json` is assemble's output, and without it
+    proxy.build raised a bare FileNotFoundError at 5% (found by the
+    workflow shakedown, 2026-08-24) — a stack trace where the honest
+    answer is 'there is no cut yet'. Guards refuse BEFORE the work."""
     from . import proxy
+    if not (work_path(slug) / "analysis" / "timeline_map.json").exists():
+        raise JobError("no cut to rebuild previews for — assemble '%s' "
+                       "first" % slug)
     set_pct(5)
     proxy.build(slug, log=log)
     set_pct(100)
@@ -155,11 +163,7 @@ def _run_fixer(slug, log, set_pct):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, "fixer")
     if rc != 0:
         raise RuntimeError("fixer session exited %d — see the log" % rc)
     after = flagged()
@@ -267,11 +271,7 @@ def _run_story(slug, log, set_pct):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, "story")
     if rc != 0:
         raise RuntimeError("story session exited %d — see the log" % rc)
     after = stories_path.stat().st_mtime if stories_path.exists() else None
@@ -367,11 +367,7 @@ def _run_research(slug, log, set_pct):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, "research")
     if rc != 0:
         raise RuntimeError("research session exited %d -- see the log" % rc)
     after = out_p.stat().st_mtime if out_p.exists() else None
@@ -417,11 +413,7 @@ def _run_script(slug, log, set_pct):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, "script")
     if rc != 0:
         raise RuntimeError("script session exited %d -- see the log" % rc)
     if not script_path.exists():
@@ -487,11 +479,7 @@ def _run_graphics(slug, log, set_pct):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, "graphics")
     if rc != 0:
         raise RuntimeError("graphics session exited %d -- see the log" % rc)
     if not gp_path.exists():
@@ -541,11 +529,7 @@ def _run_editplan(slug, log, set_pct):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, "editplan")
     if rc != 0:
         raise RuntimeError("edit-plan session exited %d — see the log" % rc)
     if not plan_path.exists():
@@ -578,11 +562,7 @@ def _run_scout(slug, log, set_pct):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, "scout")
     if rc != 0:
         raise RuntimeError("scout session exited %d -- see the log" % rc)
     after = ideas_path.stat().st_mtime if ideas_path.exists() else None
@@ -659,11 +639,7 @@ def _run_publish(slug, log, set_pct):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, "publish")
     if rc != 0:
         raise RuntimeError("publish session exited %d -- see the log" % rc)
     md_path = work / "publish.md"
@@ -679,6 +655,61 @@ def _run_publish(slug, log, set_pct):
     set_pct(100)
 
 
+HEARTBEAT_S = 30      # how often a silent session says it is still there
+HEARTBEAT_CEIL = 90   # a heartbeat never claims the work is finished
+
+
+def heartbeat_pct(elapsed_s: float, floor: int = 15,
+                  ceil: int = HEARTBEAT_CEIL, half_life_s: float = 420.0):
+    """PURE: where the bar sits after `elapsed_s` of a session we cannot
+    measure. Asymptotic — it approaches `ceil` and never arrives, because
+    the only honest statement is "still working", and a bar that reached
+    100 would be a lie told by arithmetic."""
+    import math
+    span = ceil - floor
+    return int(floor + span * (1 - math.exp(-elapsed_s / half_life_s)))
+
+
+def _drain_with_heartbeat(proc, log, set_pct, what):
+    """Stream a dispatched session's output, and tick while it is silent.
+
+    `claude -p` buffers its whole reply until the session ends, so a job
+    that dispatches one sat at exactly 15% with no note for its entire
+    run — twenty minutes of looking identical to a hang. Caleb, watching
+    a live edit-plan job: "still showing 15%" (2026-08-24).
+
+    The drain moves to a thread so the tick is never blocked by a session
+    that says nothing for ten minutes. What breaks if this is wrong: the
+    tray goes back to lying by omission, and a wedged session gets
+    diagnosed by killing the engine.
+    """
+    import threading
+    import time
+    t0 = time.time()
+    last = [t0]
+
+    def drain():
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                log(line)
+                last[0] = time.time()
+
+    t = threading.Thread(target=drain, daemon=True)
+    t.start()
+    while proc.poll() is None:
+        time.sleep(1)
+        now = time.time()
+        if now - last[0] >= HEARTBEAT_S:
+            mins = (now - t0) / 60.0
+            set_pct(heartbeat_pct(now - t0))
+            log("[%s] still working — %.0fm elapsed, session silent"
+                % (what, mins))
+            last[0] = now
+    t.join(timeout=5)
+    return proc.wait()
+
+
 def _dispatch(prompt, log, set_pct, what):
     """One headless session, streamed to the job log — the shared tail
     every agent job used to copy by hand."""
@@ -690,11 +721,7 @@ def _dispatch(prompt, log, set_pct, what):
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-    rc = proc.wait()
+    rc = _drain_with_heartbeat(proc, log, set_pct, what)
     if rc != 0:
         raise RuntimeError("%s session exited %d -- see the log"
                            % (what, rc))
