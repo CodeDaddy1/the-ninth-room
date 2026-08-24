@@ -1537,9 +1537,24 @@ def _project_row(slug: str) -> "dict":
                              "vo_recorded": vo_rec}
         except ValueError:
             script_status = {"exists": True, "vo_total": 0, "vo_recorded": 0}
+    # the re-cut prompt: every scripted VO line is recorded and the cut
+    # predates the newest recording — the plan can't contain what didn't
+    # exist when it was written (P4, 2026-08-23)
+    recut = False
+    if plan and script_status and script_status.get("vo_total", 0) > 0 \
+            and script_status.get("vo_recorded") == script_status.get("vo_total"):
+        try:
+            plan_ts = (work / "edit_plan.json").stat().st_mtime
+            vo_ts = max((f.stat().st_mtime
+                         for f in (work / "footage").glob("vo_*")),
+                        default=0)
+            recut = vo_ts > plan_ts
+        except OSError:
+            recut = False
     return {"slug": slug, "phase": phase, "next": nxt,
             "footage": len(footage), "ingested": ingested,
             "stories": bool(stories), "approved": approved,
+            "recut_suggested": recut,
             "plan": plan, "graphics": graphics, "proxies": prox,
             "master": masters[-1].name if masters else None,
             "progress": progress, "script": script_status,

@@ -613,6 +613,25 @@ def _run_snapcuts(slug, log, set_pct):
     set_pct(100)
 
 
+def _run_rendercards(slug, log, set_pct):
+    """Approve & render every card that isn't current — one job instead of
+    23 clicks (P4, 2026-08-23). _export_overlay is idempotent (an unchanged
+    card reuses its file), so re-running after a partial failure only pays
+    for what's missing."""
+    from . import editroom
+    state = editroom._overlays_state(slug)
+    todo = [it["id"] for it in state["overlays"]
+            if it["export"]["status"] != "current" and not it.get("prebaked")]
+    if not todo:
+        raise RuntimeError("every card is already rendered")
+    log("[cards] %d to render" % len(todo))
+    for i, cid in enumerate(todo):
+        log("[cards] %s (%d/%d)" % (cid, i + 1, len(todo)))
+        editroom._export_overlay(slug, cid, log=log)
+        set_pct(int(5 + 90.0 * (i + 1) / len(todo)))
+    set_pct(100)
+
+
 # Labels are user-facing (tray, notifications): desk vocabulary — clip,
 # preview, render — never internal jargon (P1 copy pass, 2026-08-23).
 KINDS = {
@@ -628,6 +647,7 @@ KINDS = {
     "graphics": ("Suggest graphics — cards for the clips", _run_graphics),
     "scout": ("Scout ideas", _run_scout),
     "snapcuts": ("Tighten cuts — edges onto clean audio", _run_snapcuts),
+    "rendercards": ("Render all cards", _run_rendercards),
 }
 
 # Mechanical followers. A creative decision stays a button; everything
