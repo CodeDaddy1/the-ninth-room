@@ -1900,6 +1900,75 @@ def _restore_project(slug: str) -> None:
     os.replace(src, dest)
 
 
+def _tree_stats(d: "Path") -> "tuple":
+    """(files, bytes) under d. Symlinks are COUNTED as one entry and never
+    followed — a sandbox whose `analysis` points at another episode must not
+    report (or later delete) that episode's footage."""
+    files = 0
+    total = 0
+    for root, dirs, names in os.walk(d, followlinks=False):
+        dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(root, x))]
+        for n in names:
+            files += 1
+            fp = os.path.join(root, n)
+            if os.path.islink(fp):
+                continue
+            try:
+                total += os.stat(fp).st_size
+            except OSError:
+                continue
+    return files, total
+
+
+def _project_dir(slug: str) -> "tuple":
+    """Where a project lives right now: (path, archived). Either root is a
+    legitimate delete target — the archive is where dead episodes wait."""
+    live = work_path(slug)
+    if live.is_dir():
+        return live, False
+    arch = live.parent / "_archive" / slug
+    if arch.is_dir():
+        return arch, True
+    raise IngestError("no project '%s'" % slug)
+
+
+def _delete_project(slug: str, confirm: str, log=print) -> "dict":
+    """PERMANENT. Erases the project tree — footage, previews, renders, the
+    edit plan, everything — from the live root or the archive.
+
+    There is no undo, so three gates stand in front of it:
+      1. the slug is a real project slug and not a `_`-prefixed bookkeeping
+         directory (_archive, _scout, _scorecards are not episodes);
+      2. the caller echoes the slug back in `confirm` — the desk makes a
+         human type the name, so a mis-click cannot reach here;
+      3. no job is queued or running for it — deleting the tree out from
+         under a running ingest or render leaves half-written files and a
+         worker raising into the log.
+    What breaks if this is wrong: 60+ GB of unrepeatable footage, gone.
+    """
+    if not _SLUG_RE.match(slug or "") or slug.startswith("_"):
+        raise IngestError("bad slug")
+    if (confirm or "").strip() != slug:
+        raise IngestError("type the episode's name to confirm the delete")
+    from . import jobs as jobs_mod
+    busy = [j for j in jobs_mod.jobs(slug)
+            if j.get("state") in ("queued", "running")]
+    if busy:
+        raise IngestError("'%s' is busy — %s is %s; wait for it to finish"
+                          % (slug, busy[0].get("kind"), busy[0].get("state")))
+    target, archived = _project_dir(slug)
+    files, size = _tree_stats(target)
+    shutil.rmtree(target)
+    # the teammate scorecards live outside the episode tree by design
+    # (they are the teammate's, not the board's) — they die with it
+    cards = work_path("_scorecards") / slug
+    if cards.is_dir():
+        shutil.rmtree(cards, ignore_errors=True)
+    log("[delete] %s (%s): %d files, %.1f GB freed"
+        % (slug, "archived" if archived else "live", files, size / 1e9))
+    return {"slug": slug, "files": files, "bytes": size, "archived": archived}
+
+
 def _archived_slugs() -> "list":
     root = work_path("x").parent / "_archive"
     if not root.is_dir():
@@ -3539,6 +3608,13 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/project/archive":
                 _archive_project(self._slug_b(body))
                 self._send(200, {"ok": True})
+            elif self.path == "/api/project/delete":
+                # a live OR archived slug — _delete_project validates the
+                # shape itself (_slug_b only knows about live projects) and
+                # demands the typed confirmation before anything is erased
+                out = _delete_project(str(body.get("slug", "")),
+                                      str(body.get("confirm", "")), log=log)
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/project/restore":
                 rslug = str(body.get("slug", ""))
                 # _slug_b validates against LIVE projects — the archived one
