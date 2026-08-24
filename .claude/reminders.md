@@ -231,3 +231,10 @@ console settings, recordings, decisions). Check items off when done.
   misspelling a musician's name on screen is the exact failure this channel
   cannot afford. Same take carries a headcount ("34 musicians") that is
   equally garbled; the script deliberately does not use it. (2026-08-23)
+
+- **Iterate the Punchline Captions canvas** (added 2026-08-24): the seed
+  canvas "The Ninth Room - Punchline Captions.dc.html" is in the design
+  system project with three directions (A bigger word-pop · B the slam ·
+  C spoken underline). Pick/iterate in Claude Design; the winner gets
+  ported into pipeline/captions.py as the punchline style. Until then,
+  punchline episodes bake selected-only at the current look.
