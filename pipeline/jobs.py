@@ -437,6 +437,78 @@ def _run_script(slug, log, set_pct):
     set_pct(100)
 
 
+GRAPHICS_PROMPT = (
+    "Direct the graphics for The Ninth Room episode %(slug)s. Read "
+    ".claude/agents/graphics-director.md and act as that agent: read "
+    "work/%(slug)s/edit_plan.json, the transcripts in "
+    "work/%(slug)s/analysis/takes.json, and brand/engagement-playbook.md, "
+    "then write work/%(slug)s/graphics_plan.json as "
+    '{"slug": "%(slug)s", "cards": [...]}. Every card carries id '
+    '("CARD01"...), type, kit_type, beat_id naming a beat in the edit '
+    "plan, at (seconds INTO that beat -- it must land inside the beat), "
+    "duration, animation, and its copy fields. Recommend a card wherever "
+    "one earns its place -- the hook, chapter turns, verified facts, one "
+    "engagement moment every 60-90 seconds, the outro run -- and nowhere "
+    "else; a bare stretch is a choice, not a gap. Before finishing, "
+    "validate: /usr/bin/python3 -c \"import json,sys; sys.path.insert(0,'.'); "
+    "from pipeline import schemas; ep=json.load(open('work/%(slug)s/edit_plan.json')); "
+    "gp=json.load(open('work/%(slug)s/graphics_plan.json')); "
+    "errs=schemas.validate_graphics_plan(gp, ep); "
+    "print(errs); sys.exit(1 if errs else 0)\" and fix every error it "
+    "prints. Do NOT touch DaVinci Resolve or the engine on :8765.")
+
+
+def _run_graphics(slug, log, set_pct):
+    """The Review desk's card recommender (Caleb, 2026-08-23: assembly
+    shipped bare -- "it should recommend cards for the clips"). The
+    graphics-director was the one creative stage never converted to a job
+    when the Edit Room retired, so no cut ever got cards without a manual
+    session. Dispatch-and-verify; the proof is a graphics_plan.json that
+    VALIDATES against the edit plan, because a card homed to a missing
+    beat is composited into no proxy and reviews as nothing."""
+    import json
+    import subprocess
+    from . import schemas
+    work = work_path(slug)
+    plan_path = work / "edit_plan.json"
+    if not plan_path.exists():
+        raise RuntimeError("no cut yet -- Build the cut first")
+    gp_path = work / "graphics_plan.json"
+    if gp_path.exists():
+        raise RuntimeError("graphics already planned -- edit cards on the "
+                           "Graphics desk (delete graphics_plan.json to "
+                           "start over)")
+    log("[graphics] dispatching the graphics director")
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p",
+         GRAPHICS_PROMPT % {"slug": slug},
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError("graphics session exited %d -- see the log" % rc)
+    if not gp_path.exists():
+        raise RuntimeError("session finished but graphics_plan.json was "
+                           "not written -- read the log")
+    ep = json.loads(plan_path.read_text())
+    gp = json.loads(gp_path.read_text())
+    errs = schemas.validate_graphics_plan(gp, ep)
+    if errs:
+        raise RuntimeError("graphics_plan.json failed validation: " +
+                           "; ".join(errs[:4]))
+    log("[graphics] %d cards proposed -- review them per clip on the "
+        "Review desk; Rebuild previews burns them into the playback"
+        % len(gp.get("cards", [])))
+    set_pct(100)
+
+
 def _run_editplan(slug, log, set_pct):
     """The Story desk's approved-state button (UX overhaul, 2026-08-23).
     Approving a direction used to end with the desk saying "tell Claude:
@@ -539,6 +611,8 @@ KINDS = {
     "script": ("Write the script — timed sections from the approved "
                "direction", _run_script),
     "research": ("Research — sourced facts about the place", _run_research),
+    "graphics": ("Suggest graphics — cards recommended per clip",
+                 _run_graphics),
     "scout": ("Scout — episode ideas with sources", _run_scout),
 }
 

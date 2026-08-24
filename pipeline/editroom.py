@@ -1183,6 +1183,7 @@ def _project_row(slug: str) -> "dict":
         fb = json.loads((work / "story_feedback.json").read_text())
     approved = any(r.get("decision") == "approve" for r in fb.get("rounds", []))
     plan = (work / "edit_plan.json").exists()
+    graphics = (work / "graphics_plan.json").exists()
     tl = (out / "timeline_map.json").exists()
     prox = (len(list((work / "proxies").glob("BT*.mp4")))
             if (work / "proxies").is_dir() else 0)
@@ -1280,7 +1281,7 @@ def _project_row(slug: str) -> "dict":
     return {"slug": slug, "phase": phase, "next": nxt,
             "footage": len(footage), "ingested": ingested,
             "stories": bool(stories), "approved": approved,
-            "plan": plan, "proxies": prox,
+            "plan": plan, "graphics": graphics, "proxies": prox,
             "master": masters[-1].name if masters else None,
             "progress": progress, "script": script_status,
             "review": {"approved": n_appr, "flagged": n_flag,

@@ -64,6 +64,24 @@ one fits which moment and what makes each fail — read it, then choose.
 For `quiz`, mark the right option `"correct": true` — the wrong ones dim at
 2.5s and yellow floods the answer.
 
+### Checklist & the room map (canvas e9501d68, one thread per episode)
+
+`hit_list` (opens the room: 3-5 items in `rows`, the LAST seeds the
+ninth-room thread) → `check_off` on each find (`active` of `chapters`
+squares; the yellow chip is the frame's yellow moment) → `check_recap`
+before leaving (`active` found; the open row carries `tag`, default
+"Still locked") → `room_map` as a chapter beat (`rows` = the season's
+rooms, `active` = this week's) → `map_payoff` at the reveal. Use the
+thread or don't — a lone check_off with no hit_list reads as noise.
+
+### Effects and cut furniture (ration rules in each template)
+
+`fx_*` are moment furniture over footage (freeze, punch-in, underline…)
+— a few per episode, on moments that earn them. `cut_*` transitions
+cover a hard cut — ONCE per episode each, `cut_figure` once a season.
+`ed_*` label the essential cuts (jump, J, L, smash…) — sparingly; a
+hard cut gets no furniture, ever.
+
 ### Transitions and outro
 
 `transition` (`style`: `rule` · `iris` · `grid` · `push`), then the outro's
