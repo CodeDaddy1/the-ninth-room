@@ -16,6 +16,25 @@ transparent (the -loop 1 bake bug — see graphics.py).
 """
 from __future__ import annotations
 
+def effective_captions(caps_doc: "dict", orientation: str) -> "dict":
+    """beat_id -> caption text, AFTER the caption policy.
+
+    Classic (no style field): every line bakes — the original mute-first
+    contract, and what every episode captioned before 2026-08-23 keeps
+    (hmns is frozen; its spec keys must not move).
+
+    Punchline ("style": "punchline"): only beats marked selected bake in
+    LANDSCAPE — ~30% of lines, the ones that punch. Vertical keeps every
+    line: Shorts are watched muted the most (Caleb, 2026-08-23).
+    """
+    beats = (caps_doc or {}).get("beats", [])
+    if (caps_doc or {}).get("style") == "punchline" \
+            and orientation != "portrait":
+        return {c["beat_id"]: c["text"] for c in beats
+                if c.get("selected")}
+    return {c["beat_id"]: c["text"] for c in beats}
+
+
 import difflib
 import os
 import subprocess

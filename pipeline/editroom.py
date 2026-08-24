@@ -2505,6 +2505,13 @@ def _captions_state(slug: str) -> "dict":
         for p in pdir.glob("BT*.mp4"):
             proxies[p.name.split(".")[0]] = "%s?v=%d" % (p.name,
                                                          p.stat().st_mtime)
+    style = "classic"
+    if (work / "captions.json").exists():
+        try:
+            style = json.loads((work / "captions.json").read_text()) \
+                .get("style") or "classic"
+        except ValueError:
+            style = "classic"
     beats = []
     for beat in tl["beats"]:
         c = caps.get(beat["id"])
@@ -2516,9 +2523,42 @@ def _captions_state(slug: str) -> "dict":
                       "dur": round(beat["record_e"] - beat["record_s"], 1),
                       "text": c.get("text", ""),
                       "edited": "text_orig" in c,
+                      # classic captions every line; punchline captions the
+                      # picks — the desk's toggle writes this flag
+                      "selected": (bool(c.get("selected"))
+                                   if style == "punchline" else True),
+                      "why": c.get("why", ""),
                       "proxy": proxies.get(beat["id"]),
                       "review": review.get(beat["id"], {}).get("status", "")})
-    return {"slug": slug, "beats": beats}
+    return {"slug": slug, "style": style, "beats": beats}
+
+
+def _select_caption(slug: str, beat_id: str, selected: bool,
+                    log=print) -> "dict":
+    """Punchline toggle: this line bakes / this line doesn't. Only
+    meaningful under the punchline style — flipping it re-bakes and
+    re-proxies the one beat so review playback tells the truth."""
+    work = work_path(slug)
+    path = work / "captions.json"
+    if not path.exists():
+        raise IngestError("no captions yet")
+    data = json.loads(path.read_text())
+    if data.get("style") != "punchline":
+        raise IngestError("selection is a punchline-style control; classic "
+                          "episodes caption every line")
+    entry = next((c for c in data.get("beats", [])
+                  if c["beat_id"] == beat_id), None)
+    if entry is None:
+        raise IngestError("no caption entry for %s" % beat_id)
+    entry["selected"] = bool(selected)
+    if selected:
+        entry.setdefault("why", "hand-picked")
+    _write_json(path, data)
+    from . import produce as produce_mod
+    from . import proxy as proxy_mod
+    produce_mod.rebake_beat_caption(slug, beat_id, log=log)
+    proxy_mod.build(slug, only_beats=[beat_id], log=log)
+    return {"beat_id": beat_id, "selected": bool(selected)}
 
 
 def _save_caption(slug: str, beat_id: str, text: "str | None",
@@ -2979,6 +3019,11 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                       float(body.get("duration", 4)),
                                       float(body.get("src_s", 0)), log=log)
                 self._send(200, {"ok": True, "placed": entry})
+            elif self.path == "/api/caption/select":
+                out = _select_caption(self._slug_b(body),
+                                      body.get("beat_id", ""),
+                                      bool(body.get("selected")))
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/beat/swap":
                 out = _beat_swap(self._slug_b(body), body.get("beat_id", ""),
                                  body.get("take_id", ""))

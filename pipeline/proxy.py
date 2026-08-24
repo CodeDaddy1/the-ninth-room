@@ -47,7 +47,10 @@ def _load(slug: str) -> "tuple":
     caps = {}
     cap_path = work / "captions.json"
     if cap_path.exists():
-        caps = {c["beat_id"]: c["text"] for c in json.loads(cap_path.read_text())["beats"]}
+        from . import captions as captions_mod
+        caps = captions_mod.effective_captions(
+            json.loads(cap_path.read_text()),
+            tl.get("orientation", "landscape"))
     cards_by_beat: "dict[str, list]" = {}
     gp_path = work / "graphics_plan.json"
     if gp_path.exists():
