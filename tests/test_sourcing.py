@@ -320,3 +320,80 @@ class ProposalsAreLookedAtNotGuessed(unittest.TestCase):
         self.assertTrue(schemas.candidate_previewable({"video": "u"}))
         self.assertFalse(schemas.candidate_previewable({"query": "x"}))
         self.assertFalse(schemas.candidate_previewable(None))
+
+
+class RoundsAreAddressedUniquely(unittest.TestCase):
+    """`ts` was the round's identity, and it is not unique — the agent
+    writes several in the same second. CH2.S3 and CH2.S4 both landed on
+    1787692563 (2026-08-25).
+
+    Two failures came out of that. The desk keyed cards by ts, so React
+    saw duplicates and stopped re-rendering — which read as "clicking use
+    this does nothing". And far worse, the verdict looked rounds up by ts
+    and took the FIRST match, so approving a picture on one line could
+    mark a DIFFERENT line approved, carrying a candidate index from a list
+    it never belonged to.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._wp = editroom.work_path
+        editroom.work_path = lambda slug: self.tmp
+
+    def tearDown(self):
+        editroom.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def put(self, *rounds):
+        (self.tmp / "asset_requests.json").write_text(
+            json.dumps({"rounds": [dict(r) for r in rounds]}))
+
+    def collide(self):
+        self.put({"ts": 100, "section_id": "CH2.S3", "kind": "source",
+                  "status": "proposed", "candidates": [{"query": "a"}, {"query": "b"}]},
+                 {"ts": 100, "section_id": "CH2.S4", "kind": "source",
+                  "status": "proposed", "candidates": [{"query": "c"}]})
+
+    def test_colliding_rounds_get_distinct_ids(self):
+        self.collide()
+        ids = [r["id"] for r in editroom._asset_rounds("ep")]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_ids_are_stable_across_reads(self):
+        self.collide()
+        first = [r["id"] for r in editroom._asset_rounds("ep")]
+        self.assertEqual([r["id"] for r in editroom._asset_rounds("ep")], first)
+
+    def test_a_verdict_lands_on_the_round_it_names(self):
+        """The corruption: approving CH2.S4 used to mark CH2.S3."""
+        self.collide()
+        rounds = editroom._asset_rounds("ep")
+        target = next(r for r in rounds if r["section_id"] == "CH2.S4")
+        editroom._asset_round_verdict("ep", target["id"], "approved",
+                                      log=lambda *a: None)
+        by = {r["section_id"]: r for r in editroom._asset_rounds("ep")}
+        self.assertEqual(by["CH2.S4"]["status"], "approved")
+        self.assertEqual(by["CH2.S3"]["status"], "proposed")
+
+    def test_an_ambiguous_ts_is_refused_rather_than_guessed(self):
+        self.collide()
+        with self.assertRaises(editroom.IngestError) as cm:
+            editroom._asset_round_verdict("ep", 100, "approved",
+                                          log=lambda *a: None)
+        self.assertIn("names 2 proposals", str(cm.exception))
+
+    def test_an_unambiguous_ts_still_works(self):
+        """Anything written before ids existed stays addressable."""
+        self.put({"ts": 7, "section_id": "CH1.S1", "kind": "source",
+                  "status": "proposed", "candidates": [{"query": "a"}]})
+        editroom._asset_round_verdict("ep", 7, "skipped", log=lambda *a: None)
+        self.assertEqual(editroom._asset_rounds("ep")[0]["status"], "skipped")
+
+    def test_the_chosen_candidate_must_exist_on_that_round(self):
+        self.collide()
+        rounds = editroom._asset_rounds("ep")
+        target = next(r for r in rounds if r["section_id"] == "CH2.S4")
+        with self.assertRaises(editroom.IngestError):
+            # CH2.S4 has ONE candidate; index 1 belongs to CH2.S3's list
+            editroom._asset_round_verdict("ep", target["id"], "approved", 1,
+                                          log=lambda *a: None)

@@ -399,16 +399,56 @@ def _takes_state(slug: str) -> "dict":
             "screening": screening}
 
 
-def _asset_rounds(slug: str) -> "list":
-    """The sourcing proposals on file. Read the same way whether or not the
-    project has takes — the approval gate must not depend on footage."""
+def _ensure_round_ids(slug: str) -> "list":
+    """Give every sourcing round a UNIQUE id, once, on disk.
+
+    Rounds were addressed by `ts`, and the agent writes several in the same
+    second -- CH2.S3 and CH2.S4 both landed on 1787692563. Two things broke:
+    the desk could not tell the cards apart (React saw duplicate keys and
+    stopped re-rendering, which read as "clicking use this does nothing"),
+    and far worse, the verdict looked up rounds by ts and took the FIRST
+    match -- so approving a picture on one line could mark a DIFFERENT
+    line approved, with a candidate index from a list it never belonged to.
+
+    Idempotent, and stable: an id already on a round is never reassigned.
+    """
     p = work_path(slug) / "asset_requests.json"
     if not p.exists():
         return []
     try:
-        return json.loads(p.read_text()).get("rounds", []) or []
+        doc = json.loads(p.read_text())
     except ValueError:
         return []
+    rounds = doc.get("rounds", []) or []
+    seen, changed = set(), False
+    for i, r in enumerate(rounds):
+        if not isinstance(r, dict):
+            continue
+        rid = str(r.get("id") or "")
+        if rid and rid not in seen:
+            seen.add(rid)
+            continue
+        base = "%s-%s" % (r.get("ts", "0"), r.get("section_id") or i)
+        rid, n = base, 1
+        while rid in seen:
+            n += 1
+            rid = "%s-%d" % (base, n)
+        r["id"] = rid
+        seen.add(rid)
+        changed = True
+    if changed:
+        _write_json(p, doc)
+    return rounds
+
+
+def _asset_rounds(slug: str) -> "list":
+    """The sourcing proposals on file. Read the same way whether or not the
+    project has takes — the approval gate must not depend on footage.
+
+    Ids are assigned here so the desk always has something unique to key
+    and address rounds by; `ts` is not unique and never was.
+    """
+    return _ensure_round_ids(slug)
 
 
 def _broll_catalog(slug: str) -> "list":
@@ -3962,9 +4002,20 @@ def _asset_round_verdict(slug: str, ts, status: str, candidate=None,
     p = work_path(slug) / "asset_requests.json"
     if not p.exists():
         raise IngestError("no proposals on file")
+    _ensure_round_ids(slug)
     doc = json.loads(p.read_text())
     rounds = doc.get("rounds", [])
-    hit = next((r for r in rounds if str(r.get("ts")) == str(ts)), None)
+    # Address by id. `ts` is NOT unique -- the agent writes several rounds
+    # in the same second -- and this used to take the first ts match, so a
+    # verdict on one line could land on a different one.
+    hit = next((r for r in rounds if str(r.get("id")) == str(ts)), None)
+    if hit is None:
+        same = [r for r in rounds if str(r.get("ts")) == str(ts)]
+        if len(same) > 1:
+            raise IngestError(
+                "'%s' names %d proposals — address it by id (%s)"
+                % (ts, len(same), ", ".join(str(r.get("id")) for r in same)))
+        hit = same[0] if same else None
     if hit is None:
         raise IngestError("no proposal '%s'" % ts)
     if hit.get("status") == "done" and status != "approved":
@@ -3996,8 +4047,8 @@ def _asset_round_verdict(slug: str, ts, status: str, candidate=None,
     log("[sourcing] round %s -> %s%s%s (%d approved and waiting)"
         % (ts, status, " (RE-SOURCE)" if refetch else "",
            " candidate %s" % hit["chosen"] if "chosen" in hit else "", n))
-    return {"ts": hit.get("ts"), "status": status, "approved": n,
-            "chosen": hit.get("chosen")}
+    return {"ts": hit.get("ts"), "id": hit.get("id"), "status": status,
+            "approved": n, "chosen": hit.get("chosen")}
 
 
 def _assets_state(slug: str) -> "dict":
