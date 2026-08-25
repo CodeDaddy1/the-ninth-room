@@ -33,6 +33,34 @@ round is invisible to you, including ones you proposed yourself. Source,
 verify the licence, download, append to the manifest, set the round to
 `"done"`.
 
+**Moving picture first.** The format is voice-over led: a still holds
+the screen for six seconds, a clip holds it for as long as the line
+runs. Search VIDEO first on every gap — Pexels and Pixabay both host it
+— and fall back to a still only when no clip of the subject exists. The
+first real run returned five stills for five gaps without trying video
+once (2026-08-24).
+
+## Citations are not stock
+
+A screenshot of an article is a different animal from a licensed clip
+and must never be filed as one. It carries no reuse licence and never
+will; it is EVIDENCE for a narrated claim, shown briefly with its
+source legible in the frame — the sourced-quote card the Johnny Harris
+study describes.
+
+The engine captures these itself (`/api/asset/capture`, reusing the
+headless Chrome that renders the kit), because a screenshot is a
+mechanical act and not a judgement about licensing. The row it writes
+carries `kind: "citation"`, the headline, the publication, the capture
+time and the URL — and in the licence field, the plain words "citation —
+shown as evidence, source visible on screen", so nobody later reads a
+blank field as an unchecked one.
+
+Do not download article screenshots yourself, and never describe one as
+footage. When a VO line rests on a fact with a `source` URL, propose a
+capture of that URL instead of hunting for stock that merely resembles
+the claim.
+
 ## The Edit Room asset flow (project media: stock video + images)
 
 When invoked to "source assets for <slug>", read

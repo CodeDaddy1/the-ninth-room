@@ -3472,6 +3472,21 @@ def _still_to_clip(inp: Path, clip: Path) -> None:
                           % (inp.name, proc.stderr[-200:]))
 
 
+def _capture_article(slug: str, url: str, log=print) -> "dict":
+    """Screenshot an article and file it as a CITATION.
+
+    Not stock: it carries no reuse licence and never will. It is shown
+    as evidence for a narrated claim with its source legible in frame,
+    which is why the row records the headline, publication and capture
+    time rather than a licence it does not have.
+    """
+    from . import capture as capture_mod
+    adir = work_path(slug) / "assets"
+    row = capture_mod.capture_article(url, adir, log=log)
+    capture_mod.append_to_manifest(adir, row)
+    return row
+
+
 def _asset_round_verdict(slug: str, ts, status: str,
                          log=print) -> "dict":
     """Approve or skip one sourcing proposal.
@@ -3516,9 +3531,14 @@ def _assets_state(slug: str) -> "dict":
         p = adir / a.get("file", "")
         if not p.is_file():
             continue
-        kind = ("video" if p.suffix.lower() in _VIDEO_UP else "image")
+        # a citation stays a citation: nothing downstream may treat a
+        # screenshotted newspaper as footage we are free to cut with
+        kind = (a.get("kind") if a.get("kind") == "citation"
+                else ("video" if p.suffix.lower() in _VIDEO_UP else "image"))
         thumb = None
-        if kind == "video":
+        if kind == "citation":
+            thumb = str(p)          # the screenshot IS its own thumbnail
+        elif kind == "video":
             thumbs.mkdir(exist_ok=True)
             th = thumbs / (p.name + ".jpg")
             if not th.exists() or th.stat().st_mtime < p.stat().st_mtime:
@@ -3533,7 +3553,7 @@ def _assets_state(slug: str) -> "dict":
         # path the browser cannot load, and the desk reaches media through
         # the /pymedia rewrite (non-negotiable #4)
         rel = "assets/%s" % a.get("file", "")
-        thumb_rel = rel if kind == "image" else (
+        thumb_rel = rel if kind in ("image", "citation") else (
             "assets/.thumbs/%s.jpg" % p.name if thumb else None)
         items.append(dict(a, kind=kind, thumb=thumb, media=rel,
                           thumb_rel=thumb_rel, size=p.stat().st_size))
@@ -4296,6 +4316,10 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/project/archive":
                 _archive_project(self._slug_b(body))
                 self._send(200, {"ok": True})
+            elif self.path == "/api/asset/capture":
+                out = _capture_article(self._slug_b(body),
+                                       str(body.get("url", "")), log=log)
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/asset/round":
                 out = _asset_round_verdict(self._slug_b(body),
                                            body.get("ts"),
