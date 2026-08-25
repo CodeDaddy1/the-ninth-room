@@ -86,5 +86,83 @@ class AdjustSemantics(unittest.TestCase):
             self.assertIn("_clamp_cover", inspect.getsource(fn))
 
 
+class WhichCover(unittest.TestCase):
+    """A beat may carry the SAME clip twice — once early, once late.
+
+    `next(c for c in broll if c["clip_id"] == clip_id)` moves whichever
+    copy comes first, so nudging the second one moved the first and the
+    desk showed a cover jumping somewhere nobody clicked. Detach already
+    took a position to tell them apart; adjust did not (2026-08-25).
+    """
+
+    def setUp(self):
+        import json
+        import shutil
+        import tempfile
+        from pathlib import Path
+        self.json, self.shutil = json, shutil
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "analysis").mkdir(parents=True)
+        (self.tmp / "analysis" / "timeline_map.json").write_text(json.dumps(
+            {"beats": [{"id": "BT01", "record_s": 100.0, "record_e": 120.0,
+                        "broll": [
+                            {"clip_id": "B001", "file": "c.mp4",
+                             "record_s": 102.0, "duration": 3.0, "src_s": 0.0},
+                            {"clip_id": "B001", "file": "c.mp4",
+                             "record_s": 112.0, "duration": 3.0, "src_s": 0.0}]}]}))
+        (self.tmp / "edit_plan.json").write_text(json.dumps(
+            {"slug": "ep", "beats": [{"id": "BT01", "broll": [
+                {"clip_id": "B001", "at": 2.0, "duration": 3.0, "src_s": 0.0},
+                {"clip_id": "B001", "at": 12.0, "duration": 3.0, "src_s": 0.0}]}]}))
+        self._wp = editroom.work_path
+        editroom.work_path = lambda slug: self.tmp
+        self._cat = editroom._broll_catalog
+        editroom._broll_catalog = lambda slug: [
+            {"id": "B001", "file": "c.mp4", "duration": 30.0}]
+        self._conf, self._mark = editroom._conform_append, editroom._mark_edited
+        editroom._conform_append = lambda *a, **k: None
+        editroom._mark_edited = lambda *a, **k: None
+        from pipeline import proxy as proxy_mod
+        self._proxy, self.proxy_mod = proxy_mod.build, proxy_mod
+        proxy_mod.build = lambda *a, **k: None
+
+    def tearDown(self):
+        editroom.work_path = self._wp
+        editroom._broll_catalog = self._cat
+        editroom._conform_append, editroom._mark_edited = self._conf, self._mark
+        self.proxy_mod.build = self._proxy
+        self.shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _plan(self):
+        return self.json.loads((self.tmp / "edit_plan.json").read_text())["beats"][0]["broll"]
+
+    def _map(self):
+        tm = self.json.loads((self.tmp / "analysis" / "timeline_map.json").read_text())
+        return tm["beats"][0]["broll"]
+
+    def test_record_s_names_the_second_copy(self):
+        editroom._broll_adjust("ep", "BT01", "B001", at=14.0,
+                               record_s=112.0, log=lambda *a: None)
+        self.assertEqual([c["at"] for c in self._plan()], [2.0, 14.0])
+        self.assertEqual([c["record_s"] for c in self._map()], [102.0, 114.0])
+
+    def test_and_the_first(self):
+        editroom._broll_adjust("ep", "BT01", "B001", at=5.0,
+                               record_s=102.0, log=lambda *a: None)
+        self.assertEqual([c["at"] for c in self._plan()], [5.0, 12.0])
+        self.assertEqual([c["record_s"] for c in self._map()], [105.0, 112.0])
+
+    def test_without_a_position_the_first_still_moves(self):
+        """The old behaviour, kept so an older caller is not broken."""
+        editroom._broll_adjust("ep", "BT01", "B001", at=5.0, log=lambda *a: None)
+        self.assertEqual([c["at"] for c in self._plan()], [5.0, 12.0])
+
+    def test_the_two_files_never_disagree_about_which_moved(self):
+        editroom._broll_adjust("ep", "BT01", "B001", at=14.0,
+                               record_s=112.0, log=lambda *a: None)
+        for plan_c, map_c in zip(self._plan(), self._map()):
+            self.assertAlmostEqual(map_c["record_s"] - 100.0, plan_c["at"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -90,6 +90,18 @@ def _state(slug: str) -> "dict":
             # lists and removes covers by these (record_s is absolute)
             "broll_placed": beat.get("broll", []),
             "proxy": proxies.get(beat["id"]),
+            # The ORIGINAL footage this beat was cut from, and where in it
+            # (2026-08-25). The drawer had only the rendered proxy, so
+            # placing a cover meant guessing a position against a picture
+            # that already has the covers burned into it. Scrubbing the
+            # source is what Caleb asked for: "fine scrub the original
+            # clip and insert the B-Roll at the insertion point".
+            # `segments[].src_s` is FILE-absolute, so beat-relative time
+            # maps by addition — verified on BT04, whose segment sits at
+            # 67.98 inside a take spanning 66.42-88.74.
+            "file": beat.get("file"),
+            "segments": beat.get("segments", []),
+            "fps": tl.get("fps"),
             "review": review.get(beat["id"], {}),
         }
         ch = ch_index.get(pb.get("chapter_id"))
@@ -415,7 +427,8 @@ def _clamp_cover(beat_len: float, clip_dur: float, at: float,
 
 
 def _broll_adjust(slug: str, beat_id: str, clip_id: str,
-                  at=None, duration=None, src_s=None, log=print) -> "dict":
+                  at=None, duration=None, src_s=None, record_s=None,
+                  log=print) -> "dict":
     """Move a cover that is already placed, without detaching it.
 
     Caleb, 2026-08-25: "we should be able to go back to the B-Roll and
@@ -427,6 +440,11 @@ def _broll_adjust(slug: str, beat_id: str, clip_id: str,
     Any of the three may be omitted to leave it as it is: `at` (where the
     cover sits in the beat), `src_s` (where the source starts playing)
     and `duration`. The same clamp attach uses keeps it legal.
+
+    `record_s` names WHICH cover when the same clip is used twice on one
+    beat — the desk sends the row it drew. Without it the first matching
+    clip_id wins, which silently moves the wrong cutaway. Detach already
+    disambiguates this way; adjust did not (2026-08-25).
     """
     clips = {c["id"]: c for c in _broll_catalog(slug)}
     if clip_id not in clips:
@@ -445,11 +463,19 @@ def _broll_adjust(slug: str, beat_id: str, clip_id: str,
         pb = next((b for b in plan["beats"] if b["id"] == beat_id), None)
         if pb is None:
             raise IngestError("beat '%s' not in the edit plan" % beat_id)
-        cur = next((c for c in (pb.get("broll") or [])
-                    if c.get("clip_id") == clip_id), None)
-        if cur is None:
+        mine = [c for c in (pb.get("broll") or [])
+                if c.get("clip_id") == clip_id]
+        if not mine:
             raise IngestError("%s is not on %s — attach it first"
                               % (clip_id, beat_id))
+        if record_s is None or len(mine) == 1:
+            cur = mine[0]
+        else:
+            # the caller drew a specific row; match it on position rather
+            # than take whichever copy of the clip comes first
+            want = float(record_s) - beat["record_s"]
+            cur = min(mine, key=lambda c: abs(c.get("at", 0) - want))
+        cur_at = cur.get("at", 0)
         beat_len = beat["record_e"] - beat["record_s"]
         new_at, new_dur, new_src = _clamp_cover(
             beat_len, clip["duration"],
@@ -460,13 +486,17 @@ def _broll_adjust(slug: str, beat_id: str, clip_id: str,
         tmp = ep_path.with_suffix(".ep.tmp")
         tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
         os.replace(tmp, ep_path)
+        # match the timeline row by the position the cover HAD, so the
+        # same copy moves in both files
+        was_rs = round(beat["record_s"] + cur_at, 3)
+        tm_mine = [c for c in (beat.get("broll") or [])
+                   if c.get("clip_id") == clip_id]
         entry_map = None
-        for c in (beat.get("broll") or []):
-            if c.get("clip_id") == clip_id:
-                c.update({"record_s": round(beat["record_s"] + new_at, 3),
-                          "duration": new_dur, "src_s": new_src})
-                entry_map = c
-                break
+        if tm_mine:
+            entry_map = min(tm_mine,
+                            key=lambda c: abs(c.get("record_s", 0) - was_rs))
+            entry_map.update({"record_s": round(beat["record_s"] + new_at, 3),
+                              "duration": new_dur, "src_s": new_src})
         if entry_map is None:
             # the plan had it and the timeline did not: rebuild the row
             # rather than leave the proxy rendering the old placement
@@ -4600,7 +4630,8 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                     body.get("clip_id", ""),
                                     at=body.get("at"),
                                     duration=body.get("duration"),
-                                    src_s=body.get("src_s"), log=log)
+                                    src_s=body.get("src_s"),
+                                    record_s=body.get("record_s"), log=log)
                 self._send(200, {"ok": True, "placed": out})
             elif self.path == "/api/broll/remove":
                 rs = body.get("record_s")

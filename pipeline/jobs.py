@@ -18,6 +18,7 @@ stay agent work (plan amendment: P4 pipeline buttons):
 import json
 import os
 import queue
+import sys
 import threading
 import time
 
@@ -65,6 +66,15 @@ _QUEUES = {"session": queue.Queue(), "local": queue.Queue()}
 _WORKERS: "dict" = {"session": None, "local": None}
 _jobs = {}
 _order = []
+# Never decreases. Ids used to be stamped `len(_order) % 1000`, which is
+# not unique: `_order` can shrink (a prune, a test purge) and it wraps at
+# 1000, so two jobs born in the same second could take the SAME id. The
+# second one then overwrote the first's row while both ids sat in the
+# queue — one row ran twice and the other job hung at "queued" forever,
+# which reads as the lane having died. (2026-08-25, chasing a 1-in-6
+# flake in test_job_lanes; the id also names the job's log file, so a
+# collision crossed two jobs' logs as well.)
+_seq = 0
 
 
 class JobError(Exception):
@@ -72,6 +82,13 @@ class JobError(Exception):
 
 
 def _persist():
+    # `_order` and `_jobs` can drift — a prune that drops a row without
+    # its id leaves an orphan, and the KeyError this used to raise came
+    # out of EVERY write path, not just the one that pruned. Drop the
+    # orphan and carry on (2026-08-25).
+    missing = [i for i in _order if i not in _jobs]
+    for i in missing:
+        _order.remove(i)
     rows = [_jobs[i] for i in _order[-KEEP:]]
     JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = JOBS_PATH.with_suffix(".tmp")
@@ -110,7 +127,13 @@ def _restore():
 
 def _update(jid, **fields):
     with _LOCK:
-        _jobs[jid].update(fields)
+        job = _jobs.get(jid)
+        if job is None:
+            # the row was pruned while its job was still finishing. Raising
+            # here climbed out through log() and killed the worker thread
+            # (2026-08-25); a vanished job simply has nothing to update.
+            return
+        job.update(fields)
         _persist()
 
 
@@ -1802,10 +1825,45 @@ def _reap_chains() -> None:
             _persist()
 
 
+def _job_name(job: "dict") -> str:
+    """The human label, from the ROW rather than the registry. `KINDS` can
+    lose a kind while a job of it is still running, and a KeyError raised
+    on the way to a notification killed the lane's worker."""
+    label = job.get("label") or KINDS.get(job.get("kind"), (job.get("kind", "job"),))[0]
+    return str(label).split(" — ")[0]
+
+
 def _worker(lane: str = "local"):
     while True:
         jid = _QUEUES[lane].get()
-        job = _jobs[jid]
+        try:
+            _run_one(lane, jid)
+        except BaseException as e:      # noqa: BLE001 — see below
+            # NOTHING may end this loop. A lane has exactly one worker, and
+            # `start()` only spawns one if the slot is empty, so a thread
+            # that dies here takes the lane with it: every later job of
+            # that lane sits at "queued" forever and the desk shows a hang
+            # with no error anywhere. Whatever escaped `_run_one` has
+            # already been handled or is unhandleable; say so and take the
+            # next job. (2026-08-25.)
+            try:
+                sys.stderr.write("[jobs] %s worker survived %s: %s\n"
+                                 % (lane, type(e).__name__, e))
+            except Exception:
+                pass
+
+
+def _run_one(lane: str, jid: str) -> None:
+        job = _jobs.get(jid)
+        if job is None:
+            # An id in the queue with no row behind it used to raise
+            # KeyError HERE, outside the try — which killed the lane's
+            # only worker thread for the life of the process. Every later
+            # job in that lane then sat at "queued" forever, looking
+            # exactly like a hang. (Found 2026-08-25 as a 1-in-6 flake in
+            # test_job_lanes; the same hole would swallow the local lane
+            # in the engine after any prune of the job store.)
+            return
         # float on purpose: an ingest starting in the same second as the
         # upload it covers must still compare AFTER it (review F4)
         _update(jid, state="running", started_ts=time.time())
@@ -1819,8 +1877,7 @@ def _worker(lane: str = "local"):
             else:
                 fn(job["slug"], log, lambda p: _update(jid, pct=int(p)))
             _update(jid, state="done", pct=100, ended_ts=int(time.time()))
-            _notify("%s — done" % KINDS[job["kind"]][0].split(" — ")[0],
-                    job["slug"])
+            _notify("%s — done" % _job_name(job), job["slug"])
             try:
                 _after_done(job, log)
             except Exception as chain_err:  # review F1: a persist error in
@@ -1843,7 +1900,7 @@ def _worker(lane: str = "local"):
             _update(jid, state="failed", error=str(e)[:300],
                     traceback=_tb.format_exc()[-2000:],
                     ended_ts=int(time.time()))
-            _notify("%s — failed" % KINDS[job["kind"]][0].split(" — ")[0],
+            _notify("%s — failed" % _job_name(job),
                     "%s: %s" % (job["slug"], str(e)[:140]))
 
 
@@ -1884,7 +1941,12 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
                     and j["state"] in ("queued", "running")):
                 raise JobError("%s is already %s for %s"
                                % (kind, j["state"], slug))
-        jid = "J%d%03d" % (int(time.time()), len(_order) % 1000)
+        global _seq
+        _seq += 1
+        jid = "J%d%03d" % (int(time.time()), _seq % 1000)
+        while jid in _jobs:          # belt and braces across a restart
+            _seq += 1
+            jid = "J%d%03d" % (int(time.time()), _seq % 1000)
         job = {"id": jid, "kind": kind, "slug": slug,
                "label": KINDS[kind][0], "state": "queued", "pct": 0,
                "note": "", "queued_ts": int(time.time())}
@@ -1895,7 +1957,11 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
         _persist()
         lane = lane_of(kind)
         job["lane"] = lane
-        if _WORKERS.get(lane) is None:
+        w = _WORKERS.get(lane)
+        # `is_alive()`, not just `is None`: a dead thread in the slot is
+        # how a lane goes quiet forever. The loop is armoured now, but a
+        # lane with no live worker must still be able to come back.
+        if w is None or not w.is_alive():
             _WORKERS[lane] = threading.Thread(target=_worker, args=(lane,),
                                               daemon=True)
             _WORKERS[lane].start()
