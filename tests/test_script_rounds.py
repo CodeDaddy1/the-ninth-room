@@ -188,6 +188,19 @@ class Loop(unittest.TestCase):
         fb = editroom._save_script_feedback("ep", "chapter 4 is thin", "direction")
         self.assertEqual(fb["rounds"][-1]["decision"], "direction")
 
+    def test_the_loop_survives_a_script_existing(self):
+        """Found by the P6 proof run: the state builder returned only the
+        script once one existed, dropping the questions and the rounds at
+        exactly the point they matter — every draft carries its own open
+        questions, and the approve gate sits beside them."""
+        self.put("script.json", self.script())
+        self.put("script_questions.json", qdoc(stage="draft"))
+        st = editroom._script_state("ep")
+        self.assertIsNotNone(st["script"])
+        self.assertEqual(st["open"], ["Q1"])
+        self.assertIn("feedback", st)
+        self.assertIn("answers", st)
+
     def test_approve_locks_the_script(self):
         self.put("script.json", self.script())
         editroom._save_script_feedback("ep", "", "approve")

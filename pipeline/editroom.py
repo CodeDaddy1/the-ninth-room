@@ -2882,7 +2882,11 @@ def _script_state(slug: str) -> "dict":
                 older = [n for n in by_prefix if n.startswith(earlier)]
                 sec["stale_recordings"] = sorted(older)
                 sec["stale"] = bool(older)
-    return {"slug": slug, "script": script}
+    # Carry the loop through. Returning only the script here dropped the
+    # questions and the rounds the moment a draft existed -- which is
+    # exactly when they matter, since every draft ships with its own open
+    # questions and the approve gate lives beside them.
+    return dict(loop, slug=slug, script=script)
 
 
 def _save_script_section(slug: str, section_id: str, text: str) -> "dict":
