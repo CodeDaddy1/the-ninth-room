@@ -85,6 +85,34 @@ def catalog_broll(slug: str, log=print) -> Path:
     todo = [f for f in catalog["files"]
             if f.get("class") == "broll" and f.get("kind") == "video"
             and not f.get("screened_out")]
+    # MERGE, never rebuild (2026-08-25). Two things were being destroyed
+    # by every re-catalog, and both are load-bearing:
+    #
+    #  * the DESCRIPTIONS. Python writes "" and the story-designer fills
+    #    them as pre-work; a rebuild wiped all 186 of them, which is the
+    #    exact text the coverage editor reads to justify every cover.
+    #  * the IDS. They were positional — B%03d of len(clips)+1 — so
+    #    removing or screening out any earlier clip renumbered every clip
+    #    after it, while 60 covers in the cut reference those ids BY NAME.
+    #    They would have silently pointed at different footage.
+    #
+    # So a file keeps whatever id and description it already had, and only
+    # genuinely new files are given fresh ids after the highest in use.
+    prev = {}
+    out_path = out / "broll.json"
+    if out_path.exists():
+        try:
+            for c in json.loads(out_path.read_text()).get("clips", []):
+                if c.get("file"):
+                    prev[c["file"]] = c
+        except ValueError:
+            prev = {}
+    next_n = 0
+    for c in prev.values():
+        try:
+            next_n = max(next_n, int(str(c.get("id", "B0"))[1:]))
+        except ValueError:
+            continue
     import time as _time
     t0 = _time.time()
     clips = []
@@ -95,7 +123,12 @@ def catalog_broll(slug: str, log=print) -> Path:
         write_progress(slug, stage="broll", done=n, total=len(todo),
                        current=f["name"], pct=(n / len(todo)) if todo else 1,
                        eta_s=round(eta) if eta else None)
-        cid = "B%03d" % (len(clips) + 1)
+        was = prev.get(f["name"])
+        if was:
+            cid = was.get("id") or "B%03d" % (next_n + 1)
+        else:
+            next_n += 1
+            cid = "B%03d" % next_n
         sheet_name = f["name"] + ".sheet.jpg"
         sheet_path = sheets_dir / sheet_name
         if not sheet_path.exists():  # cached across reruns, like transcriptions
@@ -107,8 +140,9 @@ def catalog_broll(slug: str, log=print) -> Path:
             "width": f.get("width"),
             "height": f.get("height"),
             "sheet": "sheets/" + sheet_name,
-            "description": "",  # filled by the story-designer's pre-work
-            "tags": [],
+            # kept across re-analysis; "" only for a file never seen before
+            "description": (was or {}).get("description", ""),
+            "tags": (was or {}).get("tags", []),
         })
         log("[broll] %s %s %.1fs -> %s" % (cid, f["name"], f["duration"], sheet_name))
 

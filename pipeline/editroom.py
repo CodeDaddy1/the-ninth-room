@@ -3722,8 +3722,18 @@ def _use_asset(slug: str, aid: str) -> "dict":
         shutil.copy2(src, stills / sname)
         name = Path(sname).stem + "_still.mp4"
         _still_to_clip(stills / sname, fdir / name)
-    return {"as": name,
-            "reingest": (work / "analysis" / "catalog.json").exists()}
+    # Arm the auto-analysis, exactly as a footage drop does. Promoting an
+    # asset used to leave the shelf and the catalogue out of step until
+    # someone remembered to re-analyze by hand (Caleb, 2026-08-25: "are we
+    # able to auto analyze the uploaded assets?"). The debounce means a
+    # run of promotions costs ONE analysis, not one each — and a cached
+    # re-analysis of a 367-file project is ~21s and, since the catalogue
+    # merges rather than rebuilds, destroys nothing.
+    reingest = (work / "analysis" / "catalog.json").exists()
+    if reingest:
+        from . import jobs as _jobs_auto
+        _jobs_auto.note_upload(slug)
+    return {"as": name, "reingest": reingest, "analyzing": reingest}
 
 
 # --- Captions desk ---------------------------------------------------------
