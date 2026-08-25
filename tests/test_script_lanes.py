@@ -99,13 +99,17 @@ class Lanes(unittest.TestCase):
         (self.tmp / "script_questions.json").write_text(json.dumps(
             {"slug": "ep", "stage": "interview", "questions": []}))
         calls = []
-        real = jobs._dispatch
-        jobs._dispatch = lambda *a, **k: calls.append(1)
+        # Patch the dispatcher the job ACTUALLY calls. The creative kinds
+        # moved to _dispatch_json on 2026-08-25 to capture the session id;
+        # this stub kept patching the old one, so the guard test spawned a
+        # REAL Claude session — 250s suites and a starved local lane.
+        real = jobs._dispatch_json
+        jobs._dispatch_json = lambda *a, **k: calls.append(1)
         try:
             with self.assertRaises(RuntimeError) as cm:
                 jobs._run_script("ep", lambda *a: None, lambda p: None)
         finally:
-            jobs._dispatch = real
+            jobs._dispatch_json = real
         # it got past every guard and only failed for want of an artifact
         self.assertEqual(len(calls), 1)
         self.assertIn("was not written", str(cm.exception))

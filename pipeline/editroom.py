@@ -22,7 +22,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .ingest import work_path, analysis_dir, IngestError, VIDEO_EXT
+from .ingest import work_path, analysis_dir, IngestError, VIDEO_EXT, PROJECT_ROOT
 
 PORT = 8765
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -2701,6 +2701,92 @@ def _vo_file_prefix(section_id: str) -> str:
     return "vo_%s_t" % section_id.replace(".", "-")
 
 
+_SESSION_RE = re.compile(r"^[0-9a-f-]{16,64}$")
+SESSION_STEP_CAP = 400          # a long pass, not an unbounded transcript
+SESSION_LINE_CAP = 512 * 1024   # past this a line is a tool result, not a step
+
+
+def _session_dir() -> Path:
+    """Where the CLI keeps this repo's transcripts: the project root with
+    every separator turned into a dash."""
+    return (Path.home() / ".claude" / "projects"
+            / str(PROJECT_ROOT).replace("/", "-"))
+
+
+def _session_transcript(session_id: str) -> "dict":
+    """What an agent actually DID, read back from its transcript.
+
+    The job log only carries the assistant's prose -- it says what the
+    director concluded, never what it read to get there. The transcript
+    has the tool calls, so "did it actually open research.json" stops
+    being a matter of trust.
+
+    Streamed and summarised rather than parsed whole: these files reach
+    78 MB in this repo, and a desk that tried to load one would hang the
+    engine. Only the shape of each step is kept, capped at
+    SESSION_STEP_CAP.
+    """
+    if not _SESSION_RE.match(str(session_id or "")):
+        raise IngestError("that is not a session id")
+    path = _session_dir() / ("%s.jsonl" % session_id)
+    if not path.exists():
+        raise IngestError(
+            "no transcript on disk for that session -- headless sessions "
+            "are kept per project, and this one ran somewhere else")
+    steps: "list[dict]" = []
+    prompt = ""
+    truncated = False
+    with open(path) as f:
+        for line in f:
+            if len(steps) >= SESSION_STEP_CAP:
+                truncated = True
+                break
+            # Most of the bulk is tool RESULTS, which this never renders:
+            # 773 lines carrying 78 MB in the largest transcript here, so
+            # a single line can be megabytes. Skip those before json.loads
+            # rather than materialising one to learn its type.
+            if len(line) > SESSION_LINE_CAP:
+                continue
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            etype = ev.get("type")
+            if etype == "queue-operation" and not prompt:
+                prompt = str(ev.get("content") or "")[:2000]
+                continue
+            if etype != "assistant":
+                continue
+            for block in ((ev.get("message") or {}).get("content") or []):
+                btype = block.get("type")
+                if btype == "text" and str(block.get("text") or "").strip():
+                    steps.append({"kind": "said",
+                                  "text": block["text"].strip()[:1200]})
+                elif btype == "tool_use":
+                    steps.append({"kind": "did",
+                                  "tool": block.get("name") or "?",
+                                  "target": _tool_target(block.get("input"))})
+    return {"session_id": session_id, "prompt": prompt, "steps": steps,
+            "truncated": truncated,
+            "resume": "claude --resume %s" % session_id,
+            "cwd": str(PROJECT_ROOT)}
+
+
+def _tool_target(inp: "Any") -> str:
+    """The one thing a tool call was AIMED at, for a one-line summary.
+    Whole inputs are unbounded (a Write carries the entire file); this is
+    the part a human scans."""
+    if not isinstance(inp, dict):
+        return ""
+    for key in ("file_path", "path", "command", "pattern", "url", "query",
+                "prompt", "skill"):
+        v = inp.get(key)
+        if isinstance(v, str) and v.strip():
+            v = v.strip().replace(str(PROJECT_ROOT) + "/", "")
+            return v[:160]
+    return ""
+
+
 def _open_q_count(work: "Path") -> int:
     """How many of the director's questions still wait on Caleb. Cheap
     enough for the project row, which every desk polls."""
@@ -2799,6 +2885,46 @@ def _save_script_feedback(slug: str, notes: str, decision: str) -> "dict":
         script["approved_ts"] = int(time.time())
         _write_json(sp, script)
     return fb
+
+
+def _recheck_script(slug: str) -> "dict":
+    """Run the script's own gates against whatever is on disk RIGHT NOW.
+
+    The job validates what it wrote, which is enough while the job is the
+    only writer. A resumed session is not the job: it edits the same
+    files with the same authority and answers to nothing, so a script
+    could reach the cut having never passed the bar. This is the way
+    back -- it re-runs exactly what the job runs, and reports rather
+    than refusing, because by this point the words are already on disk.
+    """
+    from . import schemas
+    work = work_path(slug)
+    p = work / "script.json"
+    if not p.exists():
+        raise IngestError("no script yet")
+    script = json.loads(p.read_text())
+    takes = None
+    tp = analysis_dir(slug) / "takes.json"
+    if tp.exists():
+        try:
+            takes = json.loads(tp.read_text())
+        except ValueError:
+            takes = None
+    brief = {}
+    bp = work / "story_brief.json"
+    if bp.exists():
+        try:
+            brief = json.loads(bp.read_text())
+        except ValueError:
+            brief = {}
+    errors = schemas.validate_script(script, takes)
+    notes = schemas.script_notes(script, brief.get("vo_share"),
+                                 origin=brief.get("origin", "footage"))
+    return {"slug": slug, "errors": errors, "notes": notes,
+            "ok": not errors and not notes,
+            "vo_share": round(schemas.vo_share(script), 3),
+            "target": brief.get("vo_share"),
+            "locked": bool(script.get("locked"))}
 
 
 def _unlock_script(slug: str) -> "dict":
@@ -3781,6 +3907,13 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, _captions_state(self._slug_q()))
             elif self.path.startswith("/api/story"):
                 self._send(200, _story_state(self._slug_q()))
+            elif self.path.startswith("/api/session"):
+                # keyed by session id, NOT by slug — a session belongs to
+                # the job that ran it, and one project has many
+                from urllib.parse import parse_qs, urlparse
+                q = parse_qs(urlparse(self.path).query)
+                self._send(200, _session_transcript(
+                    (q.get("id") or [""])[0]))
             elif self.path.startswith("/api/script"):
                 self._send(200, _script_state(self._slug_q()))
             elif self.path.startswith("/api/footage"):
@@ -4305,6 +4438,9 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                            body.get("notes", ""),
                                            body.get("decision", "direction"))
                 self._send(200, {"ok": True, "feedback": fb})
+            elif self.path == "/api/script/recheck":
+                self._send(200, dict(_recheck_script(self._slug_b(body)),
+                                     ok=True))
             elif self.path == "/api/script/unlock":
                 sc = _unlock_script(self._slug_b(body))
                 self._send(200, {"ok": True, "locked": sc.get("locked", False)})

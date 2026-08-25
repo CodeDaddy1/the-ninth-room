@@ -114,6 +114,38 @@ def _update(jid, **fields):
         _persist()
 
 
+# Which job this worker thread is running. Set by the worker, read by the
+# dispatcher so a session can stamp its id onto the job WITHOUT threading a
+# jid through every _run_* signature. One job per lane on its own thread,
+# so a thread-local is exactly the right scope.
+_CURRENT = threading.local()
+
+
+def _current_jid():
+    """The job on THIS thread, or None. Read on the worker thread and
+    passed down — never read from a drain thread, which has its own empty
+    thread-local (caught live 2026-08-25: the id silently never landed
+    because the reader ran on a thread the worker had not touched)."""
+    return getattr(_CURRENT, "jid", None)
+
+
+def _note_session(session_id: str, jid=None) -> None:
+    """Record the Claude session a job dispatched.
+
+    The id is what makes an agent's work inspectable after the fact: the
+    transcript lives at ~/.claude/projects/<escaped-cwd>/<id>.jsonl and
+    `claude --resume <id>` picks the conversation back up. Without it a
+    finished job is just its log tail, and 'what did it actually read'
+    has no answer.
+
+    `jid` is explicit for callers on a helper thread; it falls back to
+    this thread's job for ordinary callers.
+    """
+    jid = jid or _current_jid()
+    if jid and session_id and jid in _jobs:
+        _update(jid, session_id=session_id)
+
+
 def _job_log(jid):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     path = LOG_DIR / ("%s.log" % jid)
@@ -316,16 +348,7 @@ def _run_story(slug, log, set_pct):
     log("[story] dispatching the story designer%s"
         % (" — fresh round over existing pitches" if before else ""))
     set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p",
-         _story_prompt(slug),
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "story")
-    if rc != 0:
-        raise RuntimeError("story session exited %d — see the log" % rc)
+    _dispatch_json(_story_prompt(slug), log, set_pct, "story")
     after = stories_path.stat().st_mtime if stories_path.exists() else None
     if after is None or after == before:
         raise RuntimeError("session finished but stories.json did not "
@@ -609,10 +632,11 @@ def _run_interview(slug, log, set_pct):
     out = work / "script_questions.json"
     before = out.stat().st_mtime if out.exists() else None
     log("[interview] dispatching the story director for its questions")
-    _dispatch(INTERVIEW_PROMPT % {"slug": slug, "brief": _brief_clause(slug),
-                                  "stage": "interview",
-                                  "cap": schemas.MAX_INTERVIEW_Q},
-              log, set_pct, "interview")
+    _dispatch_json(INTERVIEW_PROMPT % {"slug": slug,
+                                       "brief": _brief_clause(slug),
+                                       "stage": "interview",
+                                       "cap": schemas.MAX_INTERVIEW_Q},
+                   log, set_pct, "interview")
     after = out.stat().st_mtime if out.exists() else None
     if after is None or after == before:
         raise RuntimeError("session finished but script_questions.json did "
@@ -676,7 +700,7 @@ def _run_script(slug, log, set_pct):
     before = script_path.stat().st_mtime if script_path.exists() else None
     log("[script] dispatching the story director (%s lane%s)"
         % (origin, ", revising" if existing is not None else ""))
-    _dispatch(_script_prompt(slug), log, set_pct, "script")
+    _dispatch_json(_script_prompt(slug), log, set_pct, "script")
     if not script_path.exists():
         raise RuntimeError("session finished but script.json was not "
                            "written -- read the log")
@@ -770,16 +794,7 @@ def _run_graphics(slug, log, set_pct):
                            "start over)")
     log("[graphics] dispatching the graphics director")
     set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p",
-         GRAPHICS_PROMPT % {"slug": slug},
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "graphics")
-    if rc != 0:
-        raise RuntimeError("graphics session exited %d -- see the log" % rc)
+    _dispatch_json(GRAPHICS_PROMPT % {"slug": slug}, log, set_pct, "graphics")
     if not gp_path.exists():
         raise RuntimeError("session finished but graphics_plan.json was "
                            "not written -- read the log")
@@ -820,16 +835,7 @@ def _run_editplan(slug, log, set_pct):
                            "built; re-cutting is a session decision")
     log("[editplan] dispatching the story designer for the cut")
     set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p",
-         _editplan_prompt(slug),
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "editplan")
-    if rc != 0:
-        raise RuntimeError("edit-plan session exited %d — see the log" % rc)
+    _dispatch_json(_editplan_prompt(slug), log, set_pct, "editplan")
     if not plan_path.exists():
         raise RuntimeError("session finished but edit_plan.json was not "
                            "written — read the log")
@@ -1226,30 +1232,62 @@ def _dispatch_json(prompt, log, set_pct, what):
         stderr=subprocess.STDOUT, text=True)
     set_pct(15)
     usage = {}
-    for line in proc.stdout:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            ev = _json.loads(line)
-        except ValueError:
-            log(line)
-            continue
-        etype = ev.get("type")
-        if etype == "assistant":
-            for block in (ev.get("message") or {}).get("content", []):
-                if block.get("type") == "text" and block.get("text"):
-                    for tl in block["text"].splitlines():
-                        if tl.strip():
-                            log(tl)
-        elif etype == "result":
-            u = ev.get("usage") or {}
-            usage = {"tokens": (u.get("input_tokens", 0)
-                                + u.get("output_tokens", 0)
-                                + u.get("cache_read_input_tokens", 0)
-                                + u.get("cache_creation_input_tokens", 0)),
-                     "usd": ev.get("total_cost_usd", 0),
-                     "ms": ev.get("duration_ms", 0)}
+    seen_session = [False]
+    t0 = time.time()
+    last = [t0]
+    # Captured HERE, on the worker thread, and closed over. The drain runs
+    # on its own thread with its own empty thread-local, so reading the
+    # current job from inside it finds nothing and the id never lands.
+    jid = _current_jid()
+
+    def drain():
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            last[0] = time.time()
+            try:
+                ev = _json.loads(line)
+            except ValueError:
+                log(line)
+                continue
+            # Every event carries it; the first one is enough. Stamped as
+            # soon as it arrives rather than at the end, so a session that
+            # hangs or crashes is still inspectable afterwards.
+            if not seen_session[0] and ev.get("session_id"):
+                seen_session[0] = True
+                _note_session(str(ev["session_id"]), jid)
+            etype = ev.get("type")
+            if etype == "assistant":
+                for block in (ev.get("message") or {}).get("content", []):
+                    if block.get("type") == "text" and block.get("text"):
+                        for tl in block["text"].splitlines():
+                            if tl.strip():
+                                log(tl)
+            elif etype == "result":
+                u = ev.get("usage") or {}
+                usage.update({
+                    "tokens": (u.get("input_tokens", 0)
+                               + u.get("output_tokens", 0)
+                               + u.get("cache_read_input_tokens", 0)
+                               + u.get("cache_creation_input_tokens", 0)),
+                    "usd": ev.get("total_cost_usd", 0),
+                    "ms": ev.get("duration_ms", 0)})
+
+    # Same heartbeat the plain dispatcher has. Reading the stream on THIS
+    # thread would put the tick behind a session that says nothing for ten
+    # minutes, which is the "still showing 15%" bug all over again.
+    t = threading.Thread(target=drain, daemon=True)
+    t.start()
+    while proc.poll() is None:
+        time.sleep(1)
+        now = time.time()
+        if now - last[0] >= HEARTBEAT_S:
+            set_pct(heartbeat_pct(now - t0))
+            log("[%s] still working — %.0fm elapsed, session silent"
+                % (what, (now - t0) / 60.0))
+            last[0] = now
+    t.join(timeout=5)
     rc = proc.wait()
     if rc != 0:
         raise RuntimeError("%s session exited %d -- see the log"
@@ -1318,7 +1356,7 @@ def _run_coverage(slug, log, set_pct):
     before = {b["id"]: json.dumps(b.get("broll") or [], sort_keys=True)
               for b in json.loads(plan_path.read_text()).get("beats", [])}
     log("[coverage] dispatching the coverage editor")
-    _dispatch(
+    _dispatch_json(
         "Run the b-roll pass on The Ninth Room episode %s. Read "
         ".claude/agents/coverage-editor.md and act as that agent: re-edit "
         "every cover in work/%s/edit_plan.json against the b-roll grammar "
@@ -1698,6 +1736,7 @@ def _worker(lane: str = "local"):
         # upload it covers must still compare AFTER it (review F4)
         _update(jid, state="running", started_ts=time.time())
         log = _job_log(jid)
+        _CURRENT.jid = jid
         try:
             _, fn = KINDS[job["kind"]]
             if job.get("arg"):
