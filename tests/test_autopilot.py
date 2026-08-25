@@ -43,10 +43,7 @@ class TheChain(unittest.TestCase):
                                # the one auto-dispatched session (P10) —
                                # its own guards keep it first-pass-only
                                ("assemble", "retention"),
-                               # the script names what narration must say;
-                               # sourcing finds what can show it, then STOPS
-                               # at the human gate (2026-08-24)
-                               ("script", "sourcing")):
+                               ):
             self.calls[:] = []
             jobs._after_done({"kind": kind, "slug": "ep"}, lambda *a: None)
             self.assertEqual(self.calls, [(follower, "ep")], kind)

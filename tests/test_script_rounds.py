@@ -259,3 +259,68 @@ class Loop(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApprovalStartsTheSourcing(unittest.TestCase):
+    """Approving is what "the words are settled" MEANS, so it is the honest
+    trigger for the one stage that spends money against them.
+
+    This was chained off the script JOB finishing, which fires when a DRAFT
+    lands. Observed on the-pendulum-that-stopped: the draft chained straight
+    into sourcing and it was declined, before Caleb had read a line.
+    """
+
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        (self.work / "analysis").mkdir(parents=True)
+        self._wp, self._ad = editroom.work_path, editroom.analysis_dir
+        editroom.work_path = lambda slug: self.work
+        editroom.analysis_dir = lambda slug: self.work / "analysis"
+        from pipeline import jobs
+        self.jobs = jobs
+        self._start = jobs.start
+        self.started = []
+        jobs.start = lambda kind, slug, arg=None: (
+            self.started.append((kind, slug)) or {"id": "JFAKE"})
+
+    def tearDown(self):
+        self.jobs.start = self._start
+        editroom.work_path, editroom.analysis_dir = self._wp, self._ad
+        shutil.rmtree(self.work, ignore_errors=True)
+
+    def script(self):
+        (self.work / "script.json").write_text(json.dumps(
+            {"slug": "ep", "origin": "script", "round": 1, "locked": False,
+             "chapters": []}))
+
+    def test_approving_queues_the_sourcer(self):
+        self.script()
+        fb = editroom._save_script_feedback("ep", "", "approve")
+        self.assertEqual(self.started, [("sourcing", "ep")])
+        self.assertTrue(fb["sourcing"]["queued"])
+
+    def test_direction_does_not(self):
+        """A revision request is not a settlement."""
+        self.script()
+        editroom._save_script_feedback("ep", "chapter 2 is thin", "direction")
+        self.assertEqual(self.started, [])
+
+    def test_re_approving_does_not_queue_it_twice(self):
+        """The idempotent approve must not spend a session per click."""
+        self.script()
+        editroom._save_script_feedback("ep", "", "approve")
+        for _ in range(4):
+            editroom._save_script_feedback("ep", "", "approve")
+        self.assertEqual(len(self.started), 1)
+
+    def test_a_follower_that_cannot_start_never_breaks_the_approve(self):
+        """And it is REPORTED — a silent miss looks exactly like a stage
+        that ran and found nothing to do."""
+        self.script()
+        def boom(kind, slug, arg=None):
+            raise RuntimeError("queue is wedged")
+        self.jobs.start = boom
+        fb = editroom._save_script_feedback("ep", "", "approve")
+        self.assertTrue(editroom._script_state("ep")["script"]["locked"])
+        self.assertFalse(fb["sourcing"]["queued"])
+        self.assertIn("wedged", fb["sourcing"]["why"])

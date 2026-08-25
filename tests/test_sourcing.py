@@ -137,8 +137,14 @@ class Wiring(unittest.TestCase):
     def test_sourcing_runs_on_the_session_lane(self):
         self.assertEqual(jobs.lane_of("sourcing"), "session")
 
-    def test_the_script_hands_off_to_it(self):
-        self.assertEqual(jobs.CHAIN.get("script"), "sourcing")
+    def test_the_script_job_does_NOT_hand_off_to_it(self):
+        """It used to, and the trigger was wrong: the script job finishing
+        means a DRAFT was written, not that the words are settled. Sourcing
+        went out and priced pictures for lines about to be rewritten, and
+        once the script lane began refusing an unapproved draft it was
+        declined every time. The handoff moved to the APPROVAL
+        (editroom._save_script_feedback, 2026-08-25)."""
+        self.assertIsNone(jobs.CHAIN.get("script"))
 
     def test_and_sourcing_stops_at_the_gate(self):
         self.assertIsNone(jobs.CHAIN.get("sourcing"))

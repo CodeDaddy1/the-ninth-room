@@ -3265,6 +3265,26 @@ def _save_script_feedback(slug: str, notes: str, decision: str) -> "dict":
         script["locked"] = True
         script["approved_ts"] = int(time.time())
         _write_json(sp, script)
+        # Approval is what "the words are settled" MEANS, so it is the
+        # honest trigger for the one stage that spends money against them.
+        # This was chained off the script JOB finishing, which fires when a
+        # draft lands -- pricing pictures for lines about to be rewritten,
+        # and, once the script lane began refusing an unapproved draft,
+        # being declined every time.
+        #
+        # It proposes and STOPS: approving a download is a licence decision
+        # and Caleb's alone. A guard that refuses (not ingested yet, no
+        # pictures needed) declines politely, which is the system working.
+        # Reported, never swallowed: the approve itself must still succeed
+        # if the follower cannot start, but a silent miss here looks exactly
+        # like a stage that ran and found nothing. `fb` is already on disk
+        # by this point, so this key rides back in the response only.
+        try:
+            from . import jobs as _jobs_auto
+            job = _jobs_auto.start("sourcing", slug)
+            fb["sourcing"] = {"queued": True, "job": job.get("id")}
+        except Exception as e:
+            fb["sourcing"] = {"queued": False, "why": str(e)[:200]}
     return fb
 
 

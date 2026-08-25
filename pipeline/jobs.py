@@ -1651,9 +1651,14 @@ KINDS = {
 # Only DONE jobs chain — a failure stops the line and says so.
 CHAIN = {
     "editplan": "assemble",
-    # the script names what the narration must say; sourcing finds what
-    # can show it, and STOPS — approving a download is Caleb's (2026-08-24)
-    "script": "sourcing",
+    # `script -> sourcing` USED to live here and has moved to the approval
+    # (editroom._save_script_feedback, 2026-08-25). The intent is unchanged
+    # — sourcing finds what can show the narration, then STOPS at the human
+    # gate — but the trigger was wrong: the script job finishing means a
+    # DRAFT was written, not that the words are settled. Chained there it
+    # went out and priced pictures for lines Caleb was about to rewrite,
+    # and once the script lane started refusing an unapproved draft it was
+    # declined every single time (observed on the-pendulum-that-stopped).
     "graphics": "reproxy",
     "snapcuts": "assemble",
     # the one auto-dispatched session, by explicit P10 decision: the
