@@ -1200,6 +1200,46 @@ def blocking_questions(questions: "dict[str, Any] | None",
     return out
 
 
+# A proposal offers to BUY something. These are the answers that mean we
+# are no longer buying it — the overlay kit draws it, Caleb shoots it, or
+# the library already holds it.
+_NOT_SOURCED = ("graphic", "shoot", "library")
+
+
+def superseded_requests(script: "dict[str, Any]",
+                        requests: "dict[str, Any] | None") -> "list[int]":
+    """Indices of open proposals the script has since moved past.
+
+    A revision can turn "find me archival footage of this" into "draw it in
+    the kit", and the proposal made against the OLD line stays sitting at
+    `proposed`, indistinguishable from a live one. Approving it then spends
+    money on the exact thing Caleb decided not to buy — which is what
+    happened to CH2.S7 and CH2.S8 on the-pendulum-that-stopped
+    (2026-08-25).
+
+    Only `source` proposals can go stale this way: a `requirement` names
+    work still owed whatever the section now says. Nothing is deleted —
+    the caller re-labels, so the record of what was proposed survives.
+    """
+    want = {}
+    for ch in (script or {}).get("chapters", []):
+        for sec in (ch or {}).get("sections", []) or []:
+            vis = sec.get("visual")
+            want[str(sec.get("id"))] = (
+                str((vis or {}).get("from") or "") if isinstance(vis, dict)
+                else None)
+    out = []
+    for i, r in enumerate((requests or {}).get("rounds", []) or []):
+        if not isinstance(r, dict) or r.get("status") != "proposed":
+            continue
+        if r.get("kind") != "source":
+            continue
+        sid = str(r.get("section_id") or "")
+        if sid not in want or want[sid] in _NOT_SOURCED or not want[sid]:
+            out.append(i)
+    return out
+
+
 def coverage_budget(script: "dict[str, Any]",
                     broll: "dict[str, Any] | None" = None,
                     used_clip_ids: "set | frozenset | None" = None) -> "dict":

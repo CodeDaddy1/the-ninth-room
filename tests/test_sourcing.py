@@ -191,3 +191,67 @@ class ReopeningAFetchedRound(unittest.TestCase):
             editroom._asset_round_verdict("x", 1, "proposed",
                                           log=lambda *a: None)
         self.assertEqual(self._status(), "done")
+
+
+class RevisionsRetireStaleProposals(unittest.TestCase):
+    """A proposal offers to BUY something. A revision can decide we are not
+    buying it after all — and the proposal made against the old line stays
+    at `proposed`, indistinguishable from a live one.
+
+    Observed on the-pendulum-that-stopped (2026-08-25): CH2.S7 and CH2.S8
+    were proposed as archival, Caleb answered "redraw those two in the
+    overlay kit", and both proposals sat there. Approving them would have
+    spent money on the exact thing he decided not to buy.
+    """
+
+    def script(self, **frm):
+        return {"chapters": [{"id": "CH1", "sections": [
+            {"id": sid, "kind": "vo", "visual": {"want": "x", "why": "y",
+                                                 "from": f}}
+            for sid, f in frm.items()]}]}
+
+    def reqs(self, *rows):
+        return {"rounds": [dict(r) for r in rows]}
+
+    def test_a_source_the_kit_now_draws_is_retired(self):
+        s = self.script(CH2_S7="graphic")
+        s["chapters"][0]["sections"][0]["id"] = "CH2.S7"
+        r = self.reqs({"section_id": "CH2.S7", "kind": "source",
+                       "status": "proposed"})
+        self.assertEqual(schemas.superseded_requests(s, r), [0])
+
+    def test_a_source_still_wanted_is_left_alone(self):
+        s = self.script(x="archival")
+        s["chapters"][0]["sections"][0]["id"] = "CH2.S3"
+        r = self.reqs({"section_id": "CH2.S3", "kind": "source",
+                       "status": "proposed"})
+        self.assertEqual(schemas.superseded_requests(s, r), [])
+
+    def test_a_requirement_is_never_retired_this_way(self):
+        """It names work still owed whatever the section now says."""
+        s = self.script(x="graphic")
+        s["chapters"][0]["sections"][0]["id"] = "CH1.S4"
+        r = self.reqs({"section_id": "CH1.S4", "kind": "requirement",
+                       "status": "proposed"})
+        self.assertEqual(schemas.superseded_requests(s, r), [])
+
+    def test_a_section_that_no_longer_exists_is_retired(self):
+        r = self.reqs({"section_id": "CH9.S9", "kind": "source",
+                       "status": "proposed"})
+        self.assertEqual(schemas.superseded_requests(self.script(), r), [0])
+
+    def test_already_decided_rounds_are_untouched(self):
+        """Approved and done rounds are history, not open offers."""
+        s = self.script()
+        for st in ("approved", "done", "skipped", "superseded"):
+            r = self.reqs({"section_id": "CH9.S9", "kind": "source",
+                           "status": st})
+            self.assertEqual(schemas.superseded_requests(s, r), [], st)
+
+    def test_shoot_and_library_also_mean_not_buying(self):
+        for f in ("shoot", "library"):
+            s = self.script(x=f)
+            s["chapters"][0]["sections"][0]["id"] = "CH1.S1"
+            r = self.reqs({"section_id": "CH1.S1", "kind": "source",
+                           "status": "proposed"})
+            self.assertEqual(schemas.superseded_requests(s, r), [0], f)

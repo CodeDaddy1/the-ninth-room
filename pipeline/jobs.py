@@ -1584,6 +1584,22 @@ def _run_sourcing(slug, log, set_pct, arg=None):
                 rounds = []
         if not any(r.get("status") == "approved" for r in rounds):
             raise JobError("nothing approved — approve a proposal first")
+    # Retire proposals the script has moved past, BEFORE proposing more.
+    # A revision can turn "find archival of this" into "the kit draws it",
+    # and the old proposal stays at `proposed` looking exactly like a live
+    # one -- approve it and the fetch buys the thing Caleb decided not to.
+    if not fetch:
+        from . import schemas
+        reqs = _read_json(rq) or {}
+        stale = schemas.superseded_requests(
+            _read_json(work / "script.json") or {}, reqs)
+        if stale:
+            for i in stale:
+                reqs["rounds"][i]["status"] = "superseded"
+                reqs["rounds"][i]["superseded_ts"] = int(time.time())
+            rq.write_text(json.dumps(reqs, indent=1))
+            log("[sourcing] %d earlier proposal(s) retired -- the script no "
+                "longer asks to buy those" % len(stale))
     before = rq.stat().st_mtime if rq.exists() else None
     prompt = ((SOURCING_FETCH_PROMPT % {"slug": slug}) if fetch
               else _sourcing_prompt(slug))
