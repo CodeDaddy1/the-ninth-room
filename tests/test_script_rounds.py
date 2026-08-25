@@ -361,3 +361,69 @@ class QuestionIdsAreNeverRecycled(unittest.TestCase):
 
     def test_no_feedback_yet_is_not_a_collision(self):
         self.assertEqual(schemas.validate_script_questions(qdoc()), [])
+
+
+class AnswersAfterApprovalAreCalledOut(unittest.TestCase):
+    """Caleb answered six draft questions on an APPROVED script and watched
+    nothing happen (2026-08-25). The desk had invited the answers and then
+    had nowhere to put them: the writer refuses to revise an approved
+    script, and approval is the only thing that starts a stage.
+
+    The answers are kept — they are the most considered thing in the file —
+    but the desk is told they are inert until the script is reopened.
+    """
+
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        (self.work / "analysis").mkdir(parents=True)
+        self._wp, self._ad = editroom.work_path, editroom.analysis_dir
+        editroom.work_path = lambda slug: self.work
+        editroom.analysis_dir = lambda slug: self.work / "analysis"
+
+    def tearDown(self):
+        editroom.work_path, editroom.analysis_dir = self._wp, self._ad
+        shutil.rmtree(self.work, ignore_errors=True)
+
+    def put(self, name, doc):
+        (self.work / name).write_text(json.dumps(doc))
+
+    def script(self, locked, approved_ts=None):
+        d = {"slug": "ep", "round": 1, "locked": locked, "chapters": []}
+        if approved_ts:
+            d["approved_ts"] = approved_ts
+        self.put("script.json", d)
+
+    def test_answering_a_locked_script_says_it_needs_a_revision(self):
+        self.script(True, approved_ts=100)
+        self.put("script_questions.json", qdoc(stage="draft"))
+        fb = editroom._save_script_answers("ep", {"Q1": "a"})
+        self.assertTrue(fb.get("needs_revision"))
+
+    def test_answering_an_open_script_does_not(self):
+        self.script(False)
+        self.put("script_questions.json", qdoc(stage="draft"))
+        fb = editroom._save_script_answers("ep", {"Q1": "a"})
+        self.assertNotIn("needs_revision", fb)
+
+    def test_the_desk_lists_which_answers_are_stranded(self):
+        self.script(True, approved_ts=100)
+        self.put("script_feedback.json", {"rounds": [
+            {"decision": "answers", "ts": 50, "answers": {"Q1": "a"}},
+            {"decision": "approve", "ts": 100},
+            {"decision": "answers", "ts": 150, "answers": {"Q7": "b", "Q8": "c"}}]})
+        self.assertEqual(editroom._script_state("ep")["stranded_answers"],
+                         ["Q7", "Q8"])
+
+    def test_answers_that_BUILT_the_script_are_not_stranded(self):
+        """They are spent, not waiting — the approved script came from
+        them. Comparing against approved_ts is what separates the two."""
+        self.script(True, approved_ts=100)
+        self.put("script_feedback.json", {"rounds": [
+            {"decision": "answers", "ts": 50, "answers": {"Q1": "a"}}]})
+        self.assertEqual(editroom._script_state("ep")["stranded_answers"], [])
+
+    def test_an_open_script_strands_nothing(self):
+        self.script(False)
+        self.put("script_feedback.json", {"rounds": [
+            {"decision": "answers", "ts": 150, "answers": {"Q7": "b"}}]})
+        self.assertEqual(editroom._script_state("ep")["stranded_answers"], [])

@@ -3184,6 +3184,33 @@ def _open_q_count(work: "Path") -> int:
                                       _load("script_feedback.json")))
 
 
+def _stranded_answers(work: "Path", fb: "dict | None") -> "list":
+    """Question ids answered after the script was approved.
+
+    Compared against `approved_ts` rather than just "is locked", because
+    the answers Caleb gave BEFORE approving are what the approved script
+    was built from — those are spent, not stranded. Only the ones that
+    arrived afterwards are waiting on a revision that cannot start.
+    """
+    p = work / "script.json"
+    if not p.exists():
+        return []
+    try:
+        script = json.loads(p.read_text())
+    except ValueError:
+        return []
+    if not script.get("locked"):
+        return []
+    since = script.get("approved_ts") or 0
+    out = []
+    for r in (fb or {}).get("rounds", []) or []:
+        if r.get("decision") != "answers" or int(r.get("ts", 0)) <= since:
+            continue
+        out.extend(str(k) for k, v in (r.get("answers") or {}).items()
+                   if str(v or "").strip())
+    return sorted(set(out))
+
+
 def _script_answers(fb: "dict | None") -> "dict":
     """Every answer Caleb has ever given, flattened newest-wins.
 
@@ -3227,6 +3254,22 @@ def _save_script_answers(slug: str, answers: "dict",
                          "answers": clean,
                          "notes": str(notes or "").strip()})
     _write_json(path, fb)
+    # Answers to a LOCKED script have nothing to act on them: the writer
+    # refuses to revise an approved script, and approval is the only thing
+    # that starts a stage. Caleb answered six draft questions on an
+    # approved script and watched nothing happen (2026-08-25) -- the desk
+    # had invited the answers and then had nowhere to put them.
+    #
+    # They are still kept, because they are the most considered thing in
+    # the file. What changes is that the desk is TOLD they are inert until
+    # the script is reopened, rather than being left to infer it.
+    sp = work / "script.json"
+    if sp.exists():
+        try:
+            if json.loads(sp.read_text()).get("locked"):
+                fb["needs_revision"] = True
+        except ValueError:
+            pass
     return fb
 
 
@@ -3368,7 +3411,12 @@ def _script_state(slug: str) -> "dict":
             "feedback": fb,
             "open": schemas.open_questions(questions, fb),
             "blocking": schemas.blocking_questions(questions, fb),
-            "answers": _script_answers(fb)}
+            "answers": _script_answers(fb),
+            # Answers given AFTER the approval are inert: the writer will
+            # not revise an approved script, and approval is the only
+            # trigger. Surfaced so the desk can say so instead of leaving
+            # Caleb watching for something that was never going to start.
+            "stranded_answers": _stranded_answers(work, fb)}
     if not p.exists():
         return dict(loop, slug=slug, script=None)
     script = json.loads(p.read_text())
