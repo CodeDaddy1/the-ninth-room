@@ -1473,7 +1473,10 @@ SOURCING_FETCH_PROMPT = (
     "Fetch the APPROVED coverage for %(slug)s. Read "
     ".claude/agents/asset-sourcer.md and act as that agent in its FETCH "
     "phase: work/%(slug)s/asset_requests.json holds rounds; work ONLY "
-    "those with \"status\": \"approved\" and ignore every other round. "
+    "those with \"status\": \"approved\" AND \"kind\": \"source\". A round "
+    "whose kind is \"requirement\" is work Caleb or the overlay kit must "
+    "do -- there is nothing to buy, and sourcing one anyway buys the "
+    "picture he asked to have drawn. Ignore every other round. "
     "IF THE ROUND CARRIES \"chosen\": <n>, that is the candidate Caleb "
     "LOOKED AT and picked -- fetch THAT item from its `page`/`video` url "
     "and do not search for something better. He approved a picture, not "
@@ -1606,7 +1609,21 @@ def _run_sourcing(slug, log, set_pct, arg=None):
                 rounds = json.loads(rq.read_text()).get("rounds", [])
             except ValueError:
                 rounds = []
-        if not any(r.get("status") == "approved" for r in rounds):
+        # A requirement cannot be fetched: it is work Caleb or the kit must
+        # do. Counting one as "approved and ready" sends the fetcher out to
+        # buy the picture he asked to have drawn -- and refusing with
+        # "nothing approved" after he approved eight of them is exactly as
+        # confusing (2026-08-25).
+        buyable = [r for r in rounds
+                   if r.get("status") == "approved"
+                   and r.get("kind", "source") == "source"]
+        if not buyable:
+            waiting = sum(1 for r in rounds if r.get("status") == "approved")
+            if waiting:
+                raise JobError(
+                    "the %d approved round(s) are all things to MAKE, not "
+                    "buy — the overlay kit draws them or you film them; "
+                    "there is nothing to fetch" % waiting)
             raise JobError("nothing approved — approve a proposal first")
     # Retire proposals the script has moved past, BEFORE proposing more.
     # A revision can turn "find archival of this" into "the kit draws it",
