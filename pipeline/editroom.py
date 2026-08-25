@@ -1353,9 +1353,37 @@ def _clean_stale(slug: str, log=print) -> "dict":
 
 
 def _orientation(slug: str) -> str:
+    """The shape this project is being built in.
+
+    Precedence is deliberate and in this order:
+
+    1. `timeline_map.json` — what was ACTUALLY built. Once a cut exists its
+       cards and captions are baked to that canvas, so a brief edited
+       afterwards must not re-shape it underneath them.
+    2. the brief's `delivery` — the intent, and the only answer available
+       before assemble. This is the whole point of asking at creation:
+       everything upstream of the timeline used to guess, and guessed
+       landscape, so a vertical project baked 16:9 cards until its first
+       assemble corrected it.
+    3. landscape — every project that predates the field is an episode.
+    """
     p = analysis_dir(slug) / "timeline_map.json"
     if p.exists():
-        return json.loads(p.read_text()).get("orientation", "landscape")
+        try:
+            return json.loads(p.read_text()).get("orientation", "landscape")
+        except ValueError:
+            pass
+    b = work_path(slug) / "story_brief.json"
+    if b.exists():
+        try:
+            brief = json.loads(b.read_text())
+        except ValueError:
+            return "landscape"
+        if brief.get("orientation") in ("portrait", "landscape"):
+            return brief["orientation"]
+        from . import schemas
+        if brief.get("delivery"):
+            return schemas.delivery_shape(brief["delivery"])["orientation"]
     return "landscape"
 
 
@@ -1942,14 +1970,47 @@ def _valid_slug(slug: str) -> bool:
     return bool(slug and _SLUG_RE.match(slug) and work_path(slug).is_dir())
 
 
-def _new_project(name: str) -> str:
+def _new_project(name: str, origin: str = "footage",
+                 delivery: str = "long",
+                 shorts_source: "str | None" = None) -> str:
+    """Create a project WITH its format already decided (Caleb, 2026-08-25:
+    "it should prompt me which direction we are taking").
+
+    Both axes used to be inferred far downstream — orientation from
+    analysis/timeline_map.json, which only exists after assemble — so every
+    stage before that guessed, and guessed landscape. Writing the opening
+    brief here means a project is never formatless: the desk knows on the
+    first screen whether this is a day out or a documentary, and whether it
+    is 16:9 or vertical.
+    """
+    from . import schemas
     slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
     if not slug:
         raise IngestError("give the project a name")
+    origin = str(origin or "footage")
+    delivery = str(delivery or "long")
+    if origin not in schemas.ORIGINS:
+        raise IngestError("origin must be one of %s"
+                          % ", ".join(schemas.ORIGINS))
+    if delivery not in schemas.DELIVERIES:
+        raise IngestError("delivery must be one of %s"
+                          % ", ".join(schemas.DELIVERIES))
+    if shorts_source and shorts_source not in schemas.SHORTS_SOURCES:
+        raise IngestError("shorts_source must be one of %s"
+                          % ", ".join(schemas.SHORTS_SOURCES))
     work = work_path(slug)
     if work.exists():
         raise IngestError("project '%s' already exists" % slug)
     (work / "footage").mkdir(parents=True)
+    d = schemas.format_defaults(origin, delivery)
+    brief = {"target_minutes": d["target_minutes"], "chapters": d["chapters"],
+             "vo_share": d["vo_share"], "location": "", "subject": "",
+             "origin": origin, "delivery": delivery,
+             "orientation": d["orientation"], "format": d["format"],
+             "notes": "", "ts": int(time.time())}
+    if delivery == "short":
+        brief["shorts_source"] = shorts_source or "standalone"
+    _write_json(work / "story_brief.json", brief)
     return slug
 
 
@@ -2140,6 +2201,20 @@ def _project_row(slug: str) -> "dict":
             "plan": plan, "graphics": graphics, "proxies": prox,
             "master": masters[-1].name if masters else None,
             "progress": progress, "script": script_status,
+            # The format, on every row: the rail and the guided path shape
+            # themselves from this rather than assuming a day out.
+            "origin": brief_doc.get("origin") or "footage",
+            "delivery": brief_doc.get("delivery") or "long",
+            "orientation": _orientation(slug),
+            "shorts_source": brief_doc.get("shorts_source"),
+            # The script lane's own progress facts. A documentary has no
+            # footage to count, so the guided path needs these instead:
+            # what it is about, whether the material has been gathered, and
+            # whether its pictures have been sourced.
+            "briefed": bool(str(brief_doc.get("subject") or "").strip()
+                            or str(brief_doc.get("location") or "").strip()),
+            "research": (work / "research.json").exists(),
+            "assets": _asset_count(work),
             "review": {"approved": n_appr, "flagged": n_flag,
                        "queue": n_queue}}
 
@@ -2852,18 +2927,30 @@ def _clear_footage(slug: str) -> "dict":
 def _save_story_brief(slug: str, target_minutes, chapters,
                       notes: str = "", location: str = "",
                       vo_share=None, subject: str = "",
-                      origin: str = "footage") -> "dict":
+                      origin: str = "footage",
+                      delivery: "str | None" = None,
+                      shorts_source: "str | None" = None) -> "dict":
     """The pre-production questionnaire (Caleb, 2026-08-23): target length
     and chapter count, briefed to the story-designer instead of left to its
     judgment. Bounds are the system's own: 12 chapters is the kit's chapter
-    cap, and an hour is not an episode."""
+    cap, and an hour is not an episode.
+
+    It also records the FORMAT (2026-08-25): `origin` is how the video is
+    made, `delivery` is where it ships, and orientation and edit-plan format
+    are derived from delivery rather than decided by an agent halfway
+    through.
+    """
+    from . import schemas
     try:
         mins = float(target_minutes)
         chaps = int(chapters)
     except (TypeError, ValueError):
         raise IngestError("brief needs numbers: target_minutes, chapters")
-    if not (1 <= mins <= 60):
-        raise IngestError("target_minutes must be 1-60")
+    # 15 seconds, not one minute. The old floor was written when every
+    # episode was a visit, and it refused every short outright -- a 45
+    # second Reel is 0.75 (Caleb, 2026-08-25).
+    if not (0.25 <= mins <= 60):
+        raise IngestError("target_minutes must be 0.25-60")
     if not (1 <= chaps <= 12):
         raise IngestError("chapters must be 1-12 (the kit's chapter cap)")
     # How much of the episode is narration rather than on camera. A DIAL,
@@ -2891,15 +2978,39 @@ def _save_story_brief(slug: str, target_minutes, chapters,
     # would make "I have not uploaded yet" and "there will never be
     # footage" the same state, and they lead to opposite pipelines.
     origin = str(origin or "footage").strip() or "footage"
-    if origin not in ("footage", "script"):
+    if origin not in schemas.ORIGINS:
         raise IngestError("origin must be 'footage' or 'script'")
     if origin == "script" and not subject and not location:
         raise IngestError("a script-led episode needs a subject -- with no "
                           "footage it is the only thing to research")
+    # Delivery is sticky: editing the brief on the Story desk must not
+    # silently re-shape a project back to 16:9 because the form did not
+    # send the field. Creation decided it; absence means "unchanged".
+    prev = {}
+    bp = work_path(slug) / "story_brief.json"
+    if bp.exists():
+        try:
+            prev = json.loads(bp.read_text())
+        except ValueError:
+            prev = {}
+    delivery = str(delivery or prev.get("delivery") or "long").strip()
+    if delivery not in schemas.DELIVERIES:
+        raise IngestError("delivery must be 'long' or 'short'")
+    shape = schemas.delivery_shape(delivery)
     brief = {"target_minutes": mins, "chapters": chaps, "vo_share": vo,
              "location": location, "subject": subject, "origin": origin,
+             "delivery": delivery,
+             # Derived, never asked for twice: one answer, one shape.
+             "orientation": shape["orientation"], "format": shape["format"],
              "notes": str(notes or "").strip(), "ts": int(time.time())}
-    _write_json(work_path(slug) / "story_brief.json", brief)
+    if delivery == "short":
+        src = shorts_source or prev.get("shorts_source") or "standalone"
+        if src not in schemas.SHORTS_SOURCES:
+            raise IngestError("shorts_source must be 'standalone' or 'derived'")
+        brief["shorts_source"] = src
+        if prev.get("derived_from"):
+            brief["derived_from"] = prev["derived_from"]
+    _write_json(bp, brief)
     return brief
 
 
@@ -3043,6 +3154,18 @@ def _tool_target(inp: "Any") -> str:
             v = v.strip().replace(str(PROJECT_ROOT) + "/", "")
             return v[:160]
     return ""
+
+
+def _asset_count(work: "Path") -> int:
+    """Sourced files on disk. Cheap enough for the project row — it reads
+    one small manifest, not the directory."""
+    p = work / "assets" / "assets.json"
+    if not p.exists():
+        return 0
+    try:
+        return len(json.loads(p.read_text()).get("assets", []) or [])
+    except ValueError:
+        return 0
 
 
 def _open_q_count(work: "Path") -> int:
@@ -4477,8 +4600,14 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(200, dict(result, ok=True))
                 return
             if self.path == "/api/project/new":
-                new = _new_project(self._body().get("name", ""))
-                log("[project] created %s" % new)
+                nb = self._body()
+                new = _new_project(nb.get("name", ""),
+                                   nb.get("origin", "footage"),
+                                   nb.get("delivery", "long"),
+                                   nb.get("shorts_source"))
+                log("[project] created %s (%s, %s)"
+                    % (new, nb.get("origin", "footage"),
+                       nb.get("delivery", "long")))
                 self._send(200, {"ok": True, "slug": new})
                 return
             body = self._body()
@@ -4806,7 +4935,9 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                           body.get("location", ""),
                                           body.get("vo_share"),
                                           body.get("subject", ""),
-                                          body.get("origin", "footage"))
+                                          body.get("origin", "footage"),
+                                          body.get("delivery"),
+                                          body.get("shorts_source"))
                 self._send(200, {"ok": True, "brief": brief})
             elif self.path == "/api/story/feedback":
                 fb = _save_story_feedback(self._slug_b(body),

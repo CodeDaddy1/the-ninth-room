@@ -32,6 +32,15 @@ from xml.sax.saxutils import escape, quoteattr
 
 from .ingest import work_path, analysis_dir, IngestError
 
+
+def _brief_delivery(slug: str) -> str:
+    """This project's delivery, or `long` when it predates the field."""
+    p = work_path(slug) / "story_brief.json"
+    try:
+        return str(json.loads(p.read_text()).get("delivery") or "long")
+    except (OSError, ValueError):
+        return "long"
+
 MAX_KEEP_GAP_SEC = 0.65  # in-take silence longer than this is dead space
                          # (0.9 read as documentary pacing; YouTube cuts tighter)
 KEEP_PAD_SEC = 0.2       # breathing room kept on each side of a dead-space cut
@@ -327,11 +336,17 @@ def plan_beats(slug: str) -> "dict":
             "segments": seg_out, "broll": broll_out,
         })
 
+    # The plan states the shape; the BRIEF is the fallback, not a constant.
+    # These used to default to portrait/youtube_short from the shorts-first
+    # era, so a plan that omitted them silently built a 16:9 episode on a
+    # vertical canvas (2026-08-25).
+    from . import schemas
+    _shape = schemas.delivery_shape(_brief_delivery(slug))
     tl_map = {
         "slug": slug,
         "fps": fps,
-        "orientation": plan.get("orientation", "portrait"),
-        "format": plan.get("format", "youtube_short"),
+        "orientation": plan.get("orientation", _shape["orientation"]),
+        "format": plan.get("format", _shape["format"]),
         "duration": record,
         "beats": beats_out,
     }

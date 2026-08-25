@@ -716,6 +716,67 @@ SPEAKING_WPM = 150  # est_s for a VO line = words / SPEAKING_WPM * 60
 #           independent rules key off a `vo_` prefix, and a desk recording
 #           landing on the wrong side of them would be forbidden from ever
 #           appearing on screen.
+# --- the two axes a project is created on (2026-08-25) --------------------
+#
+# ORIGIN is how the video is MADE: `footage` is a day out, shot first and
+# scripted from what the day gave us; `script` is documentary/educational,
+# written first from a subject and performed later.
+#
+# DELIVERY is where it SHIPS, and it is one choice rather than separate
+# length and orientation dials because those two never actually vary
+# independently here: long-form is 16:9 and shorts are vertical. A 16:9
+# short or a long vertical would be two more workflows to design and test
+# for videos Caleb does not make.
+#
+# Both were previously GUESSED, and late: orientation came from
+# analysis/timeline_map.json, which only exists after assemble, so captions,
+# card baking, the Resolve canvas and the review proxies all learned the
+# shape of the video two-thirds of the way through making it.
+ORIGINS = ("footage", "script")
+DELIVERIES = ("long", "short")
+SHORTS_SOURCES = ("standalone", "derived")
+
+# What each delivery implies. `instagram_reel` is deliberately absent: a Reel
+# is the same vertical master with different copy, so the Reel/Short split
+# belongs to the publish stage, not to the canvas.
+DELIVERY_SHAPE = {
+    "long":  {"orientation": "landscape", "format": "youtube_long",
+              "target_minutes": 8.0, "chapters": 3},
+    "short": {"orientation": "portrait", "format": "youtube_short",
+              "target_minutes": 0.75, "chapters": 1},
+}
+
+# The narration dial's starting point per combination. A DIAL, not a
+# doctrine — Caleb sets it per episode; these are only what a fresh project
+# opens on. A desk documentary is carried by narration and to-camera; a
+# short cut from a day out is carried by the moment itself.
+VO_SHARE_DEFAULT = {
+    ("footage", "long"): 0.60,
+    ("footage", "short"): 0.25,
+    ("script", "long"): 0.35,
+    ("script", "short"): 0.85,
+}
+
+
+def delivery_shape(delivery: "str | None") -> "dict":
+    """Orientation, edit-plan format and opening budget for a delivery.
+    Unknown or absent reads as `long` — every project that predates this
+    field is a 16:9 episode."""
+    return dict(DELIVERY_SHAPE.get(str(delivery or "long"),
+                                   DELIVERY_SHAPE["long"]))
+
+
+def format_defaults(origin: "str | None", delivery: "str | None") -> "dict":
+    """The whole opening brief implied by the two choices at creation, so a
+    project is never formatless — nothing downstream has to guess a shape
+    from an artifact that does not exist yet."""
+    o = str(origin or "footage")
+    d = str(delivery or "long")
+    shape = delivery_shape(d)
+    shape["vo_share"] = VO_SHARE_DEFAULT.get((o, d), 0.60)
+    return shape
+
+
 SECTION_KINDS = ("oncamera", "vo", "desk")
 
 # Where a `visual` comes from. The sourcing stage buys against this, so a
