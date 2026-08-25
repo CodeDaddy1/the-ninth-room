@@ -5,6 +5,14 @@ console settings, recordings, decisions). Check items off when done.
 
 ## Open
 
+- [ ] **Name the desk lane's signatures.** You decided (2026-08-24) that a
+  script-led desk episode owes **neither** the ninth-room moment nor the door
+  meter, and that its own conventions get defined later. Until you name them,
+  the story-director enforces only accuracy, a closed loop and the voice on
+  desk episodes — and it is explicitly forbidden from inventing a substitute
+  ritual. A visit still owes its ninth room. Decide what a desk episode
+  promises the viewer that a generic explainer does not.
+
 - [ ] **Grant Accessibility permission** to the terminal app hosting Claude
   Code (System Settings ▸ Privacy & Security ▸ Accessibility). Until then,
   every Resolve session needs one manual click: Workspace ▸ Scripts ▸

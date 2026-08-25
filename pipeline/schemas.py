@@ -11,6 +11,7 @@ FCPXML writer).
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 FILE_KINDS = ("video", "audio")
@@ -701,6 +702,35 @@ def validate_custom_overlays(data: "dict[str, Any]") -> "list[str]":
 
 SPEAKING_WPM = 150  # est_s for a VO line = words / SPEAKING_WPM * 60
 
+# The three kinds of script section (2026-08-24). `oncamera` QUOTES a take
+# that already exists — its text is a transcript and editing it would lie.
+# `vo` and `desk` are both WRITTEN to be performed later, and the difference
+# between them is whether the picture ships:
+#
+#   vo   -> a teleprompter recording of Caleb reading. validate_edit_plan
+#           HARD-BLOCKS its picture (>=90% b-roll required, "the teleprompter
+#           picture would ship"), so every vo line owes a `visual`.
+#   desk -> a real-camera performance at his desk. The face IS the shot, so
+#           it must NOT inherit any of the vo_ exemptions. This is why the
+#           two get different filename prefixes rather than one flag: four
+#           independent rules key off a `vo_` prefix, and a desk recording
+#           landing on the wrong side of them would be forbidden from ever
+#           appearing on screen.
+SECTION_KINDS = ("oncamera", "vo", "desk")
+
+# Where a `visual` comes from. The sourcing stage buys against this, so a
+# wrong guess costs Caleb money and an hour — prefer `library` whenever the
+# footage we already have honestly covers the line.
+VISUAL_FROM = ("library", "stock", "archival", "graphic", "shoot")
+
+# Section ids look like CH2.S3 — chapter, section. They are IDENTITY, not
+# ordering: recordings match to sections by FILENAME (vo_CH2-S3_r1_t1.webm),
+# so renumbering orphans real recordings and REUSING a retired id makes an
+# old take read "recorded" for words the script no longer says. Both fail
+# silently until the cut, which is why reuse is validated rather than
+# trusted.
+_SECTION_ID_RE = re.compile(r"^CH\d+\.S\d+$")
+
 
 def _kill_reason(takes: "dict[str, Any] | None", tid: str) -> str:
     for t in (takes or {}).get("takes", []):
@@ -712,16 +742,39 @@ def _kill_reason(takes: "dict[str, Any] | None", tid: str) -> str:
 def validate_script(script: "dict[str, Any]",
                     takes: "dict[str, Any] | None" = None) -> "list[str]":
     """script.json — the timed script between an approved direction and the
-    cut (Caleb, 2026-08-23). Two kinds of section: `oncamera` quotes a real
+    cut (Caleb, 2026-08-23). Three kinds of section: `oncamera` quotes a real
     take; `vo` is a line Caleb records LATER over b-roll — the lane that
-    lets a thin shoot fill a long brief. The chapter's est sum must land
-    near its target or the budget the pitch promised is fiction.
+    lets a thin shoot fill a long brief; `desk` is written to be PERFORMED to
+    camera later, the spine of a script-led episode (2026-08-24). The
+    chapter's est sum must land near its target or the budget the pitch
+    promised is fiction.
+
+    This function is STRUCTURE AND IDENTITY only. The craft rules live in
+    `script_notes` — same split as `validate_edit_plan` / `coverage_notes`,
+    and for the same reason: an existing script must not become invalid
+    when the bar gets sharper. What is enforced HERE is the class of
+    mistake that corrupts silently rather than reading badly.
     """
     errors: "list[str]" = []
     _req(errors, script, "slug", str, "script")
-    _req(errors, script, "option_id", str, "script")
+    # A script-led episode has no pitch to reference — there was no footage
+    # to pitch from. option_id stays required in the footage lane, where an
+    # unattributed script means nobody can tell which approved direction it
+    # claims to be.
+    if str(script.get("origin") or "footage") != "script":
+        _req(errors, script, "option_id", str, "script")
     if not _req(errors, script, "chapters", list, "script"):
         return errors
+    origin = str(script.get("origin") or "footage")
+    if origin not in ("footage", "script"):
+        errors.append("script: origin must be 'footage' or 'script'")
+    # Ids are permanent. A retired id handed back out makes an old recording
+    # read "recorded" for words that no longer exist — silent until the cut.
+    retired = script.get("retired_ids") or []
+    if not isinstance(retired, list):
+        errors.append("script: retired_ids must be a list")
+        retired = []
+    retired_set = {str(r) for r in retired}
     take_ids = {t["id"] for t in (takes or {}).get("takes", [])}
     # A take Caleb screened out must not be quotable. The Takes desk's
     # kill is the decision; this is what makes it BITE — a brief can be
@@ -749,9 +802,28 @@ def validate_script(script: "dict[str, Any]",
                 if sec["id"] in seen_sections:
                     errors.append("%s: duplicate section id '%s'" % (sw, sec["id"]))
                 seen_sections.add(sec["id"])
+                if sec["id"] in retired_set:
+                    errors.append(
+                        "%s: id '%s' is retired and was reused — a recording "
+                        "named for it would read as this line's take"
+                        % (sw, sec["id"]))
+                if not _SECTION_ID_RE.match(str(sec["id"])):
+                    errors.append(
+                        "%s: id '%s' is not CH<n>.S<n> — the recording "
+                        "filename is built from it" % (sw, sec["id"]))
             kind = sec.get("kind")
-            if kind not in ("oncamera", "vo"):
-                errors.append("%s: kind must be oncamera or vo" % sw)
+            if kind not in SECTION_KINDS:
+                errors.append("%s: kind must be one of %s"
+                              % (sw, ", ".join(SECTION_KINDS)))
+            # rev bumps whenever the text changes, and rides in the recording
+            # filename so a rewritten line reads "not recorded" instead of
+            # showing a green tick for words it no longer says. Absent means
+            # rev 1 — every script written before 2026-08-24 is rev 1.
+            if "rev" in sec:
+                rev = sec.get("rev")
+                if isinstance(rev, bool) or not isinstance(rev, int) or rev < 1:
+                    errors.append("%s: rev must be an integer of 1 or more"
+                                  % sw)
             if not str(sec.get("text") or "").strip():
                 errors.append("%s: empty text — a section with nothing to "
                               "say is a hole in the episode" % sw)
@@ -804,16 +876,60 @@ def vo_share(script: "dict[str, Any]") -> float:
     return (vo / total) if total else 0.0
 
 
+# S1's banned vocabulary, straight out of brand/voice-and-tone.md's "Words
+# and tics to avoid". Checked here rather than trusted to the brief because
+# a document nobody reads is not a standard — the brand doc says so itself.
+SCRIPT_BANNED = ("insane", "mind-blowing", "mind blowing", "literally",
+                 "you won't believe", "you wont believe")
+MAX_SENTENCE_W = 32        # S3: past this, Caleb has to breathe mid-clause
+MEDIAN_SENTENCE_W = 18     # S3: the house shape is short declaratives
+
+
+def _sentences(text: str) -> "list[str]":
+    """Split spoken prose into sentences. Deliberately crude — this counts
+    length, it does not parse grammar, and an abbreviation splitting early
+    costs nothing here."""
+    out, cur = [], []
+    for tok in str(text or "").replace("\n", " ").split():
+        cur.append(tok)
+        if tok.endswith((".", "!", "?", "…")):
+            out.append(" ".join(cur))
+            cur = []
+    if cur:
+        out.append(" ".join(cur))
+    return [s for s in out if s.strip()]
+
+
+def _spoken_sections(script: "dict[str, Any]") -> "list[dict]":
+    """Sections whose words we WROTE — vo and desk. `oncamera` is a quote of
+    what was actually said on the day, so holding it to a writing standard
+    would be grading a transcript."""
+    return [sec for ch in script.get("chapters", [])
+            for sec in (ch or {}).get("sections", []) or []
+            if sec.get("kind") in ("vo", "desk")]
+
+
 def script_notes(script: "dict[str, Any]",
-                 target: "float | None" = None) -> "list[str]":
+                 target: "float | None" = None,
+                 origin: "str | None" = None) -> "list[str]":
     """The script's craft bar, shaped like `coverage_notes`: ADVISORY as a
     function, required-empty by the job that dispatched the writer.
 
     The format is VO-led as of 2026-08-24, and the share is a per-episode
     dial rather than a doctrine — so this checks the script against THAT
     episode's target, not against a constant.
+
+    `origin` picks the lane. A visit ("footage") is an ensemble and the
+    system never says "I"; a desk episode ("script") is Caleb alone on
+    camera, where first person singular is allowed — his call, 2026-08-24,
+    written into brand/voice-and-tone.md. Everything else applies to both.
+
+    Only `vo` and `desk` text is judged. An `oncamera` section is a QUOTE,
+    and marking a real person's real sentence as too long would be asking
+    the past to rewrite itself.
     """
     notes: "list[str]" = []
+    lane = str(origin or script.get("origin") or "footage")
     want = VO_TARGET_DEFAULT if target is None else float(target)
     got = vo_share(script)
     if abs(got - want) > VO_TOLERANCE:
@@ -821,16 +937,63 @@ def script_notes(script: "dict[str, Any]",
                      "%s" % (got * 100, want * 100,
                              "write more narration" if got < want
                              else "give the ensemble more of the screen"))
-    for ch in script.get("chapters", []):
-        for sec in (ch or {}).get("sections", []) or []:
-            if sec.get("kind") != "vo":
-                continue
-            text = str(sec.get("text") or "")
-            # a narrated claim carrying a number or a date is an assertion
-            # the audience cannot check and QC cannot trace without a source
-            if any(c.isdigit() for c in text) and not sec.get("source"):
-                notes.append("%s: a narrated fact with no source — QC "
-                             "cannot trace the claim" % sec.get("id", "?"))
+    all_lens: "list[int]" = []
+    for sec in _spoken_sections(script):
+        sid = sec.get("id", "?")
+        text = str(sec.get("text") or "")
+        low = text.lower()
+        # --- S2: a claim the audience cannot check and QC cannot trace ---
+        if any(c.isdigit() for c in text) and not sec.get("source"):
+            notes.append("%s: a narrated fact with no source — QC "
+                         "cannot trace the claim" % sid)
+        # --- S1: the voice, exactly ---
+        if "!" in text:
+            notes.append("%s: exclamation mark — the brand has no "
+                         "exclamation marks" % sid)
+        for word in SCRIPT_BANNED:
+            if word in low:
+                notes.append("%s: \"%s\" is on the banned list — label the "
+                             "wonder less, show it more" % (sid, word))
+        if re.search(r"\bguys\b", low):
+            notes.append("%s: \"guys\" as an address — we speak to one "
+                         "person" % sid)
+        # "I" is the one rule the desk lane lifts. In a visit the family is
+        # an ensemble and nobody is the host, so the system never says it.
+        if lane != "script" and re.search(r"\b(I|I'm|I'll|I've|I'd)\b", text):
+            notes.append("%s: says \"I\" — a visit is an ensemble, and the "
+                         "system speaks as \"we\"" % sid)
+        # --- S3: sentence shape ---
+        for s in _sentences(text):
+            n = len(s.split())
+            all_lens.append(n)
+            if n > MAX_SENTENCE_W:
+                notes.append("%s: a %d-word sentence — over %d words it "
+                             "stops being speech" % (sid, n, MAX_SENTENCE_W))
+        # --- S4: every vo line owes a picture ---
+        if sec.get("kind") == "vo":
+            vis = sec.get("visual")
+            if not isinstance(vis, dict):
+                notes.append("%s: a voice-over line with no `visual` — the "
+                             "teleprompter picture cannot ship, so a line "
+                             "with nothing to look at is a hole" % sid)
+            else:
+                if not str(vis.get("want") or "").strip():
+                    notes.append("%s: visual.want is empty — name what the "
+                                 "viewer is looking at" % sid)
+                if why_kind(vis.get("why")) is None:
+                    notes.append("%s: visual.why names no justification — "
+                                 "lead with one of %s"
+                                 % (sid, "/".join(COVER_WHYS)))
+                if str(vis.get("from") or "") not in VISUAL_FROM:
+                    notes.append("%s: visual.from must be one of %s — the "
+                                 "sourcing stage buys against it"
+                                 % (sid, "/".join(VISUAL_FROM)))
+    if all_lens:
+        mid = sorted(all_lens)[len(all_lens) // 2]
+        if mid > MEDIAN_SENTENCE_W:
+            notes.append("median sentence is %d words against a %d-word "
+                         "house shape — short declaratives, a fragment to "
+                         "land it" % (mid, MEDIAN_SENTENCE_W))
     return notes
 
 
@@ -867,11 +1030,36 @@ def coverage_budget(script: "dict[str, Any]",
             lib_s += max(0.0, float(c.get("duration") or 0))
         except (TypeError, ValueError):
             continue
+    # What the SCRIPT itself declared it needs (2026-08-24). A script-led
+    # episode has no library to measure a shortfall against — dividing into
+    # a library of zero says "everything is missing", which is true and
+    # useless. The `visual.from` on each vo line says where its picture is
+    # meant to come from, so the sourcing stage can propose against a brief
+    # instead of against an absence.
+    declared: "dict[str, float]" = {k: 0.0 for k in VISUAL_FROM}
+    for ch in script.get("chapters", []):
+        for sec in (ch or {}).get("sections", []) or []:
+            if sec.get("kind") != "vo":
+                continue
+            vis = sec.get("visual")
+            if not isinstance(vis, dict):
+                continue
+            src = str(vis.get("from") or "")
+            if src not in declared:
+                continue
+            try:
+                declared[src] += max(0.0, float(sec.get("est_s") or 0))
+            except (TypeError, ValueError):
+                continue
+    declared = {k: round(v, 1) for k, v in declared.items() if v > 0}
     return {"vo_seconds": round(vo_s, 1),
             "library_seconds": round(lib_s, 1),
             "library_clips": len(avail),
             "shortfall_seconds": round(max(0.0, vo_s - lib_s), 1),
-            "ratio": round(lib_s / vo_s, 2) if vo_s else None}
+            "ratio": round(lib_s / vo_s, 2) if vo_s else None,
+            "declared_seconds": declared,
+            "to_source_seconds": round(
+                sum(v for k, v in declared.items() if k != "library"), 1)}
 
 
 def validate_words(data: "list[Any]") -> "list[str]":

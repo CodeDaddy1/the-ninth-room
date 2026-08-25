@@ -24,6 +24,14 @@ def script(*sections):
 
 def sec(sid, kind, est, text="a line", **kw):
     s = {"id": sid, "kind": kind, "est_s": est, "text": text}
+    # Every vo line owes a `visual` as of 2026-08-24 — the teleprompter
+    # picture is hard-blocked from shipping, so a narrated line with nothing
+    # to look at is a hole. These tests are about the DIAL, so they carry a
+    # valid one and stay isolated from that rule.
+    if kind == "vo":
+        s["visual"] = {"want": "the thing being named",
+                       "why": "illustrate — the thing being named",
+                       "from": "library"}
     s.update(kw)
     return s
 

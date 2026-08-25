@@ -26,6 +26,28 @@ it. Plain, warm, faintly wry. Confidence without hype.
 
 - **"We"** for the family. **"You"** for the viewer. The system never says
   "I".
+
+### The desk lane exception (Caleb, 2026-08-24)
+
+The rule above governs **visit episodes** — the format this document was
+written for, where a family explores a place and nobody is the host.
+
+Some episodes are **script-led**: written first from a subject and research,
+with Caleb alone at his desk presenting to camera and stock, archival and
+graphics carrying the picture. `story_brief.json` marks these
+`origin: "script"`. There, **first person singular is allowed** — he is one
+person, visibly by himself, and making him say "we" would be a costume.
+"We" still works when he means the family or the channel.
+
+Nothing else is lifted. The desk lane keeps every other rule on this page:
+no exclamation marks, honest numbers, sentence case, the banned tics, the
+length caps. And it keeps the gut check.
+
+What the desk lane does **not** owe: the ninth-room moment and the door
+meter, both of which are conventions of a physical visit. Its own signatures
+are not yet defined — that is Caleb's to name, and until he does, a desk
+episode ships on accuracy, a closed loop, and this voice. Do not invent a
+substitute ritual for it.
 - **The viewer is given a job**, constantly: "Guess before we do." "Say it out
   loud. We'll wait." "Comment yours and we'll follow it next time."
 

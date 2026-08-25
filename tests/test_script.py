@@ -75,10 +75,17 @@ class ValidateScript(unittest.TestCase):
         self.assertTrue(any("duplicate section" in e for e in errs))
 
     def test_kind_is_closed(self):
+        """Three kinds now — `desk` joined them 2026-08-24 for script-led
+        episodes — but the set is still closed."""
         s = script()
         s["chapters"][0]["sections"][1]["kind"] = "narration"
         errs = schemas.validate_script(s, TAKES)
-        self.assertTrue(any("oncamera or vo" in e for e in errs))
+        self.assertTrue(any("kind must be" in e for e in errs), errs)
+
+    def test_desk_is_one_of_them(self):
+        s = script()
+        s["chapters"][0]["sections"][1]["kind"] = "desk"
+        self.assertEqual(schemas.validate_script(s, TAKES), [])
 
 
 class ScriptJobGuards(unittest.TestCase):
