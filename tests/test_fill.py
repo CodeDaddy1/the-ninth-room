@@ -158,3 +158,58 @@ class Render(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EncoderChoice(unittest.TestCase):
+    """Hardware is not a blanket win — the size threshold is the finding.
+
+    Measured 2026-08-24: 854x480 libx264 veryfast 0.37s vs videotoolbox
+    0.53s; 3840x2160 libx264 medium 9.66s vs videotoolbox 3.76s against a
+    3.65s decode-only floor.
+    """
+
+    def test_small_frames_stay_on_software(self):
+        from pipeline.graphics import h264_encode_args
+        self.assertIn("libx264", h264_encode_args(854))
+        self.assertNotIn("h264_videotoolbox", h264_encode_args(854))
+
+    @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg not available")
+    def test_large_frames_use_hardware_where_it_exists(self):
+        from pipeline.graphics import h264_encode_args, _has_vt
+        args = h264_encode_args(3840)
+        if _has_vt("h264_videotoolbox"):
+            self.assertIn("h264_videotoolbox", args)
+            self.assertIn("-b:v", args)   # VideoToolbox ignores -crf
+        else:
+            self.assertIn("libx264", args)
+
+    @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg not available")
+    def test_the_encoder_change_does_not_change_the_picture(self):
+        """The fill's measured shape must survive the new encoder."""
+        import numpy as np
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            src = tmp / "v.mp4"
+            subprocess.run(
+                [FFMPEG, "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi",
+                 "-i", "testsrc2=size=1080x1920:rate=12:duration=1",
+                 "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p",
+                 str(src)], check=True)
+            dest = tmp / "filled.mp4"
+            fill.bake(src, dest, (1920, 1080), log=lambda *a: None)
+            png = tmp / "f.png"
+            subprocess.run([FFMPEG, "-nostdin", "-loglevel", "error", "-y",
+                            "-ss", "0.5", "-i", str(dest), "-frames:v", "1",
+                            str(png)], check=True)
+            from PIL import Image
+            a = np.asarray(Image.open(png).convert("L"), dtype=float)
+            self.assertEqual(a.shape, (1080, 1920))
+            fg_w = 1080 * 1080 // 1920
+            x0 = (1920 - fg_w) // 2
+            sides = float(np.concatenate([a[:, 20:x0 - 20].ravel(),
+                                          a[:, x0 + fg_w + 20:1900].ravel()]).mean())
+            centre = float(a[:, x0 + 20:x0 + fg_w - 20].mean())
+            self.assertGreater(sides, 0.25 * centre)
+            self.assertLess(sides, centre)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

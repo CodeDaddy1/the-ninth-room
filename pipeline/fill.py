@@ -79,11 +79,15 @@ def bake(src: Path, dest: Path, canvas: "tuple[int, int]",
     would cost quality for nothing."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".partial.mp4")
-    cmd = ["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", str(src),
-           "-filter_complex", fill_filter(canvas[0], canvas[1]),
-           "-map", "[v]", "-map", "0:a?",
-           "-c:v", "libx264", "-crf", str(FILL_CRF), "-preset", "medium",
-           "-pix_fmt", "yuv420p", "-c:a", "copy", str(tmp)]
+    from .graphics import h264_encode_args
+    cmd = (["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", str(src),
+            "-filter_complex", fill_filter(canvas[0], canvas[1]),
+            "-map", "[v]", "-map", "0:a?"]
+           # hardware above 1920 wide: measured 2.6x at 4K and effectively
+           # free (0.11s over the decode-only floor), while software wins
+           # outright at proxy size
+           + h264_encode_args(canvas[0], crf=FILL_CRF)
+           + ["-c:a", "copy", str(tmp)])
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0 or not tmp.exists():
         tmp.unlink(missing_ok=True)

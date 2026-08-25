@@ -2012,6 +2012,113 @@ def _start_project_from_idea(idea_id: str) -> "dict":
     return {"slug": slug}
 
 
+FOOTAGE_LIBRARY = Path.home() / "Footage"
+
+
+def _library_index(root: "Path") -> "dict":
+    """name -> [paths] for every video under a library root.
+
+    Names, not contents: the index is cheap to build over tens of
+    thousands of files, and `_relink_footage` verifies a candidate by
+    size + content signature before it replaces anything.
+    """
+    index: "dict" = {}
+    if not root.is_dir():
+        return index
+    for p in root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in VIDEO_EXT:
+            index.setdefault(p.name, []).append(p)
+    return index
+
+
+def _swap_to_link(dest: "Path", target: "Path") -> None:
+    """Point `dest` at `target` atomically — temp link, then replace, so
+    an interrupted swap can never leave the project without its media.
+    Same shape as the pass that re-pointed hmns's 358 links."""
+    tmp = dest.with_name(dest.name + ".relink")
+    if tmp.exists() or tmp.is_symlink():
+        tmp.unlink()
+    os.symlink(target, tmp)
+    os.replace(tmp, dest)
+
+
+def _link_footage(slug: str, folder: str, log=print) -> "dict":
+    """Symlink every video in `folder` into the project's footage dir.
+
+    Linking rather than copying is what keeps the `.LRF` fast path alive:
+    `broll._prefer_proxy` resolves the link and finds the camera's 720p
+    proxy sitting beside the original, which builds a contact sheet ~17x
+    faster than decoding 4K HEVC (measured 0.5s vs 8.8s, 2026-08-24). It
+    also saves the project's whole footage weight on disk and removes the
+    copy wait before ingest can start.
+    """
+    src = Path(folder).expanduser()
+    if not src.is_dir():
+        raise IngestError("no folder '%s'" % folder)
+    fdir = work_path(slug) / "footage"
+    fdir.mkdir(parents=True, exist_ok=True)
+    linked, skipped = [], []
+    for p in sorted(src.iterdir()):
+        if not p.is_file() or p.suffix.lower() not in VIDEO_EXT:
+            continue
+        dest = fdir / p.name
+        if dest.exists() or dest.is_symlink():
+            skipped.append(p.name)      # never overwrite what is already there
+            continue
+        os.symlink(p.resolve(), dest)
+        linked.append(p.name)
+    log("[link] %s: linked %d, skipped %d already present"
+        % (slug, len(linked), len(skipped)))
+    return {"linked": len(linked), "skipped": len(skipped),
+            "names": linked[:20]}
+
+
+def _relink_footage(slug: str, folder: "str | None" = None,
+                    log=print) -> "dict":
+    """Replace COPIED footage with links to the identical library file.
+
+    The repair for a project that was filled by copy: every real file is
+    matched to a library file by name, then verified by size AND the
+    first/last-MB content signature before the copy is swapped for a
+    link. A file that cannot be matched and verified is left exactly as
+    it is — a repair that guesses is worse than one that stops.
+    """
+    fdir = work_path(slug) / "footage"
+    if not fdir.is_dir():
+        raise IngestError("no footage in '%s'" % slug)
+    root = Path(folder).expanduser() if folder else FOOTAGE_LIBRARY
+    index = _library_index(root)
+    if not index:
+        raise IngestError("no videos under '%s' to link against" % root)
+    relinked, freed, unmatched = 0, 0, []
+    for p in sorted(fdir.iterdir()):
+        if p.is_symlink() or not p.is_file():
+            continue                     # already a link, or not media
+        if p.suffix.lower() not in VIDEO_EXT:
+            continue
+        size = p.stat().st_size
+        want = _content_sig(p, size)
+        match = None
+        for cand in index.get(p.name, []):
+            try:
+                if cand.stat().st_size == size and _content_sig(cand, size) == want:
+                    match = cand
+                    break
+            except OSError:
+                continue
+        if match is None:
+            unmatched.append(p.name)
+            continue
+        _swap_to_link(p, match.resolve())
+        relinked += 1
+        freed += size
+    log("[relink] %s: %d relinked, %.1f GB reclaimed, %d left as copies"
+        % (slug, relinked, freed / 1e9, len(unmatched)))
+    return {"relinked": relinked, "bytes": freed,
+            "unmatched": len(unmatched), "unmatched_names": unmatched[:10],
+            "library": str(root)}
+
+
 def _projects_state() -> "dict":
     root = work_path("x").parent
     slugs = sorted(p.name for p in root.iterdir()
@@ -2840,12 +2947,13 @@ def _save_plan(slug: str, plan: "dict") -> "dict":
 
 def _still_to_clip(inp: Path, clip: Path) -> None:
     """A still image becomes a 6s UHD clip the b-roll pipeline can place."""
+    from . import graphics as graphics_mod
     proc = subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-t", "6",
          "-i", str(inp),
          "-vf", "scale=3840:2160:force_original_aspect_ratio=increase,"
                 "crop=3840:2160,fps=24,format=yuv420p",
-         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+         *graphics_mod.h264_encode_args(3840, crf=18),
          "-movflags", "+faststart", str(clip)],
         capture_output=True, text=True)
     if proc.returncode != 0:
@@ -2933,7 +3041,11 @@ def _use_asset(slug: str, aid: str) -> "dict":
     fdir.mkdir(parents=True, exist_ok=True)
     if src.suffix.lower() in _VIDEO_UP:
         name = _uniquify(fdir, src.name)
-        shutil.copy2(src, fdir / name)
+        # LINK, don't copy: a copy leaves the camera's sibling .LRF proxy
+        # behind, and broll._prefer_proxy then decodes 4K HEVC for every
+        # contact sheet — measured 8.8s against 0.5s (2026-08-24). The
+        # link also saves the footage's whole weight on disk.
+        os.symlink(src.resolve(), fdir / name)
     else:
         stills = fdir / "stills"
         stills.mkdir(exist_ok=True)
@@ -3608,6 +3720,14 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/project/archive":
                 _archive_project(self._slug_b(body))
                 self._send(200, {"ok": True})
+            elif self.path == "/api/footage/link":
+                out = _link_footage(self._slug_b(body),
+                                    str(body.get("folder", "")), log=log)
+                self._send(200, dict(out, ok=True))
+            elif self.path == "/api/footage/relink":
+                out = _relink_footage(self._slug_b(body),
+                                      body.get("folder") or None, log=log)
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/project/delete":
                 # a live OR archived slug — _delete_project validates the
                 # shape itself (_slug_b only knows about live projects) and

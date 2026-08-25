@@ -115,6 +115,18 @@ def _whisper():
     """Load faster-whisper once per process (the import alone takes seconds)."""
     if _model[0] is None:
         from faster_whisper import WhisperModel
+        # DO NOT "optimise" these settings. Measured 2026-08-24 over 10
+        # real speech clips (172s) against the current beam_size=5:
+        #   beam_size=1      26% faster, 1/10 transcripts identical,
+        #                    word agreement 0.52
+        #   vad_filter=True  51% faster, 0/10 identical, agreement 0.43
+        # The words genuinely change on this museum audio — one 19s clip
+        # went from "the turkeys don't stop eating" to "the toilet's not
+        # the store" to "a term of the story of the man". Transcripts
+        # drive take selection, the edit plan and the captions, so the
+        # speedup is paid for in the only currency that matters.
+        # (If transcript QUALITY ever becomes the problem, the lever is a
+        # BIGGER model — small.en — not a cheaper decode.)
         _model[0] = WhisperModel("base.en", device="cpu", compute_type="int8")
     return _model[0]
 

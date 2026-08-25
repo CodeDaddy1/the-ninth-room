@@ -159,7 +159,16 @@ def render_png(card: "dict", out_png: Path, w: int, h: int, tmp_dir: Path) -> No
                           % (card["id"], (proc.stderr or "")[-300:]))
 
 
-_HAS_VT = [None]  # cached ffmpeg-encoder probe
+_HAS_VT = [None]  # cached ffmpeg-encoder probe (the encoder list)
+
+
+def _has_vt(name: str) -> bool:
+    """Is `name` in this ffmpeg's encoder list? Probed once, cached."""
+    if _HAS_VT[0] is None:
+        probe = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                               capture_output=True, text=True)
+        _HAS_VT[0] = probe.stdout or ""
+    return name in _HAS_VT[0]
 
 
 def prores_encode_args() -> "list[str]":
@@ -173,15 +182,40 @@ def prores_encode_args() -> "list[str]":
     path handled fine. VideoToolbox writes the reference bitstream both
     paths accept. prores_ks stays as the non-Mac fallback.
     """
-    if _HAS_VT[0] is None:
-        probe = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
-                               capture_output=True, text=True)
-        _HAS_VT[0] = "prores_videotoolbox" in (probe.stdout or "")
-    if _HAS_VT[0]:
+    if _has_vt("prores_videotoolbox"):
         return ["-c:v", "prores_videotoolbox", "-profile:v", "4444",
                 "-pix_fmt", "ayuv64le"]
     return ["-c:v", "prores_ks", "-profile:v", "4444",
             "-pix_fmt", "yuva444p10le"]
+
+
+HW_MIN_WIDTH = 1920   # below this, software wins — measured, see below
+
+
+def h264_encode_args(width: int, crf: int = 18,
+                     bitrate: str = "60M") -> "list[str]":
+    """H.264 encoder args, chosen by FRAME SIZE.
+
+    Hardware is not a blanket win and the measurement says so plainly
+    (2026-08-24, this machine):
+
+      854x480   libx264 veryfast 0.37s   videotoolbox 0.53s
+      3840x2160 libx264 medium   9.66s   videotoolbox 3.76s
+                                         (decode-only floor: 3.65s)
+
+    At proxy size the hardware encoder's fixed setup cost dominates a
+    frame x264 disposes of in microseconds. At 4K the same overhead is
+    noise and the encode all but disappears behind decoding — 0.11s over
+    the floor, against six seconds of pure CPU for libx264.
+
+    So: hardware above HW_MIN_WIDTH, software below. VideoToolbox is
+    bitrate-driven (it ignores -crf), which is why the two branches take
+    different quality knobs.
+    """
+    if width >= HW_MIN_WIDTH and _has_vt("h264_videotoolbox"):
+        return ["-c:v", "h264_videotoolbox", "-b:v", bitrate]
+    return ["-c:v", "libx264", "-crf", str(crf), "-preset", "medium",
+            "-pix_fmt", "yuv420p"]
 
 
 def bake_mov(png: Path, out_mov: Path, duration: float, w: int, h: int,
