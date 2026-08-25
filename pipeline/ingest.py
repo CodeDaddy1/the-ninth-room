@@ -23,6 +23,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import fill
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORK_DIR = PROJECT_ROOT / "work"
 
@@ -205,6 +207,25 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
         log("[ingest] %s  %.1fs %s" % (entry["name"], entry["duration"],
                                        "audio" if entry["kind"] == "audio" else
                                        "%dx%d@%s" % (entry.get("width", 0), entry.get("height", 0), entry.get("fps"))))
+        # A vertical clip keeps its shape and gains a ground (Caleb,
+        # 2026-08-24): bake a 16:9 companion — same frame zoomed, blurred
+        # and dimmed behind the native-aspect original — and point the
+        # CATALOG at it. proxy.py, produce.py and deliver.py all resolve
+        # media through the catalog, so this one redirect is the whole
+        # integration; nothing downstream learns about orientation.
+        if fill.is_portrait(entry.get("width"), entry.get("height")):
+            from . import timeline  # lazy: timeline imports from us
+            canvas = timeline.CANVAS["landscape"]
+            dest = fill.filled_path(work_path(slug), entry["name"])
+            try:
+                if not dest.exists():
+                    fill.bake(Path(entry["path"]), dest, canvas, log=log)
+                entry = fill.redirect(entry, dest, canvas)
+            except (RuntimeError, OSError) as e:
+                # a failed fill must not sink the ingest: the clip stays
+                # usable in its native shape, pillarboxed, and says so
+                log("[ingest] fill FAILED for %s (%s) — using it native"
+                    % (entry["name"], e))
         if entry["has_audio"]:
             # Transcriptions are cached per file so a rerun (or a timeout
             # recovery) never repeats whisper work it already did.
