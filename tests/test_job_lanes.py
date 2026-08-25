@@ -118,9 +118,9 @@ class LanesRunIndependently(unittest.TestCase):
         self._kind("t_s", hold, "session")
         self._kind("t_l1", hold, "local")
         self._kind("t_l2", hold, "local")
-        jobs.start("t_s", "x")
-        jobs.start("t_l1", "x")
+        mine = [jobs.start("t_s", "x")["id"], jobs.start("t_l1", "x")["id"]]
         third = jobs.start("t_l2", "x")
+        mine.append(third["id"])
         time.sleep(0.05)
         rows = {r["id"]: r for r in jobs.jobs()}
         row = rows[third["id"]]
@@ -128,10 +128,12 @@ class LanesRunIndependently(unittest.TestCase):
             # 1st in the LOCAL lane — the session job cannot block it
             self.assertEqual(row["lane"], "local")
             self.assertLessEqual(row["queue_pos"], 1)
-        for j in list(rows):
-            self._wait(j, states=("done", "failed"), timeout=6)
+        # only the jobs THIS test started: jobs.jobs() also returns rows
+        # _restore() loaded from the real store at import time
+        for j in mine:
+            self._wait(j, timeout=6)
 
-    def _wait(self, jid, states=("done", "failed"), timeout=10.0):
+    def _wait(self, jid, states=("done", "failed", "declined"), timeout=10.0):
         t0 = time.time()
         while time.time() - t0 < timeout:
             j = jobs._jobs.get(jid)

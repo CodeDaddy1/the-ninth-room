@@ -99,7 +99,8 @@ def span_volume_db(path: str, s: float, e: float) -> "float | None":
 
 
 FILLER_RATE_MAX = 0.12       # fillers as a share of words
-WPM_MAX = 260.0              # above this it is a gabble, not a line
+WPM_MAX = 260.0              # the floor under the relative ceiling
+WPM_RELATIVE = 1.75          # ...times this episode's own median pace
 WPM_MIN_WORDS = 8            # below this, wpm is arithmetic noise
 WPM_MIN_S = 1.5
 QUIET_BELOW_MEDIAN_DB = 8.0  # quiet is RELATIVE to this episode's own mic
@@ -124,7 +125,29 @@ def quiet_floor(takes: "list") -> "float | None":
     return median - QUIET_BELOW_MEDIAN_DB
 
 
-def take_flags(take: "dict", floor: "float | None" = None) -> "list":
+def rushed_ceiling(takes: "list") -> float:
+    """The wpm above which a line is rushed FOR THIS EPISODE.
+
+    Same reasoning as `quiet_floor`, and the same trap avoided: an
+    absolute ceiling is a statement about a presenter, not about a take.
+    HMNS measured a median of 153 wpm with p90 at 268, so 260 happened to
+    flag a sane 11% — but on a fast talker the same number would flag
+    half the shoot. Never falls below WPM_MAX, so a very slow episode
+    cannot make ordinary speech look rushed.
+    """
+    rows = [t for t in takes
+            if int(t.get("n_words") or 0) >= WPM_MIN_WORDS
+            and float(t.get("duration") or 0) >= WPM_MIN_S]
+    if len(rows) < 8:
+        return WPM_MAX
+    paces = sorted(int(t["n_words"]) / float(t["duration"]) * 60.0
+                   for t in rows)
+    median = paces[len(paces) // 2]
+    return max(WPM_MAX, median * WPM_RELATIVE)
+
+
+def take_flags(take: "dict", floor: "float | None" = None,
+               ceiling: "float | None" = None) -> "list":
     """PURE. Mechanical reasons a take is a poor candidate to QUOTE.
 
     Every field read here has been computed since the takes stage was
@@ -150,7 +173,7 @@ def take_flags(take: "dict", floor: "float | None" = None) -> "list":
     # wpm is meaningless on a fragment: "Yeah." at 0.02s reads as 3000 wpm
     if n >= WPM_MIN_WORDS and dur >= WPM_MIN_S:
         wpm = n / dur * 60.0
-        if wpm > WPM_MAX:
+        if wpm > (WPM_MAX if ceiling is None else ceiling):
             flags.append("%.0f wpm — rushed" % wpm)
     vol = take.get("mean_volume_db")
     if floor is not None and vol is not None and float(vol) < floor:
@@ -190,10 +213,11 @@ def flag_takes(takes: "list", groups: "list" = ()) -> "dict":
     retake clusters applied. One call so no caller has to remember that
     the floor is relative."""
     floor = quiet_floor(takes)
+    ceiling = rushed_ceiling(takes)
     sup = superseded_takes(takes, groups or [])
     out = {}
     for t in takes:
-        f = take_flags(t, floor)
+        f = take_flags(t, floor, ceiling)
         if t["id"] in sup:
             f = f + ["superseded by %s" % sup[t["id"]]]
         if f:
