@@ -255,3 +255,68 @@ class RevisionsRetireStaleProposals(unittest.TestCase):
             r = self.reqs({"section_id": "CH1.S1", "kind": "source",
                            "status": "proposed"})
             self.assertEqual(schemas.superseded_requests(s, r), [0], f)
+
+
+class ProposalsAreLookedAtNotGuessed(unittest.TestCase):
+    """A candidate used to be a SEARCH TERM. You cannot look at a search
+    term, so approving one approved a guess — and its licence line was a
+    prediction about what the search might turn up, not a fact about a
+    file. Caleb asked to see the picture first (2026-08-25).
+
+    The preview urls are REMOTE and rendered by the browser, so nothing
+    reaches disk before approval — the gate the propose/fetch split exists
+    to protect is untouched.
+    """
+
+    def cand(self, **over):
+        c = {"query": "Foucault portrait 1850s", "source": "wikimedia",
+             "kind": "image", "page": "https://commons.example/File:x",
+             "preview": "https://commons.example/thumb/x.jpg",
+             "license": "PD-US, stated on the file page"}
+        c.update(over)
+        return c
+
+    def round_(self, *cands, **over):
+        r = {"kind": "source", "section_id": "CH2.S3",
+             "candidates": [dict(c) for c in cands]}
+        r.update(over)
+        return r
+
+    def test_a_resolved_candidate_passes(self):
+        self.assertEqual(schemas.validate_candidates(
+            self.round_(self.cand())), [])
+
+    def test_a_bare_search_term_is_refused(self):
+        errs = schemas.validate_candidates(self.round_(
+            {"query": "x", "source": "wikimedia", "license": "PD", "note": "n"}))
+        self.assertTrue(any("nothing to preview" in e for e in errs), errs)
+
+    def test_no_page_means_the_licence_is_unverifiable(self):
+        errs = schemas.validate_candidates(self.round_(self.cand(page="")))
+        self.assertTrue(any("no page url" in e for e in errs), errs)
+
+    def test_a_predicted_licence_is_still_required_to_be_stated(self):
+        errs = schemas.validate_candidates(self.round_(self.cand(license="")))
+        self.assertTrue(any("read it off the page" in e for e in errs), errs)
+
+    def test_a_video_candidate_needs_something_playable(self):
+        errs = schemas.validate_candidates(self.round_(
+            self.cand(kind="video")))
+        self.assertTrue(any("playable url" in e for e in errs), errs)
+        self.assertEqual(schemas.validate_candidates(self.round_(
+            self.cand(kind="video", video="https://ex/v.mp4"))), [])
+
+    def test_a_requirement_offers_nothing_to_look_at(self):
+        """It names work Caleb or the kit must do — there is no picture."""
+        self.assertEqual(schemas.validate_candidates(
+            {"kind": "requirement", "section_id": "CH1.S4"}), [])
+
+    def test_a_source_with_no_candidates_at_all_is_refused(self):
+        errs = schemas.validate_candidates(self.round_())
+        self.assertTrue(any("no candidates" in e for e in errs), errs)
+
+    def test_previewable_reads_either_url(self):
+        self.assertTrue(schemas.candidate_previewable({"preview": "u"}))
+        self.assertTrue(schemas.candidate_previewable({"video": "u"}))
+        self.assertFalse(schemas.candidate_previewable({"query": "x"}))
+        self.assertFalse(schemas.candidate_previewable(None))

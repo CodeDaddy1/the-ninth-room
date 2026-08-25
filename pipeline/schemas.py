@@ -1206,6 +1206,63 @@ def blocking_questions(questions: "dict[str, Any] | None",
 _NOT_SOURCED = ("graphic", "shoot", "library")
 
 
+# A candidate used to be a SEARCH TERM: {query, source, license, note}.
+# You cannot look at a search term, so approving one approved a guess --
+# and its licence line was a prediction about what the search might turn
+# up ("PD-US expected -- verify on the file page"), not a fact about a
+# file. Caleb asked to see the picture first (2026-08-25), which only
+# works if propose RESOLVES each candidate to a real item.
+#
+# `preview` and `video` are REMOTE urls, rendered by the browser straight
+# from the source. Nothing is written to disk before approval, so the gate
+# the propose/fetch split exists to protect is untouched: looking at a
+# public thumbnail is browsing, not acquiring.
+CANDIDATE_KINDS = ("image", "video")
+
+
+def candidate_previewable(c: "dict[str, Any] | None") -> bool:
+    """Whether the desk can show this candidate rather than describe it."""
+    if not isinstance(c, dict):
+        return False
+    return bool(str(c.get("preview") or "").strip()
+                or str(c.get("video") or "").strip())
+
+
+def validate_candidates(round_: "dict[str, Any]") -> "list[str]":
+    """A resolved proposal: every candidate names a real item.
+
+    Kept advisory (the propose job requires it empty) rather than part of
+    a hard validator, because rounds written before 2026-08-25 carry bare
+    queries and must not become invalid.
+    """
+    errors: "list[str]" = []
+    if round_.get("kind") != "source":
+        return errors            # a requirement offers nothing to look at
+    cands = round_.get("candidates") or []
+    if not isinstance(cands, list) or not cands:
+        return ["%s: a source proposal with no candidates"
+                % round_.get("section_id", "?")]
+    for i, c in enumerate(cands):
+        where = "%s.candidates[%d]" % (round_.get("section_id", "?"), i)
+        if not isinstance(c, dict):
+            errors.append(where + ": not an object")
+            continue
+        if c.get("kind") not in CANDIDATE_KINDS:
+            errors.append("%s: kind must be image or video" % where)
+        if not str(c.get("page") or "").strip():
+            errors.append("%s: no page url — the licence is stated there, "
+                          "and it is what makes the claim checkable" % where)
+        if not candidate_previewable(c):
+            errors.append("%s: nothing to preview — resolve the search to a "
+                          "real item and record its preview url" % where)
+        if c.get("kind") == "video" and not str(c.get("video") or "").strip():
+            errors.append("%s: a video candidate needs a playable url" % where)
+        if not str(c.get("license") or "").strip():
+            errors.append("%s: no licence — read it off the page rather "
+                          "than predicting it" % where)
+    return errors
+
+
 def superseded_requests(script: "dict[str, Any]",
                         requests: "dict[str, Any] | None") -> "list[int]":
     """Indices of open proposals the script has since moved past.

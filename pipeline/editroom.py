@@ -3948,7 +3948,7 @@ def _capture_article(slug: str, url: str, log=print) -> "dict":
     return row
 
 
-def _asset_round_verdict(slug: str, ts, status: str,
+def _asset_round_verdict(slug: str, ts, status: str, candidate=None,
                          log=print) -> "dict":
     """Approve or skip one sourcing proposal.
 
@@ -3976,11 +3976,28 @@ def _asset_round_verdict(slug: str, ts, status: str,
                           "again to re-source, or leave it")
     refetch = hit.get("status") == "done" and status == "approved"
     hit["status"] = status
+    # WHICH candidate he approved, once he can see them (2026-08-25).
+    # Without this, approving approved a search and the fetch phase went
+    # and searched again -- so what arrived was not necessarily what he
+    # looked at. Recorded on the round so fetch downloads that item.
+    if status == "approved" and candidate is not None:
+        cands = hit.get("candidates") or []
+        try:
+            idx = int(candidate)
+        except (TypeError, ValueError):
+            raise IngestError("candidate must be an index into the list")
+        if not (0 <= idx < len(cands)):
+            raise IngestError("no candidate %s on that proposal" % candidate)
+        hit["chosen"] = idx
+    elif status != "approved":
+        hit.pop("chosen", None)
     _write_json(p, doc)
     n = sum(1 for r in rounds if r.get("status") == "approved")
-    log("[sourcing] round %s -> %s%s (%d approved and waiting)"
-        % (ts, status, " (RE-SOURCE)" if refetch else "", n))
-    return {"ts": hit.get("ts"), "status": status, "approved": n}
+    log("[sourcing] round %s -> %s%s%s (%d approved and waiting)"
+        % (ts, status, " (RE-SOURCE)" if refetch else "",
+           " candidate %s" % hit["chosen"] if "chosen" in hit else "", n))
+    return {"ts": hit.get("ts"), "status": status, "approved": n,
+            "chosen": hit.get("chosen")}
 
 
 def _assets_state(slug: str) -> "dict":
@@ -4860,6 +4877,7 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 out = _asset_round_verdict(self._slug_b(body),
                                            body.get("ts"),
                                            str(body.get("status", "")),
+                                           body.get("candidate"),
                                            log=log)
                 self._send(200, dict(out, ok=True))
             elif self.path == "/api/take/verdict":

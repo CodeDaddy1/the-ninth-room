@@ -1441,9 +1441,20 @@ SOURCING_PROMPT = (
     "the work it describes. Where it cannot, append a round to "
     "work/%(slug)s/asset_requests.json with this shape: "
     "{\"ts\", \"section_id\", \"line\" (the VO text), \"why\" (one clause "
-    "on what the library lacks), \"candidates\": [{\"query\", \"source\" "
-    "(pexels|pixabay|wikimedia|nasa...), \"license\", \"note\"}], "
+    "on what the library lacks), \"candidates\": [...], "
     "\"status\": \"proposed\"}. Three to six candidates per gap. "
+    "RESOLVE every candidate to a REAL ITEM -- actually search, open the "
+    "file's own page, and record what is there. Caleb reviews these as "
+    "pictures, not as search terms, and approves the one he wants. Each "
+    "candidate is {\"query\" (what you searched), \"source\", "
+    "\"kind\": \"image\"|\"video\", \"page\" (the item's own page, where "
+    "the licence is stated), \"preview\" (a direct thumbnail/still URL "
+    "that renders in an img tag), \"video\" (a direct playable mp4 URL, "
+    "video candidates only), \"license\" (READ OFF THE PAGE, not "
+    "predicted), \"attribution\" (the exact string if the licence needs "
+    "one), \"note\"}. A candidate with no `preview` cannot be looked at "
+    "and does not count -- drop it and find one that can. Do not "
+    "hotlink-guess a URL: open the page and take the real one. "
     "DOWNLOAD NOTHING and write no files under assets/ -- Caleb approves "
     "each round first, and a file on disk before that decision is a "
     "licence choice made on his behalf. Prefer the library over a "
@@ -1455,8 +1466,13 @@ SOURCING_FETCH_PROMPT = (
     ".claude/agents/asset-sourcer.md and act as that agent in its FETCH "
     "phase: work/%(slug)s/asset_requests.json holds rounds; work ONLY "
     "those with \"status\": \"approved\" and ignore every other round. "
-    "For each, source the best match under the licence rules in your "
-    "brief. NEVER refuse a gap over its licence (changed 2026-08-25): "
+    "IF THE ROUND CARRIES \"chosen\": <n>, that is the candidate Caleb "
+    "LOOKED AT and picked -- fetch THAT item from its `page`/`video` url "
+    "and do not search for something better. He approved a picture, not "
+    "a search, and arriving with a different file than the one he "
+    "approved is the whole failure this replaced. Only when a round has "
+    "no `chosen` do you pick the best match yourself. "
+    "NEVER refuse a gap over its licence (changed 2026-08-25): "
     "fetch the best match every time and RECORD what the licence "
     "actually is -- the real terms when the page states them, plain "
     "words when it does not (\"page states none -- unverified\", "
@@ -1601,6 +1617,7 @@ def _run_sourcing(slug, log, set_pct, arg=None):
             log("[sourcing] %d earlier proposal(s) retired -- the script no "
                 "longer asks to buy those" % len(stale))
     before = rq.stat().st_mtime if rq.exists() else None
+    started_ts = time.time()
     prompt = ((SOURCING_FETCH_PROMPT % {"slug": slug}) if fetch
               else _sourcing_prompt(slug))
     log("[sourcing] dispatching the asset sourcer to %s"
@@ -1620,6 +1637,19 @@ def _run_sourcing(slug, log, set_pct, arg=None):
         raise RuntimeError("session finished but asset_requests.json did not "
                            "change — read the log")
     if not fetch:
+        # Every NEW proposal must be lookable-at. Checked only on rounds
+        # this run wrote: rounds from before 2026-08-25 carry bare search
+        # terms and are not retroactively wrong, just not previewable.
+        from . import schemas as _sc
+        fresh = [r for r in (_read_json(rq) or {}).get("rounds", [])
+                 if r.get("status") == "proposed"
+                 and int(r.get("ts", 0)) >= int(started_ts)]
+        bad = [e for r in fresh for e in _sc.validate_candidates(r)]
+        if bad:
+            raise RuntimeError(
+                "proposals are not reviewable: %s%s"
+                % ("; ".join(bad[:3]),
+                   " (+%d more)" % (len(bad) - 3) if len(bad) > 3 else ""))
         # the gate: proposing must never leave media on disk
         adir = work / "assets"
         n = len(list(adir.iterdir())) if adir.is_dir() else 0
