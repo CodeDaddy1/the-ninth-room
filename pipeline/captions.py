@@ -16,23 +16,46 @@ transparent (the -loop 1 bake bug — see graphics.py).
 """
 from __future__ import annotations
 
-def effective_captions(caps_doc: "dict", orientation: str) -> "dict":
+def effective_captions(caps_doc: "dict", orientation: str,
+                       vo_beats: "set | frozenset | None" = None) -> "dict":
     """beat_id -> caption text, AFTER the caption policy.
 
-    Classic (no style field): every line bakes — the original mute-first
-    contract, and what every episode captioned before 2026-08-23 keeps
-    (hmns is frozen; its spec keys must not move).
+    Three rules, stacked in this order:
 
-    Punchline ("style": "punchline"): only beats marked selected bake in
-    LANDSCAPE — ~30% of lines, the ones that punch. Vertical keeps every
-    line: Shorts are watched muted the most (Caleb, 2026-08-23).
+    1. PORTRAIT keeps every line, always. Short form is watched muted and
+       is the discovery engine — no rule below may take a caption off a
+       Short (Caleb, 2026-08-23).
+    2. A VO beat in LANDSCAPE gets no caption: the voice is narration
+       over footage and nobody is on screen to caption (Caleb,
+       2026-08-24, as the format moved VO-led).
+    3. Otherwise the punchline policy: with `"style": "punchline"` only
+       beats marked `selected` bake — ~30% of lines, the ones that punch.
+       Classic (no style field) bakes every line, which is what every
+       episode captioned before 2026-08-23 keeps.
+
+    `vo_beats` is the set of beat ids whose take is a `vo_` recording —
+    the SAME predicate `schemas.coverage_notes` uses for its VO
+    exemption, passed in rather than re-derived so the two rules cannot
+    drift apart. Omitting it means "no VO beats", which is exactly right
+    for a cut that has none: hmns is frozen at 82 beats and 0 VO beats,
+    so this change cannot move its spec keys.
     """
     beats = (caps_doc or {}).get("beats", [])
-    if (caps_doc or {}).get("style") == "punchline" \
-            and orientation != "portrait":
-        return {c["beat_id"]: c["text"] for c in beats
-                if c.get("selected")}
-    return {c["beat_id"]: c["text"] for c in beats}
+    if orientation == "portrait":
+        return {c["beat_id"]: c["text"] for c in beats}
+    vo = vo_beats or frozenset()
+    keep = [c for c in beats if c["beat_id"] not in vo]
+    if (caps_doc or {}).get("style") == "punchline":
+        keep = [c for c in keep if c.get("selected")]
+    return {c["beat_id"]: c["text"] for c in keep}
+
+
+def vo_beats_of(tl_map: "dict") -> "frozenset":
+    """Beat ids carried by a voice-over recording. One definition, used
+    by every caller — a `vo_` take id is the same marker the coverage
+    bar exempts from its ratio and landing rules."""
+    return frozenset(b["id"] for b in (tl_map or {}).get("beats", [])
+                     if str(b.get("take_id", "")).startswith("vo_"))
 
 
 import difflib

@@ -50,7 +50,8 @@ def _load(slug: str) -> "tuple":
         from . import captions as captions_mod
         caps = captions_mod.effective_captions(
             json.loads(cap_path.read_text()),
-            tl.get("orientation", "landscape"))
+            tl.get("orientation", "landscape"),
+            captions_mod.vo_beats_of(tl))
     cards_by_beat: "dict[str, list]" = {}
     gp_path = work / "graphics_plan.json"
     if gp_path.exists():

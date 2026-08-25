@@ -69,3 +69,51 @@ class EffectiveCaptions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaptionsFollowTheVoice(unittest.TestCase):
+    """2026-08-24, as the format moved VO-led: a narration line has
+    nobody on screen to caption, so it gets none — but short form keeps
+    every line, because Shorts are watched muted and are the discovery
+    engine."""
+
+    DOC = {"style": "punchline", "beats": [
+        {"beat_id": "BT01", "text": "on camera, punchy", "selected": True},
+        {"beat_id": "BT02", "text": "on camera, ordinary", "selected": False},
+        {"beat_id": "BT03", "text": "narrated line", "selected": True},
+    ]}
+    VO = frozenset(["BT03"])
+
+    def test_portrait_keeps_every_line_including_vo(self):
+        out = captions.effective_captions(self.DOC, "portrait", self.VO)
+        self.assertEqual(set(out), {"BT01", "BT02", "BT03"})
+
+    def test_landscape_drops_the_vo_line(self):
+        out = captions.effective_captions(self.DOC, "landscape", self.VO)
+        self.assertNotIn("BT03", out)
+
+    def test_landscape_keeps_the_selected_on_camera_line(self):
+        out = captions.effective_captions(self.DOC, "landscape", self.VO)
+        self.assertEqual(set(out), {"BT01"})
+
+    def test_a_classic_doc_still_drops_vo_in_landscape(self):
+        """No style field = every on-camera line bakes, but narration is
+        narration whatever the caption style is."""
+        doc = {"beats": [{"beat_id": "BT01", "text": "face"},
+                         {"beat_id": "BT03", "text": "voice"}]}
+        out = captions.effective_captions(doc, "landscape", self.VO)
+        self.assertEqual(set(out), {"BT01"})
+
+    def test_omitting_the_vo_set_changes_nothing(self):
+        """The freeze: hmns has 0 VO beats, so the new argument is
+        invisible to it."""
+        a = captions.effective_captions(self.DOC, "landscape")
+        b = captions.effective_captions(self.DOC, "landscape", frozenset())
+        self.assertEqual(a, b)
+        self.assertEqual(set(a), {"BT01", "BT03"})
+
+    def test_vo_beats_of_reads_the_same_marker_the_coverage_bar_uses(self):
+        tl = {"beats": [{"id": "BT01", "take_id": "T14"},
+                        {"id": "BT02", "take_id": "vo_ch1_t1"},
+                        {"id": "BT03"}]}
+        self.assertEqual(captions.vo_beats_of(tl), frozenset(["BT02"]))

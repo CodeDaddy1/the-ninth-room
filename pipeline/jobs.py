@@ -133,6 +133,15 @@ def _run_ingest(slug, log, set_pct):
     set_pct(60)
     log("[job] ingest: take analysis")
     takes.analyze(slug)
+    set_pct(75)
+    # takes.analyze rebuilds takes.json from scratch, which would
+    # silently un-kill every take Caleb screened out. His verdicts are
+    # stored separately for exactly this reason — re-apply them here, or
+    # a re-ingest quietly undoes a screening pass (2026-08-24).
+    from . import editroom as editroom_mod
+    n = editroom_mod._stamp_takes(slug)
+    if n:
+        log("[job] ingest: re-applied %d take verdict(s)" % n)
     set_pct(80)
     log("[job] ingest: b-roll catalog")
     broll.catalog_broll(slug)
@@ -252,11 +261,14 @@ def _brief_clause(slug) -> str:
         b = json.loads(p.read_text())
     except ValueError:
         return ""
-    clause = ("Caleb's brief: a ~%g-minute episode in %d chapters -- pitch "
+    vo = float(b.get("vo_share", 0.60))
+    clause = ("Caleb's brief: a ~%g-minute episode in %d chapters, with "
+              "about %.0f%% of its running time carried by VOICE-OVER "
+              "rather than on-camera talking -- pitch "
               "spines that fit that budget, and say so when the footage "
               "cannot fill it honestly. "
               % (float(b.get("target_minutes", 10)),
-                 int(b.get("chapters", 6))))
+                 int(b.get("chapters", 6)), vo * 100))
     location = str(b.get("location") or "").strip()
     if location:
         clause += "The place: %s. " % location
@@ -459,10 +471,27 @@ def _run_script(slug, log, set_pct):
         raise RuntimeError("session finished but script.json was not "
                            "written -- read the log")
     takes = json.loads((work / "analysis" / "takes.json").read_text())
-    errs = schemas.validate_script(json.loads(script_path.read_text()), takes)
+    script_doc = json.loads(script_path.read_text())
+    errs = schemas.validate_script(script_doc, takes)
     if errs:
         raise RuntimeError("script.json failed validation: " +
                            "; ".join(errs[:4]))
+    # the VO dial, enforced against THIS episode's target rather than a
+    # constant — the same shape the coverage job uses for coverage_notes
+    brief_p = work / "story_brief.json"
+    target = schemas.VO_TARGET_DEFAULT
+    if brief_p.exists():
+        try:
+            target = float(json.loads(brief_p.read_text())
+                           .get("vo_share", target))
+        except (ValueError, TypeError):
+            pass
+    notes = schemas.script_notes(script_doc, target)
+    if notes:
+        raise RuntimeError("script.json misses the bar: " +
+                           "; ".join(notes[:4]))
+    log("[script] %.0f%% voice-over against a %.0f%% target"
+        % (schemas.vo_share(script_doc) * 100, target * 100))
     log("[script] script written -- read it on the Script desk, record the "
         "vo sections, then Build the cut")
     set_pct(100)

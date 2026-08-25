@@ -319,6 +319,14 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
             else:
                 if tid in killed:
                     errors.append("%s: take '%s' is on the kill list" % (where, tid))
+                # screened out on the Takes desk BEFORE the cut existed —
+                # the kill_list above is the designer's own judgement, this
+                # is Caleb's, and it outranks it (2026-08-24)
+                if t.get("screened_out"):
+                    errors.append("%s: take '%s' was screened out — %s"
+                                  % (where, tid,
+                                     t.get("screen_reason")
+                                     or "no reason recorded"))
                 gid = group_of.get(tid)
                 if gid and gid in used_groups and used_groups[gid] != tid:
                     errors.append("%s: group %s already used via take %s — one take per retake group"
@@ -694,6 +702,13 @@ def validate_custom_overlays(data: "dict[str, Any]") -> "list[str]":
 SPEAKING_WPM = 150  # est_s for a VO line = words / SPEAKING_WPM * 60
 
 
+def _kill_reason(takes: "dict[str, Any] | None", tid: str) -> str:
+    for t in (takes or {}).get("takes", []):
+        if t.get("id") == tid:
+            return str(t.get("screen_reason") or "no reason recorded")
+    return "no reason recorded"
+
+
 def validate_script(script: "dict[str, Any]",
                     takes: "dict[str, Any] | None" = None) -> "list[str]":
     """script.json — the timed script between an approved direction and the
@@ -708,6 +723,11 @@ def validate_script(script: "dict[str, Any]",
     if not _req(errors, script, "chapters", list, "script"):
         return errors
     take_ids = {t["id"] for t in (takes or {}).get("takes", [])}
+    # A take Caleb screened out must not be quotable. The Takes desk's
+    # kill is the decision; this is what makes it BITE — a brief can be
+    # ignored, a validator cannot (2026-08-24).
+    killed = {t["id"] for t in (takes or {}).get("takes", [])
+              if t.get("screened_out")}
     seen_sections = set()
     for i, ch in enumerate(script["chapters"]):
         cw = "chapters[%d]" % i
@@ -744,6 +764,9 @@ def validate_script(script: "dict[str, Any]",
                 tid = sec.get("take_id")
                 if take_ids and tid not in take_ids:
                     errors.append("%s: unknown take '%s'" % (sw, tid))
+                elif tid in killed:
+                    errors.append("%s: take '%s' was screened out — %s"
+                                  % (sw, tid, _kill_reason(takes, tid)))
         # the pitch promised target_s; the script must land near it
         if has_target and est_sum > 0:
             target = float(ch["target_s"])
@@ -753,6 +776,62 @@ def validate_script(script: "dict[str, Any]",
                     "off by more than 25%%; rebudget the chapter or the "
                     "script" % (cw, est_sum, target))
     return errors
+
+
+VO_TARGET_DEFAULT = 0.60   # the dial's default; per-episode in story_brief
+VO_TOLERANCE = 0.10        # how far the script may drift from the target
+
+
+def vo_share(script: "dict[str, Any]") -> float:
+    """Share of the script's estimated RUNNING TIME carried by voice-over.
+
+    Time, not section count: three one-line VO sections beside one long
+    on-camera answer is not a VO-led episode, and counting sections would
+    say it was.
+    """
+    vo = total = 0.0
+    for ch in script.get("chapters", []):
+        for sec in (ch or {}).get("sections", []) or []:
+            try:
+                est = float(sec.get("est_s") or 0)
+            except (TypeError, ValueError):
+                continue
+            if est <= 0:
+                continue
+            total += est
+            if sec.get("kind") == "vo":
+                vo += est
+    return (vo / total) if total else 0.0
+
+
+def script_notes(script: "dict[str, Any]",
+                 target: "float | None" = None) -> "list[str]":
+    """The script's craft bar, shaped like `coverage_notes`: ADVISORY as a
+    function, required-empty by the job that dispatched the writer.
+
+    The format is VO-led as of 2026-08-24, and the share is a per-episode
+    dial rather than a doctrine — so this checks the script against THAT
+    episode's target, not against a constant.
+    """
+    notes: "list[str]" = []
+    want = VO_TARGET_DEFAULT if target is None else float(target)
+    got = vo_share(script)
+    if abs(got - want) > VO_TOLERANCE:
+        notes.append("script is %.0f%% voice-over against a %.0f%% target — "
+                     "%s" % (got * 100, want * 100,
+                             "write more narration" if got < want
+                             else "give the ensemble more of the screen"))
+    for ch in script.get("chapters", []):
+        for sec in (ch or {}).get("sections", []) or []:
+            if sec.get("kind") != "vo":
+                continue
+            text = str(sec.get("text") or "")
+            # a narrated claim carrying a number or a date is an assertion
+            # the audience cannot check and QC cannot trace without a source
+            if any(c.isdigit() for c in text) and not sec.get("source"):
+                notes.append("%s: a narrated fact with no source — QC "
+                             "cannot trace the claim" % sec.get("id", "?"))
+    return notes
 
 
 def validate_words(data: "list[Any]") -> "list[str]":

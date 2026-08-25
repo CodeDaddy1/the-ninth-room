@@ -98,6 +98,109 @@ def span_volume_db(path: str, s: float, e: float) -> "float | None":
     return None
 
 
+FILLER_RATE_MAX = 0.12       # fillers as a share of words
+WPM_MAX = 260.0              # above this it is a gabble, not a line
+WPM_MIN_WORDS = 8            # below this, wpm is arithmetic noise
+WPM_MIN_S = 1.5
+QUIET_BELOW_MEDIAN_DB = 8.0  # quiet is RELATIVE to this episode's own mic
+
+
+def quiet_floor(takes: "list") -> "float | None":
+    """The dB below which a take is quiet FOR THIS EPISODE.
+
+    An absolute floor does not survive contact with real footage. Measured
+    on HMNS (2026-08-24): the median take sits at -36 dB because the
+    camera mic runs quiet in a big room, and a fixed -40 dB floor flagged
+    26% of the shoot as "barely audible" — which is not a defect, it is
+    the rig. The floor therefore comes from the episode's own
+    distribution.
+    """
+    vols = [float(t["mean_volume_db"]) for t in takes
+            if t.get("mean_volume_db") is not None]
+    if len(vols) < 8:
+        return None          # too few to know what normal sounds like
+    vols.sort()
+    median = vols[len(vols) // 2]
+    return median - QUIET_BELOW_MEDIAN_DB
+
+
+def take_flags(take: "dict", floor: "float | None" = None) -> "list":
+    """PURE. Mechanical reasons a take is a poor candidate to QUOTE.
+
+    Every field read here has been computed since the takes stage was
+    written and never used as a filter — the story-designer sees all 355
+    takes and is trusted to avoid the fumbles by reading them. It usually
+    does; "usually" is how a false start reaches a published cut.
+
+    These are FLAGS, not verdicts. A flagged take stays selectable —
+    Caleb keeps or kills it on the Takes desk, and only a kill is
+    enforced. A restart can be the best line in the episode when the
+    restart IS the joke.
+    """
+    flags = []
+    if take.get("restart"):
+        flags.append("false start")
+    if not take.get("complete", True):
+        flags.append("unfinished sentence")
+    n = int(take.get("n_words") or 0)
+    fillers = int(take.get("fillers") or 0)
+    if n and fillers / n > FILLER_RATE_MAX:
+        flags.append("%d fillers in %d words" % (fillers, n))
+    dur = float(take.get("duration") or 0)
+    # wpm is meaningless on a fragment: "Yeah." at 0.02s reads as 3000 wpm
+    if n >= WPM_MIN_WORDS and dur >= WPM_MIN_S:
+        wpm = n / dur * 60.0
+        if wpm > WPM_MAX:
+            flags.append("%.0f wpm — rushed" % wpm)
+    vol = take.get("mean_volume_db")
+    if floor is not None and vol is not None and float(vol) < floor:
+        flags.append("%.0f dB — quiet for this shoot" % float(vol))
+    return flags
+
+
+def superseded_takes(takes: "list", groups: "list") -> "dict":
+    """take_id -> the take that supersedes it, within a retake cluster.
+
+    `group_takes` already clusters attempts at the same line. Inside a
+    cluster the KEEPER is the last complete take with the most words —
+    the one the crew settled on — and everything before it is a discarded
+    attempt. This is the flag that matters most in practice: 355 takes
+    hide a lot of "let me say that again".
+
+    A cluster of one supersedes nothing. Returns only the losers.
+    """
+    by_id = {t["id"]: t for t in takes}
+    out: "dict" = {}
+    for g in groups:
+        ids = [i for i in g.get("take_ids", []) if i in by_id]
+        if len(ids) < 2:
+            continue
+        complete = [i for i in ids if by_id[i].get("complete", True)]
+        pool = complete or ids
+        keeper = max(pool, key=lambda i: (int(by_id[i].get("n_words") or 0),
+                                          ids.index(i)))
+        for i in ids:
+            if i != keeper:
+                out[i] = keeper
+    return out
+
+
+def flag_takes(takes: "list", groups: "list" = ()) -> "dict":
+    """take_id -> flags, with the episode's own quiet floor and its
+    retake clusters applied. One call so no caller has to remember that
+    the floor is relative."""
+    floor = quiet_floor(takes)
+    sup = superseded_takes(takes, groups or [])
+    out = {}
+    for t in takes:
+        f = take_flags(t, floor)
+        if t["id"] in sup:
+            f = f + ["superseded by %s" % sup[t["id"]]]
+        if f:
+            out[t["id"]] = f
+    return out
+
+
 def group_takes(takes: "list[dict]") -> "list[dict]":
     """Group takes by transcript similarity (same content, different attempts).
 

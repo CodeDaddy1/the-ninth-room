@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import fill
+from . import screen as screen_mod
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORK_DIR = PROJECT_ROOT / "work"
@@ -182,6 +183,7 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
     out = analysis_dir(slug)
     entries = []
     skipped = []
+    seen_sigs: "dict" = {}   # content signature -> first file that claimed it
     # ETA is byte-weighted: file size tracks duration closely for same-camera
     # footage, is known instantly, and self-corrects as cached transcriptions
     # fly by. Sizes are captured up front so a file removed mid-run (Caleb
@@ -215,6 +217,20 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
         if entry["duration"] <= 0:
             skipped.append(path.name)
             log("[ingest] SKIP %s — zero duration (interrupted recording?)" % path.name)
+            continue
+        # The pre-screen: mechanically useless footage costs the same to
+        # transcribe and sheet as good footage. Set it aside BEFORE that
+        # bill is paid — never moving or deleting it, only flagging why
+        # (2026-08-24).
+        try:
+            entry["sig"] = screen_mod.content_sig(path, sizes[path])
+        except OSError:
+            pass
+        entry = screen_mod.screen(entry, seen_sigs)
+        if entry.get("screened_out"):
+            entries.append(entry)
+            log("[ingest] SET ASIDE %s — %s"
+                % (entry["name"], entry["screen_reason"]))
             continue
         log("[ingest] %s  %.1fs %s" % (entry["name"], entry["duration"],
                                        "audio" if entry["kind"] == "audio" else
@@ -295,4 +311,5 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
     catalog_path = out / "catalog.json"
     catalog_path.write_text(json.dumps(catalog, indent=2))
     log("[ingest] wrote %s (%d files)" % (catalog_path, len(entries)))
+    log("[ingest] %s" % screen_mod.tally(entries))
     return catalog_path

@@ -83,7 +83,8 @@ def catalog_broll(slug: str, log=print) -> Path:
 
     from .ingest import write_progress
     todo = [f for f in catalog["files"]
-            if f.get("class") == "broll" and f.get("kind") == "video"]
+            if f.get("class") == "broll" and f.get("kind") == "video"
+            and not f.get("screened_out")]
     import time as _time
     t0 = _time.time()
     clips = []

@@ -244,6 +244,102 @@ def _sfx_remove(slug: str, cue_id: str, log=print) -> "dict":
 _EDITPLAN_LOCK = threading.Lock()
 
 
+def _take_verdicts_path(slug: str) -> "Path":
+    return work_path(slug) / "take_verdicts.json"
+
+
+def _read_take_verdicts(slug: str) -> "dict":
+    p = _take_verdicts_path(slug)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text()).get("verdicts", {})
+    except ValueError:
+        return {}
+
+
+def _stamp_takes(slug: str) -> "int":
+    """Write the human verdicts onto analysis/takes.json.
+
+    Agents read takes.json and nothing else — so the screening decision
+    has to live THERE, not in a second file they would have to be told
+    about. The verdict store stays the source of truth (it survives a
+    re-ingest, which rebuilds takes.json from scratch); this re-applies
+    it. Returns how many takes are currently screened out.
+    """
+    tk_path = work_path(slug) / "analysis" / "takes.json"
+    if not tk_path.exists():
+        return 0
+    doc = json.loads(tk_path.read_text())
+    verdicts = _read_take_verdicts(slug)
+    n = 0
+    for t in doc.get("takes", []):
+        v = verdicts.get(t["id"])
+        if v and v.get("verdict") == "kill":
+            t["screened_out"] = True
+            t["screen_reason"] = v.get("reason") or "screened out"
+            n += 1
+        else:
+            t.pop("screened_out", None)
+            t.pop("screen_reason", None)
+    _write_json(tk_path, doc)
+    return n
+
+
+def _set_take_verdict(slug: str, take_id: str, verdict: str,
+                      reason: str = "", log=print) -> "dict":
+    """Keep or kill one take. `undo` clears the verdict entirely.
+
+    One writer: this route. The store is Caleb's, and it OUTRANKS the
+    story-designer's own `kill_list` — that one is the designer judging
+    its own work after the fact.
+    """
+    if verdict not in ("keep", "kill", "undo"):
+        raise IngestError("verdict must be keep, kill or undo")
+    tk_path = work_path(slug) / "analysis" / "takes.json"
+    if not tk_path.exists():
+        raise IngestError("no takes yet — ingest first")
+    known = {t["id"] for t in json.loads(tk_path.read_text()).get("takes", [])}
+    if take_id not in known:
+        raise IngestError("no take '%s'" % take_id)
+    p = _take_verdicts_path(slug)
+    doc = {"verdicts": {}}
+    if p.exists():
+        try:
+            doc = json.loads(p.read_text())
+        except ValueError:
+            pass
+    doc.setdefault("verdicts", {})
+    if verdict == "undo":
+        doc["verdicts"].pop(take_id, None)
+    else:
+        doc["verdicts"][take_id] = {"verdict": verdict,
+                                    "reason": reason[:200],
+                                    "ts": int(time.time())}
+    _write_json(p, doc)
+    n = _stamp_takes(slug)
+    log("[takes] %s %s%s — %d screened out"
+        % (take_id, verdict, (" (%s)" % reason) if reason else "", n))
+    return {"take_id": take_id, "verdict": verdict, "screened_out": n}
+
+
+def _take_screening(slug: str) -> "dict":
+    """Flags + verdicts for the Takes desk, in one payload."""
+    from . import takes as takes_mod
+    tk_path = work_path(slug) / "analysis" / "takes.json"
+    if not tk_path.exists():
+        return {"slug": slug, "flags": {}, "verdicts": {}, "floor": None}
+    doc = json.loads(tk_path.read_text())
+    rows = doc.get("takes", [])
+    return {"slug": slug,
+            "flags": takes_mod.flag_takes(rows, doc.get("groups", [])),
+            "verdicts": _read_take_verdicts(slug),
+            "floor": takes_mod.quiet_floor(rows),
+            "counts": {"takes": len(rows),
+                       "screened_out": sum(1 for t in rows
+                                           if t.get("screened_out"))}}
+
+
 def _takes_state(slug: str) -> "dict":
     """The Takes desk (P7): every transcribed take with its fate.
 
@@ -278,6 +374,7 @@ def _takes_state(slug: str) -> "dict":
                       "fate": fate,
                       "beats": picked.get(t["id"], []),
                       "kill_reason": killed.get(t["id"], "")})
+    screening = _take_screening(slug)
     reqs = {"rounds": []}
     rq_path = work_path(slug) / "asset_requests.json"
     if rq_path.exists():
@@ -286,7 +383,8 @@ def _takes_state(slug: str) -> "dict":
         except ValueError:
             pass
     return {"slug": slug, "ingested": True, "takes": takes,
-            "requests": reqs.get("rounds", [])}
+            "requests": reqs.get("rounds", []),
+            "screening": screening}
 
 
 def _broll_catalog(slug: str) -> "list":
@@ -2131,15 +2229,10 @@ def _projects_state() -> "dict":
 
 
 def _content_sig(path: Path, size: int) -> str:
-    """Cheap content signature: sha1 of the first+last MB. Two multi-GB
-    camera files agreeing on size AND both ends are the same recording."""
-    with open(path, "rb") as fh:
-        head = fh.read(1 << 20)
-        tail = b""
-        if size > (1 << 20):
-            fh.seek(max(size - (1 << 20), 0))
-            tail = fh.read(1 << 20)
-    return hashlib.sha1(head + tail).hexdigest()[:16]
+    """Delegates to screen.content_sig — one definition, used by the
+    pre-screen's duplicate check and by upload dedupe alike."""
+    from .screen import content_sig
+    return content_sig(path, size)
 
 
 def _find_duplicate(tmp: Path, size: int, *dirs: Path) -> "str | None":
@@ -2448,7 +2541,8 @@ def _clear_footage(slug: str) -> "dict":
 
 
 def _save_story_brief(slug: str, target_minutes, chapters,
-                      notes: str = "", location: str = "") -> "dict":
+                      notes: str = "", location: str = "",
+                      vo_share=None) -> "dict":
     """The pre-production questionnaire (Caleb, 2026-08-23): target length
     and chapter count, briefed to the story-designer instead of left to its
     judgment. Bounds are the system's own: 12 chapters is the kit's chapter
@@ -2462,10 +2556,21 @@ def _save_story_brief(slug: str, target_minutes, chapters,
         raise IngestError("target_minutes must be 1-60")
     if not (1 <= chaps <= 12):
         raise IngestError("chapters must be 1-12 (the kit's chapter cap)")
+    # How much of the episode is narration rather than on camera. A DIAL,
+    # not a doctrine: 0.6 is the default and 0.9 is a legitimate choice —
+    # "my vision is fluid, 90% narrating voice for a few videos won't
+    # hurt the content" (Caleb, 2026-08-24). Every VO second is a second
+    # needing coverage, which is why the sourcing stage reads this too.
+    try:
+        vo = 0.60 if vo_share is None else float(vo_share)
+    except (TypeError, ValueError):
+        raise IngestError("vo_share must be a number between 0 and 1")
+    if not (0.0 <= vo <= 1.0):
+        raise IngestError("vo_share must be between 0 and 1")
     location = str(location or "").strip()
     if len(location) > 200:
         raise IngestError("location: keep it under 200 characters")
-    brief = {"target_minutes": mins, "chapters": chaps,
+    brief = {"target_minutes": mins, "chapters": chaps, "vo_share": vo,
              "location": location,
              "notes": str(notes or "").strip(), "ts": int(time.time())}
     _write_json(work_path(slug) / "story_brief.json", brief)
@@ -3720,6 +3825,12 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/project/archive":
                 _archive_project(self._slug_b(body))
                 self._send(200, {"ok": True})
+            elif self.path == "/api/take/verdict":
+                out = _set_take_verdict(self._slug_b(body),
+                                        str(body.get("take_id", "")),
+                                        str(body.get("verdict", "")),
+                                        str(body.get("reason", "")), log=log)
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/footage/link":
                 out = _link_footage(self._slug_b(body),
                                     str(body.get("folder", "")), log=log)
@@ -3845,7 +3956,8 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                           body.get("target_minutes"),
                                           body.get("chapters"),
                                           body.get("notes", ""),
-                                          body.get("location", ""))
+                                          body.get("location", ""),
+                                          body.get("vo_share"))
                 self._send(200, {"ok": True, "brief": brief})
             elif self.path == "/api/story/feedback":
                 fb = _save_story_feedback(self._slug_b(body),

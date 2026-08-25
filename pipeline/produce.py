@@ -84,7 +84,8 @@ def rebake_beat_caption(slug: str, beat_id: str, log=print) -> "dict":
     tl_map = json.loads((out / "timeline_map.json").read_text())
     caps = json.loads((work / "captions.json").read_text())
     effective = captions_mod.effective_captions(
-        caps, tl_map.get("orientation", "landscape"))
+        caps, tl_map.get("orientation", "landscape"),
+        captions_mod.vo_beats_of(tl_map))
     entry = next((c for c in caps.get("beats", [])
                   if c["beat_id"] == beat_id
                   and c["beat_id"] in effective), None)
@@ -139,7 +140,8 @@ def _beat_caption_clips(slug: str, tl_map: "dict",
         return []
     caps = json.loads(cap_path.read_text())
     effective = captions_mod.effective_captions(
-        caps, tl_map.get("orientation", "landscape"))
+        caps, tl_map.get("orientation", "landscape"),
+        captions_mod.vo_beats_of(tl_map))
     by_beat = {c["beat_id"]: c for c in caps.get("beats", [])
                if c["beat_id"] in effective}
 
