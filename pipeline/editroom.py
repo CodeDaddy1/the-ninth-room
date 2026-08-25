@@ -394,6 +394,98 @@ def _broll_catalog(slug: str) -> "list":
     return json.loads(p.read_text()).get("clips", [])
 
 
+def _clamp_cover(beat_len: float, clip_dur: float, at: float,
+                 duration: float, src_s: float) -> "tuple":
+    """PURE. Where a cover may legally sit, given the beat and the clip.
+
+    Extracted so attach and adjust cannot drift (2026-08-25). They were
+    one code path with the rules inline; the moment a second path could
+    place a cover, the same arithmetic had to be one function or the two
+    would disagree about the edges — and the edges are where a cover
+    runs off the end of its source and renders black.
+
+    Order matters: `at` is bounded by the beat, `src_s` by the clip, and
+    only then is `duration` bounded by BOTH what remains of the clip
+    after src_s and what remains of the beat after at.
+    """
+    at = max(0.0, min(float(at), beat_len - 0.2))
+    src_s = max(0.0, min(float(src_s), clip_dur - 0.2))
+    duration = max(0.2, min(float(duration), clip_dur - src_s, beat_len - at))
+    return round(at, 3), round(duration, 3), round(src_s, 3)
+
+
+def _broll_adjust(slug: str, beat_id: str, clip_id: str,
+                  at=None, duration=None, src_s=None, log=print) -> "dict":
+    """Move a cover that is already placed, without detaching it.
+
+    Caleb, 2026-08-25: "we should be able to go back to the B-Roll and
+    adjust where it starts in the clip without having to remove the clip
+    and replace." Remove-and-replace worked but cost the cover its place
+    in the plan, wrote two conform ops for one intention, and — because
+    detach and attach each re-render the beat — paid for the proxy twice.
+
+    Any of the three may be omitted to leave it as it is: `at` (where the
+    cover sits in the beat), `src_s` (where the source starts playing)
+    and `duration`. The same clamp attach uses keeps it legal.
+    """
+    clips = {c["id"]: c for c in _broll_catalog(slug)}
+    if clip_id not in clips:
+        raise IngestError("unknown b-roll clip '%s'" % clip_id)
+    clip = clips[clip_id]
+    with _EDITPLAN_LOCK:
+        work = work_path(slug)
+        tm_path = work / "analysis" / "timeline_map.json"
+        tm = json.loads(tm_path.read_text())
+        beats = {b["id"]: b for b in tm["beats"]}
+        if beat_id not in beats:
+            raise IngestError("beat '%s' not in the timeline" % beat_id)
+        beat = beats[beat_id]
+        ep_path = work / "edit_plan.json"
+        plan = json.loads(ep_path.read_text())
+        pb = next((b for b in plan["beats"] if b["id"] == beat_id), None)
+        if pb is None:
+            raise IngestError("beat '%s' not in the edit plan" % beat_id)
+        cur = next((c for c in (pb.get("broll") or [])
+                    if c.get("clip_id") == clip_id), None)
+        if cur is None:
+            raise IngestError("%s is not on %s — attach it first"
+                              % (clip_id, beat_id))
+        beat_len = beat["record_e"] - beat["record_s"]
+        new_at, new_dur, new_src = _clamp_cover(
+            beat_len, clip["duration"],
+            cur.get("at", 0) if at is None else at,
+            cur.get("duration", 0) if duration is None else duration,
+            cur.get("src_s", 0) if src_s is None else src_s)
+        cur.update({"at": new_at, "duration": new_dur, "src_s": new_src})
+        tmp = ep_path.with_suffix(".ep.tmp")
+        tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+        os.replace(tmp, ep_path)
+        entry_map = None
+        for c in (beat.get("broll") or []):
+            if c.get("clip_id") == clip_id:
+                c.update({"record_s": round(beat["record_s"] + new_at, 3),
+                          "duration": new_dur, "src_s": new_src})
+                entry_map = c
+                break
+        if entry_map is None:
+            # the plan had it and the timeline did not: rebuild the row
+            # rather than leave the proxy rendering the old placement
+            entry_map = {"clip_id": clip_id, "file": clip["file"],
+                         "record_s": round(beat["record_s"] + new_at, 3),
+                         "duration": new_dur, "src_s": new_src}
+            beat.setdefault("broll", []).append(entry_map)
+        tmp = tm_path.with_suffix(".tm.tmp")
+        tmp.write_text(json.dumps(tm, indent=2))
+        os.replace(tmp, tm_path)
+    from . import proxy as proxy_mod
+    proxy_mod.build(slug, only_beats=[beat_id], log=log)
+    _conform_append(slug, "broll_adjust", beat_id, entry_map)
+    _mark_edited(slug, beat_id)
+    log("[broll] %s on %s -> at %.2fs, %.2fs from %.2fs into the clip"
+        % (clip_id, beat_id, new_at, new_dur, new_src))
+    return entry_map
+
+
 def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
                   duration: float, src_s: float, log=print) -> "dict":
     """Cover part of a beat with b-roll, everywhere it matters at once:
@@ -413,15 +505,13 @@ def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
             raise IngestError("beat '%s' not in the timeline" % beat_id)
         beat = beats[beat_id]
         beat_len = beat["record_e"] - beat["record_s"]
-        at = max(0.0, min(float(at), beat_len - 0.2))
-        src_s = max(0.0, min(float(src_s), clip["duration"] - 0.2))
-        duration = max(0.2, min(float(duration), clip["duration"] - src_s,
-                                beat_len - at))
-        entry_plan = {"clip_id": clip_id, "at": round(at, 3),
-                      "duration": round(duration, 3), "src_s": round(src_s, 3)}
+        at, duration, src_s = _clamp_cover(beat_len, clip["duration"],
+                                           at, duration, src_s)
+        entry_plan = {"clip_id": clip_id, "at": at,
+                      "duration": duration, "src_s": src_s}
         entry_map = {"clip_id": clip_id, "file": clip["file"],
                      "record_s": round(beat["record_s"] + at, 3),
-                     "duration": round(duration, 3), "src_s": round(src_s, 3)}
+                     "duration": duration, "src_s": src_s}
         ep_path = work / "edit_plan.json"
         plan = json.loads(ep_path.read_text())
         for b in plan["beats"]:
@@ -4425,6 +4515,14 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 restored = _trash_restore(self._slug_b(body),
                                           str(body.get("uid", "")))
                 self._send(200, {"ok": True, "restored": restored})
+            elif self.path == "/api/broll/adjust":
+                out = _broll_adjust(self._slug_b(body),
+                                    body.get("beat_id", ""),
+                                    body.get("clip_id", ""),
+                                    at=body.get("at"),
+                                    duration=body.get("duration"),
+                                    src_s=body.get("src_s"), log=log)
+                self._send(200, {"ok": True, "placed": out})
             elif self.path == "/api/broll/remove":
                 rs = body.get("record_s")
                 gone = _broll_detach(self._slug_b(body), body["beat_id"],
