@@ -997,6 +997,130 @@ def script_notes(script: "dict[str, Any]",
     return notes
 
 
+# The script's collaboration loop (2026-08-24). Same vocabulary as the pitch
+# loop's story_feedback.json, because it is the same shape of decision:
+#   answers   — Caleb answered the open questions; write/revise from them
+#   direction — a fresh pass steered by his notes
+#   approve   — LOCK it; no further draft may overwrite
+SCRIPT_DECISIONS = ("answers", "direction", "approve")
+MAX_INTERVIEW_Q = 8   # round 0. More than this spends the scarcest thing here
+MAX_DRAFT_Q = 6       # every draft after
+
+
+def validate_script_questions(doc: "dict[str, Any]") -> "list[str]":
+    """script_questions.json — the director's open interview.
+
+    The cap is the point. Attention is the scarcest resource in this
+    pipeline, and a writer that asks twenty questions has moved its own
+    job onto Caleb. Every question also carries a DEFAULT, so skipping is
+    legal and silence never blocks a draft.
+    """
+    errors: "list[str]" = []
+    _req(errors, doc, "slug", str, "questions")
+    stage = doc.get("stage")
+    if stage not in ("interview", "draft"):
+        errors.append("questions: stage must be 'interview' or 'draft'")
+    if not _req(errors, doc, "questions", list, "questions"):
+        return errors
+    qs = doc["questions"]
+    cap = MAX_INTERVIEW_Q if stage == "interview" else MAX_DRAFT_Q
+    if len(qs) > cap:
+        errors.append("questions: %d questions at stage '%s' — the cap is "
+                      "%d; ask what you cannot decide yourself"
+                      % (len(qs), stage, cap))
+    seen = set()
+    for i, q in enumerate(qs):
+        where = "questions[%d]" % i
+        if not isinstance(q, dict):
+            errors.append(where + ": not an object")
+            continue
+        if _req(errors, q, "id", str, where):
+            if q["id"] in seen:
+                errors.append("%s: duplicate question id '%s'"
+                              % (where, q["id"]))
+            seen.add(q["id"])
+        if not str(q.get("ask") or "").strip():
+            errors.append(where + ": empty ask")
+        opts = q.get("options") or []
+        if not isinstance(opts, list):
+            errors.append(where + ": options must be a list")
+            opts = []
+        ids = set()
+        for k, o in enumerate(opts):
+            if not isinstance(o, dict):
+                errors.append("%s.options[%d]: not an object" % (where, k))
+                continue
+            if _req(errors, o, "id", str, "%s.options[%d]" % (where, k)):
+                ids.add(o["id"])
+            if not str(o.get("label") or "").strip():
+                errors.append("%s.options[%d]: empty label" % (where, k))
+        # A default that names no option cannot run, so "skip it" would
+        # silently become "block on it" — the one thing the cap exists to
+        # prevent.
+        dflt = q.get("default")
+        if opts and dflt is not None and str(dflt) not in ids:
+            errors.append("%s: default '%s' names no option" % (where, dflt))
+        if not opts and q.get("required") and dflt is None:
+            errors.append("%s: required, free-text, and no default — there "
+                          "is no way for this question to not block" % where)
+    return errors
+
+
+def validate_script_feedback(doc: "dict[str, Any]") -> "list[str]":
+    """script_feedback.json — Caleb's rounds. Mirrors story_feedback."""
+    errors: "list[str]" = []
+    if not _req(errors, doc, "rounds", list, "feedback"):
+        return errors
+    for i, r in enumerate(doc["rounds"]):
+        where = "rounds[%d]" % i
+        if not isinstance(r, dict):
+            errors.append(where + ": not an object")
+            continue
+        if r.get("decision") not in SCRIPT_DECISIONS:
+            errors.append("%s: decision must be one of %s"
+                          % (where, ", ".join(SCRIPT_DECISIONS)))
+        if "answers" in r and not isinstance(r["answers"], dict):
+            errors.append(where + ": answers must be an object of qid -> answer")
+    return errors
+
+
+def open_questions(questions: "dict[str, Any] | None",
+                   feedback: "dict[str, Any] | None") -> "list[str]":
+    """Question ids still unanswered — REQUIRED ones are what gate a draft.
+
+    Pure, so the desk and the job quote the same number. An answered
+    question stays answered across later rounds: the answers dict
+    accumulates, because re-asking something Caleb already settled is how
+    a collaboration loop becomes a chore.
+    """
+    qs = (questions or {}).get("questions", []) or []
+    answered: "set" = set()
+    for r in (feedback or {}).get("rounds", []) or []:
+        for qid, val in ((r or {}).get("answers") or {}).items():
+            if str(val or "").strip():
+                answered.add(str(qid))
+    return [str(q.get("id")) for q in qs
+            if isinstance(q, dict) and str(q.get("id")) not in answered]
+
+
+def blocking_questions(questions: "dict[str, Any] | None",
+                       feedback: "dict[str, Any] | None") -> "list[str]":
+    """Unanswered questions that carry no default and are marked required.
+
+    Only these stop a draft. Everything else runs on its default and the
+    draft reports which defaults it used — the writer never idles waiting
+    for an answer Caleb did not think was worth giving.
+    """
+    still = set(open_questions(questions, feedback))
+    out = []
+    for q in (questions or {}).get("questions", []) or []:
+        if not isinstance(q, dict) or str(q.get("id")) not in still:
+            continue
+        if q.get("required") and q.get("default") is None:
+            out.append(str(q.get("id")))
+    return out
+
+
 def coverage_budget(script: "dict[str, Any]",
                     broll: "dict[str, Any] | None" = None,
                     used_clip_ids: "set | frozenset | None" = None) -> "dict":

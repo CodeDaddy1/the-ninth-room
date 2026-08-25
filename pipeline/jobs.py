@@ -44,7 +44,7 @@ _LOCK = threading.Lock()
 # test_job_lanes.py fails if any kind in KINDS is missing from it.
 SESSION_KINDS = {
     "story", "editplan", "coverage", "graphics", "script", "research",
-    "sourcing",
+    "sourcing", "interview",
     "retention", "room", "publish", "scout", "fixer", "hook", "perf",
     "retro", "diagnose",
 }
@@ -346,36 +346,149 @@ EDITPLAN_PROMPT = (
     "Resolve. The engine is running on :8765; leave it alone.")
 
 
+INTERVIEW_PROMPT = (
+    "Interview Caleb for The Ninth Room episode %(slug)s before writing "
+    "anything. %(brief)sRead .claude/agents/story-director.md and act as "
+    "that agent for its INTERVIEW stage. Read the brief, "
+    "work/%(slug)s/research.json, and -- in the footage lane -- the "
+    "approved direction in work/%(slug)s/stories.json plus the "
+    "transcripts in work/%(slug)s/analysis/takes.json. Then write "
+    "work/%(slug)s/script_questions.json exactly as your brief specifies, "
+    "with \"stage\": \"%(stage)s\". AT MOST %(cap)d questions: ask only "
+    "what you genuinely cannot decide from the material, cite the take, "
+    "clip or fact behind any question about the material, and give EVERY "
+    "question a `default` so skipping it is legal. Mark `required` only "
+    "where proceeding on a guess would waste a whole draft. Do NOT write "
+    "script.json in this stage. Validate before finishing: "
+    "/usr/bin/python3 -c 'import json,sys; sys.path.insert(0,\".\"); "
+    "from pipeline import schemas; "
+    "print(schemas.validate_script_questions(json.load(open("
+    "\"work/%(slug)s/script_questions.json\"))))' and fix every error. "
+    "Do NOT touch DaVinci Resolve; the engine on :8765 is not yours.")
+
+
 SCRIPT_PROMPT = (
-    "Write the timed script for %(slug)s. %(brief)sRead "
-    ".claude/agents/story-designer.md and act as that agent for the SCRIPT "
-    "stage: the latest round in work/%(slug)s/story_feedback.json approves "
-    "a direction in work/%(slug)s/stories.json -- script THAT direction, "
-    "chapter by chapter, into work/%(slug)s/script.json with this exact "
-    "shape: {\"slug\", \"option_id\", \"target_minutes\", \"chapters\": "
+    "Write the timed script for %(slug)s. %(brief)s%(lane)sRead "
+    ".claude/agents/story-director.md and act as that agent for its "
+    "%(stage)s stage. %(rounds)s"
+    "Write work/%(slug)s/script.json with this exact shape: "
+    "{\"slug\", \"origin\", \"option_id\" (footage lane only), \"round\", "
+    "\"locked\": false, \"target_minutes\", \"retired_ids\": [], "
+    "\"defaults_used\": [], \"chapters\": "
     "[{\"id\": \"CH1\", \"title\", \"target_s\", \"sections\": "
-    "[{\"id\": \"CH1.S1\", \"kind\": \"oncamera\"|\"vo\", \"text\", "
-    "\"take_id\" (oncamera only), \"est_s\"}]}]}. oncamera sections QUOTE "
-    "a real take (take_id from analysis/takes.json, text = what it says, "
-    "est_s = its trimmed span). vo sections are lines Caleb records LATER "
-    "over b-roll, in his voice, est_s = words/150*60 -- this is the lane "
-    "that fills a brief the day's takes cannot. A vo line built on a "
-    "research.json fact carries that fact's source_url as \"source\" so "
-    "QC can trace the claim. Each chapter's est_s sum "
-    "must land within 25 percent of its target_s. Run "
-    "/usr/bin/python3 -c 'from pipeline import schemas; import json; "
-    "print(schemas.validate_script(json.load(open(\"work/%(slug)s/"
-    "script.json\")), json.load(open(\"work/%(slug)s/analysis/"
-    "takes.json\"))))' from the repo root and fix every error it prints. "
+    "[{\"id\": \"CH1.S1\", \"kind\": \"oncamera\"|\"vo\"|\"desk\", "
+    "\"text\", \"take_id\" (oncamera only), \"est_s\", \"rev\": 1, "
+    "\"source\", \"visual\": {\"want\", \"why\", \"from\"}}]}]}. "
+    "oncamera sections QUOTE a real take (take_id from "
+    "analysis/takes.json, text = what it says, est_s = its trimmed span). "
+    "vo sections are narration Caleb records LATER over pictures, and "
+    "desk sections are written to be PERFORMED to camera at his desk; "
+    "both are est_s = words/150*60. EVERY vo section carries a `visual` "
+    "whose `why` leads with one of establish/illustrate/foretell/bridge/"
+    "process. A line built on a research.json fact carries that fact's "
+    "source_url as \"source\". Section ids are permanent: never renumber, "
+    "never reuse a retired id, and bump a section's `rev` when you change "
+    "its text -- recordings match by filename and a reused id makes an old "
+    "take read as this line's. Then write a FRESH "
+    "work/%(slug)s/script_questions.json at \"stage\": \"draft\" with the "
+    "real open questions this draft raises (at most %(cap)d), including "
+    "any structural change you want to propose. "
+    "Before finishing, prove it -- validate_script AND script_notes must "
+    "BOTH come back empty: "
+    "/usr/bin/python3 -c 'import json,os,sys; sys.path.insert(0,\".\"); "
+    "from pipeline import schemas; "
+    "L=lambda p: json.load(open(p)) if os.path.exists(p) else None; "
+    "W=\"work/%(slug)s/\"; s=L(W+\"script.json\"); "
+    "b=L(W+\"story_brief.json\") or {}; "
+    "print(schemas.validate_script(s, L(W+\"analysis/takes.json\"))); "
+    "print(schemas.script_notes(s, b.get(\"vo_share\"), "
+    "origin=b.get(\"origin\",\"footage\")))' "
+    "-- fix every error and every note, then run it again until clean. "
     "Do NOT touch DaVinci Resolve; the engine on :8765 is not yours.")
 
 
 def _script_prompt(slug) -> str:
-    return SCRIPT_PROMPT % {"slug": slug, "brief": _brief_clause(slug)}
+    """The writer's prompt, carrying the lane and the round it is answering.
+
+    The rounds clause is what makes this a collaboration rather than a
+    retry: a revision is told to address exactly what Caleb wrote and to
+    leave alone what he did not mention.
+    """
+    from . import schemas
+    work = work_path(slug)
+    origin = _script_origin(slug)
+    existing = _read_json(work / "script.json")
+    fb = _read_json(work / "script_feedback.json") or {}
+    rounds = fb.get("rounds", [])
+    if origin == "script":
+        lane = ("This is a SCRIPT-LED episode: there is no footage and no "
+                "pitch. The script IS the backbone -- build it from the "
+                "brief and work/%s/research.json. Caleb presents at his "
+                "desk, so `desk` sections carry the spine and `vo` lines "
+                "connect them; first person singular is allowed in this "
+                "lane. It owes no ninth-room moment and no door meter. "
+                % slug)
+    else:
+        lane = ("This is a VISIT: the latest round in "
+                "work/%s/story_feedback.json approves a direction in "
+                "work/%s/stories.json -- script THAT direction. The cast "
+                "is an ensemble, the system never says \"I\", and the "
+                "episode owes one ninth-room moment. " % (slug, slug))
+    if existing is not None:
+        latest = next((r for r in reversed(rounds)
+                       if r.get("decision") in ("direction", "answers")), {})
+        parts = []
+        if latest.get("notes"):
+            parts.append("His direction: %s" % latest["notes"])
+        if latest.get("answers"):
+            parts.append("His answers: %s" % "; ".join(
+                "%s = %s" % (k, v) for k, v in latest["answers"].items()))
+        clause = ("You are REVISING work/%s/script.json (round %s). %s "
+                  "Address exactly what he named and keep what he did not "
+                  "mention; bump `round`. " %
+                  (slug, existing.get("round"), " ".join(parts) or
+                   "He asked for a revision."))
+        stage = "REVISE"
+    else:
+        given = _script_answers_clause(work)
+        clause = ("work/%s/script_questions.json holds your interview and "
+                  "work/%s/script_feedback.json holds his answers. %s"
+                  "Anything he did not answer runs on YOUR stated default "
+                  "-- list those in `defaults_used`. " % (slug, slug, given))
+        stage = "DRAFT"
+    return SCRIPT_PROMPT % {"slug": slug, "brief": _brief_clause(slug),
+                            "lane": lane, "stage": stage, "rounds": clause,
+                            "cap": schemas.MAX_DRAFT_Q}
+
+
+def _script_answers_clause(work) -> str:
+    """Caleb's answers, in the prompt. Separate and pure so a test can
+    prove they actually reach the writer -- the failure mode an interview
+    invites is being politely ignored, exactly as the brief's was."""
+    fb = _read_json(work / "script_feedback.json") or {}
+    got = {}
+    for r in fb.get("rounds", []) or []:
+        for qid, val in (r.get("answers") or {}).items():
+            if str(val or "").strip():
+                got[str(qid)] = val
+        if r.get("notes"):
+            got.setdefault("_notes", r["notes"])
+    if not got:
+        return ""
+    notes = got.pop("_notes", None)
+    out = ""
+    if got:
+        out += "He answered: %s. " % "; ".join(
+            "%s = %s" % (k, v) for k, v in sorted(got.items()))
+    if notes:
+        out += "His note: %s. " % notes
+    return out
 
 
 RESEARCH_PROMPT = (
-    "Research %(location)s for The Ninth Room episode %(slug)s. Search the "
+    "Research %(location)s for The Ninth Room episode %(slug)s. It may be "
+    "a PLACE we are visiting or a TOPIC the episode is about -- research "
+    "whichever it is. Search the "
     "web broadly -- history, numbers, engineering, oddities, the stories "
     "locals and enthusiasts tell -- and write work/%(slug)s/research.json: "
     '{"location": "...", "facts": [{"fact": "one verifiable sentence", '
@@ -398,16 +511,20 @@ def _run_research(slug, log, set_pct):
     import subprocess
     work = work_path(slug)
     brief_p = work / "story_brief.json"
+    # A visit names a place; a script-led episode names a topic. Either is
+    # a legitimate thing to research, and an episode may carry both.
     location = ""
     if brief_p.exists():
         try:
-            location = str(json.loads(brief_p.read_text())
-                           .get("location") or "").strip()
+            b = json.loads(brief_p.read_text())
+            location = " -- ".join(
+                p for p in (str(b.get("location") or "").strip(),
+                            str(b.get("subject") or "").strip()) if p)
         except ValueError:
             pass
     if not location:
-        raise RuntimeError("the brief has no location -- name the place or "
-                           "event on the Story desk first")
+        raise RuntimeError("the brief has no subject -- name the place, "
+                           "event or topic on the Story desk first")
     out_p = work / "research.json"
     before = out_p.stat().st_mtime if out_p.exists() else None
     log("[research] dispatching the researcher for %s" % location)
@@ -437,42 +554,140 @@ def _run_research(slug, log, set_pct):
     set_pct(100)
 
 
+def _read_json(path, default=None):
+    """Read a JSON artifact, or the default when it is absent or corrupt.
+    Guards exist because the script lane has legitimately empty projects --
+    an unguarded read of takes.json is what made a footage-free episode
+    impossible to start at all (jobs.py, before 2026-08-24)."""
+    import json
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def _script_origin(slug) -> str:
+    """Which lane this episode is in. `footage` = a visit, shot first.
+    `script` = written first from a subject, with no footage yet."""
+    b = _read_json(work_path(slug) / "story_brief.json", {}) or {}
+    return "script" if str(b.get("origin") or "") == "script" else "footage"
+
+
+def _run_interview(slug, log, set_pct):
+    """Round 0: the director asks before it writes (Caleb, 2026-08-24 --
+    "I need to be prompted interactively to collaborate with the agent
+    before a script is finalized").
+
+    This exists as its own job because the questions have to reach Caleb
+    and come back before a single line is drafted. A writer that asked and
+    answered itself would be the old one-shot wearing a costume.
+    """
+    from . import schemas
+    work = work_path(slug)
+    if not (work / "story_brief.json").exists():
+        raise RuntimeError("no brief yet -- answer the brief on the Story "
+                           "desk first: the director needs the budget and "
+                           "the subject before it can ask anything useful")
+    script_path = work / "script.json"
+    if _read_json(script_path, {}).get("locked"):
+        raise RuntimeError("the script is approved -- unlock it on the "
+                           "Script desk before reopening the interview")
+    origin = _script_origin(slug)
+    if origin == "footage":
+        rounds = (_read_json(work / "story_feedback.json", {}) or {}).get(
+            "rounds", [])
+        if not rounds or rounds[-1].get("decision") != "approve":
+            raise RuntimeError("no approving round -- approve a direction on "
+                               "the Story desk first")
+    elif not (work / "research.json").exists():
+        # The script lane has no footage, so research is the ONLY material
+        # the director has. Interviewing without it would be asking Caleb
+        # to supply what the pipeline is meant to fetch.
+        raise RuntimeError("no research yet -- run Research the place on "
+                           "the Story desk; with no footage it is the only "
+                           "material the director has")
+    out = work / "script_questions.json"
+    before = out.stat().st_mtime if out.exists() else None
+    log("[interview] dispatching the story director for its questions")
+    _dispatch(INTERVIEW_PROMPT % {"slug": slug, "brief": _brief_clause(slug),
+                                  "stage": "interview",
+                                  "cap": schemas.MAX_INTERVIEW_Q},
+              log, set_pct, "interview")
+    after = out.stat().st_mtime if out.exists() else None
+    if after is None or after == before:
+        raise RuntimeError("session finished but script_questions.json did "
+                           "not change -- read the log")
+    doc = _read_json(out, {}) or {}
+    errs = schemas.validate_script_questions(doc)
+    if errs:
+        raise RuntimeError("the interview is malformed: " + "; ".join(errs[:4]))
+    n = len(doc.get("questions", []))
+    log("[interview] %d question(s) waiting on the Script desk -- answer "
+        "what you have a view on, skip the rest and the defaults run" % n)
+    set_pct(100)
+
+
 def _run_script(slug, log, set_pct):
     """The Script desk's writer (Caleb, 2026-08-23): the timed script
     between an approved direction and the cut. Dispatch-and-verify like its
     siblings -- but here the proof is not just that script.json changed; it
     must also VALIDATE, because a script whose chapter sums ignore their
-    targets is the budget fiction this whole feature exists to prevent."""
-    import json
-    import subprocess
+    targets is the budget fiction this whole feature exists to prevent.
+
+    As of 2026-08-24 it is also REVISABLE. It used to refuse outright once
+    script.json existed, which made the first draft the last word; now a
+    rewrite is legal exactly when Caleb has asked for one, and refused once
+    he has approved.
+    """
     from . import schemas
     work = work_path(slug)
-    fb = work / "story_feedback.json"
-    rounds = (json.loads(fb.read_text()).get("rounds", [])
-              if fb.exists() else [])
-    if not rounds or rounds[-1].get("decision") != "approve":
-        raise RuntimeError("no approving round -- approve a direction on "
-                           "the Story desk first")
+    origin = _script_origin(slug)
     script_path = work / "script.json"
-    if script_path.exists():
-        raise RuntimeError("script.json already exists -- edit sections on "
-                           "the Script desk; a rewrite is a session decision")
-    log("[script] dispatching the story designer for the script")
-    set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p", _script_prompt(slug),
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "script")
-    if rc != 0:
-        raise RuntimeError("script session exited %d -- see the log" % rc)
+    existing = _read_json(script_path)
+    if origin == "footage":
+        rounds = (_read_json(work / "story_feedback.json", {}) or {}).get(
+            "rounds", [])
+        if not rounds or rounds[-1].get("decision") != "approve":
+            raise RuntimeError("no approving round -- approve a direction on "
+                               "the Story desk first")
+    questions = _read_json(work / "script_questions.json")
+    feedback = _read_json(work / "script_feedback.json")
+    if existing is not None:
+        # A revision needs an instruction. Without this the button would
+        # silently rewrite a script Caleb was happy with.
+        if existing.get("locked"):
+            raise RuntimeError("the script is approved -- unlock it on the "
+                               "Script desk to revise it")
+        rounds = (feedback or {}).get("rounds", [])
+        if not any(r.get("decision") in ("direction", "answers")
+                   for r in rounds):
+            raise RuntimeError("nothing to revise from -- send direction or "
+                               "answer the open questions on the Script desk")
+    else:
+        blocking = schemas.blocking_questions(questions, feedback)
+        if blocking:
+            raise RuntimeError(
+                "waiting on you: %s. Answer on the Script desk (everything "
+                "else runs on its default)" % ", ".join(blocking))
+        if questions is None:
+            raise RuntimeError("no interview yet -- run Interview me on the "
+                               "Script desk so the director asks before it "
+                               "writes")
+    before = script_path.stat().st_mtime if script_path.exists() else None
+    log("[script] dispatching the story director (%s lane%s)"
+        % (origin, ", revising" if existing is not None else ""))
+    _dispatch(_script_prompt(slug), log, set_pct, "script")
     if not script_path.exists():
         raise RuntimeError("session finished but script.json was not "
                            "written -- read the log")
-    takes = json.loads((work / "analysis" / "takes.json").read_text())
-    script_doc = json.loads(script_path.read_text())
+    after = script_path.stat().st_mtime
+    if before is not None and after == before:
+        raise RuntimeError("session finished but script.json did not change "
+                           "-- read the log")
+    # The script lane has no takes, and that is legal: an unguarded read
+    # here is what made a footage-free episode impossible to start.
+    takes = _read_json(work / "analysis" / "takes.json")
+    script_doc = _read_json(script_path, {})
     errs = schemas.validate_script(script_doc, takes)
     if errs:
         raise RuntimeError("script.json failed validation: " +
@@ -487,14 +702,28 @@ def _run_script(slug, log, set_pct):
                            .get("vo_share", target))
         except (ValueError, TypeError):
             pass
-    notes = schemas.script_notes(script_doc, target)
+    notes = schemas.script_notes(script_doc, target, origin=origin)
     if notes:
         raise RuntimeError("script.json misses the bar: " +
                            "; ".join(notes[:4]))
     log("[script] %.0f%% voice-over against a %.0f%% target"
         % (schemas.vo_share(script_doc) * 100, target * 100))
-    log("[script] script written -- read it on the Script desk, record the "
-        "vo sections, then Build the cut")
+    budget = schemas.coverage_budget(
+        script_doc, _read_json(work / "analysis" / "broll.json", {}))
+    if budget.get("to_source_seconds"):
+        log("[script] %.0f min of pictures to source -- %s"
+            % (budget["to_source_seconds"] / 60.0,
+               ", ".join("%s %.0fs" % (k, v) for k, v in
+                         sorted(budget["declared_seconds"].items())
+                         if k != "library")))
+    still = schemas.open_questions(
+        _read_json(work / "script_questions.json"),
+        _read_json(work / "script_feedback.json"))
+    if still:
+        log("[script] the director left %d question(s) on this draft -- "
+            "answer or approve on the Script desk" % len(still))
+    log("[script] draft %s written -- read it on the Script desk, then "
+        "approve it or send direction" % (script_doc.get("round") or 1))
     set_pct(100)
 
 
@@ -1242,6 +1471,7 @@ KINDS = {
     "fixer": ("Auto-fix — rework the flagged clips", _run_fixer),
     "story": ("Pitch stories — three directions", _run_story),
     "editplan": ("Build the cut", _run_editplan),
+    "interview": ("Interview me — the director's questions", _run_interview),
     "script": ("Write the script", _run_script),
     "sourcing": ("Source supporting coverage", _run_sourcing),
     "research": ("Research the place", _run_research),

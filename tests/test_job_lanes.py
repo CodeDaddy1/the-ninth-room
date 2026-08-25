@@ -73,6 +73,17 @@ class LanesRunIndependently(unittest.TestCase):
             if not live:
                 break
             time.sleep(0.05)
+        # Purge this test's jobs from the MODULE store before the real
+        # JOBS_PATH comes back. Draining only waits for them to finish —
+        # they stay in jobs._jobs, and _persist() writes the whole store,
+        # so the next persist after this line would flush test rows into
+        # Caleb's real job history. (Observed 2026-08-24: 33 t_* rows in
+        # work/_jobs.json.)
+        for jid in [i for i, j in jobs._jobs.items()
+                    if j.get("kind") in self._added]:
+            jobs._jobs.pop(jid, None)
+            if jid in jobs._order:
+                jobs._order.remove(jid)
         for k in self._added:
             jobs.KINDS.pop(k, None)
             jobs.SESSION_KINDS.discard(k)

@@ -112,13 +112,65 @@ class ScriptJobGuards(unittest.TestCase):
             jobs._run_script("ep", lambda *a: None, lambda p: None)
         self.assertIn("approving round", str(cm.exception))
 
-    def test_an_existing_script_refuses(self):
+    def test_an_existing_script_refuses_without_direction(self):
+        """A script is REVISABLE as of 2026-08-24 — it used to refuse
+        outright, which made the first draft the last word. What it still
+        refuses is rewriting a script Caleb has not asked to change."""
         (self.tmp / "story_feedback.json").write_text(
             json.dumps({"rounds": [{"decision": "approve", "choice": "S1"}]}))
         (self.tmp / "script.json").write_text("{}")
         with self.assertRaises(RuntimeError) as cm:
             jobs._run_script("ep", lambda *a: None, lambda p: None)
-        self.assertIn("already exists", str(cm.exception))
+        self.assertIn("nothing to revise from", str(cm.exception))
+
+    def test_an_approved_script_refuses_even_with_direction(self):
+        """Approval is what tells every later stage the words are final."""
+        (self.tmp / "story_feedback.json").write_text(
+            json.dumps({"rounds": [{"decision": "approve", "choice": "S1"}]}))
+        (self.tmp / "script.json").write_text(json.dumps({"locked": True}))
+        (self.tmp / "script_feedback.json").write_text(
+            json.dumps({"rounds": [{"decision": "direction", "notes": "again"}]}))
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_script("ep", lambda *a: None, lambda p: None)
+        self.assertIn("unlock", str(cm.exception))
+
+    def test_a_first_draft_refuses_while_a_required_question_is_open(self):
+        """The gate Caleb asked for: no script is finalized without him."""
+        (self.tmp / "story_feedback.json").write_text(
+            json.dumps({"rounds": [{"decision": "approve", "choice": "S1"}]}))
+        (self.tmp / "script_questions.json").write_text(json.dumps(
+            {"slug": "ep", "stage": "interview",
+             "questions": [{"id": "Q1", "ask": "which spine?",
+                            "options": [], "required": True}]}))
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_script("ep", lambda *a: None, lambda p: None)
+        self.assertIn("waiting on you", str(cm.exception))
+        self.assertIn("Q1", str(cm.exception))
+
+    def test_a_first_draft_refuses_before_any_interview(self):
+        (self.tmp / "story_feedback.json").write_text(
+            json.dumps({"rounds": [{"decision": "approve", "choice": "S1"}]}))
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_script("ep", lambda *a: None, lambda p: None)
+        self.assertIn("no interview yet", str(cm.exception))
+
+    def test_a_skippable_question_does_not_block(self):
+        """Silence runs the default. Only a required, default-less question
+        gates — otherwise the writer idles on an answer Caleb did not think
+        was worth giving."""
+        (self.tmp / "story_feedback.json").write_text(
+            json.dumps({"rounds": [{"decision": "approve", "choice": "S1"}]}))
+        (self.tmp / "script_questions.json").write_text(json.dumps(
+            {"slug": "ep", "stage": "interview",
+             "questions": [{"id": "Q1", "ask": "which spine?",
+                            "options": [{"id": "a", "label": "skin"}],
+                            "default": "a"}]}))
+        # Reaching the session is the PASS here: this fixture's Popen stub
+        # raises AssertionError to prove a refusal never spawns, so hitting
+        # it proves the guards let this through.
+        with self.assertRaises(AssertionError) as cm:
+            jobs._run_script("ep", lambda *a: None, lambda p: None)
+        self.assertIn("must not spawn", str(cm.exception))
 
     def test_graphics_without_a_cut_refuses(self):
         with self.assertRaises(RuntimeError) as cm:
@@ -272,10 +324,24 @@ class ResearchStage(unittest.TestCase):
         (self.tmp / "story_brief.json").write_text(json.dumps(b))
 
     def test_no_location_refuses_before_spawning(self):
+        """A visit names a place, a desk episode names a topic — the brief
+        needs one of them, and the refusal says so in those words."""
         self.brief(location="")
         with self.assertRaises(RuntimeError) as cm:
             jobs._run_research("ep", lambda *a: None, lambda p: None)
-        self.assertIn("no location", str(cm.exception))
+        self.assertIn("no subject", str(cm.exception))
+
+    def test_a_topic_is_researchable_without_a_place(self):
+        """The script lane's whole premise: there is no location, only a
+        subject."""
+        self.brief(location="")
+        p = self.tmp / "story_brief.json"
+        p.write_text(json.dumps({"target_minutes": 12, "chapters": 5,
+                                 "origin": "script",
+                                 "subject": "why the Foucault pendulum stopped"}))
+        prompt = jobs.RESEARCH_PROMPT % {
+            "slug": "ep", "location": "why the Foucault pendulum stopped"}
+        self.assertIn("Foucault", prompt)
 
     def test_the_place_reaches_every_prompt(self):
         self.brief(location="Royal Caribbean Allure of the Seas")

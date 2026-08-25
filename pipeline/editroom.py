@@ -1866,7 +1866,83 @@ def _project_row(slug: str) -> "dict":
     n_queue = sum(1 for e in review.values()
                   if e.get("status") in ("flagged", "reworked", "edited"))
 
-    if not footage:
+    # the Script stage's rail/first-run facts. Recorded counts honor
+    # ingest's speech classing (a silent upload must not read as done);
+    # the catalog only loads when a script exists, so the common listing
+    # stays cheap. Computed BEFORE the phase decision, which reads it.
+    script_status = None
+    sp = work / "script.json"
+    if sp.exists():
+        try:
+            sc = json.loads(sp.read_text())
+            speech = set()
+            cat_p = out / "catalog.json"
+            if cat_p.exists():
+                speech = {f["name"] for f in
+                          json.loads(cat_p.read_text()).get("files", [])
+                          if f.get("class") == "speech"}
+            # Both performed kinds count toward "is this script recorded".
+            # A desk episode's lines are the SPINE — counting only vo would
+            # call a script-led episode fully recorded before Caleb has sat
+            # down in front of the camera once.
+            vo_total = vo_rec = 0
+            for ch in sc.get("chapters", []):
+                for sec in ch.get("sections", []):
+                    kind = sec.get("kind")
+                    if kind not in ("vo", "desk"):
+                        continue
+                    vo_total += 1
+                    prefixes = _section_file_prefixes(
+                        kind, str(sec.get("id", "")), _sec_rev(sec))
+                    if any(n.startswith(prefixes) for n in speech):
+                        vo_rec += 1
+            script_status = {"exists": True, "vo_total": vo_total,
+                             "vo_recorded": vo_rec,
+                             "locked": bool(sc.get("locked")),
+                             "round": sc.get("round"),
+                             "open_questions": _open_q_count(work)}
+        except ValueError:
+            script_status = {"exists": True, "vo_total": 0, "vo_recorded": 0,
+                             "locked": False, "round": None,
+                             "open_questions": 0}
+
+    # A script-led episode STARTS with no footage, and that is not a state
+    # to be nudged out of -- the script comes first and the pictures are
+    # sourced or performed to it. Pinning it at "footage" made a
+    # footage-free video impossible to begin from the desk.
+    brief_doc = {}
+    if (work / "story_brief.json").exists():
+        try:
+            brief_doc = json.loads((work / "story_brief.json").read_text())
+        except ValueError:
+            brief_doc = {}
+    script_led = str(brief_doc.get("origin") or "") == "script"
+    script_locked = bool((script_status or {}).get("locked"))
+
+    if script_led and not plan:
+        if not (work / "research.json").exists():
+            phase, nxt = "story", ("Name the subject on the Story desk, "
+                                   "then Research it — with no footage, "
+                                   "the research is the material.")
+        elif not (work / "script_questions.json").exists():
+            phase, nxt = "script", ("Interview me on the Script desk — the "
+                                    "director asks before it writes.")
+        elif not (script_status or {}).get("exists"):
+            phase, nxt = "script", ("Answer what you have a view on, then "
+                                    "Write the script. Anything you skip "
+                                    "runs on the director's default.")
+        elif not script_locked:
+            phase, nxt = "script", ("Read the draft on the Script desk — "
+                                    "approve it, or send direction for a "
+                                    "revision.")
+        elif (script_status or {}).get("vo_recorded", 0) < \
+                (script_status or {}).get("vo_total", 0):
+            phase, nxt = "script", ("Approved. Record the desk and "
+                                    "voice-over lines, then Build the cut.")
+        else:
+            phase, nxt = "script", ("Every line is recorded. Build the cut "
+                                    "on the Script desk.")
+    elif not footage:
         phase, nxt = "footage", ("Drop clips and photos anywhere on this "
                                  "page, or open the footage folder and copy "
                                  "them in.")
@@ -1917,43 +1993,6 @@ def _project_row(slug: str) -> "dict":
     if progress:
         phase = "ingest"
         nxt = "Ingesting…"
-    # the Script stage's rail/first-run facts. Recorded counts honor
-    # ingest's speech classing (a silent upload must not read as done);
-    # the catalog only loads when a script exists, so the common listing
-    # stays cheap.
-    script_status = None
-    sp = work / "script.json"
-    if sp.exists():
-        try:
-            sc = json.loads(sp.read_text())
-            speech = set()
-            cat_p = out / "catalog.json"
-            if cat_p.exists():
-                speech = {f["name"] for f in
-                          json.loads(cat_p.read_text()).get("files", [])
-                          if f.get("class") == "speech"}
-            # Both performed kinds count toward "is this script recorded".
-            # A desk episode's lines are the SPINE — counting only vo would
-            # call a script-led episode fully recorded before Caleb has sat
-            # down in front of the camera once.
-            vo_total = vo_rec = 0
-            for ch in sc.get("chapters", []):
-                for sec in ch.get("sections", []):
-                    kind = sec.get("kind")
-                    if kind not in ("vo", "desk"):
-                        continue
-                    vo_total += 1
-                    prefixes = _section_file_prefixes(
-                        kind, str(sec.get("id", "")), _sec_rev(sec))
-                    if any(n.startswith(prefixes) for n in speech):
-                        vo_rec += 1
-            script_status = {"exists": True, "vo_total": vo_total,
-                             "vo_recorded": vo_rec,
-                             "locked": bool(sc.get("locked")),
-                             "round": sc.get("round")}
-        except ValueError:
-            script_status = {"exists": True, "vo_total": 0, "vo_recorded": 0,
-                             "locked": False, "round": None}
     # the re-cut prompt: every scripted VO line is recorded and the cut
     # predates the newest recording — the plan can't contain what didn't
     # exist when it was written (P4, 2026-08-23)
@@ -2554,7 +2593,8 @@ def _clear_footage(slug: str) -> "dict":
 
 def _save_story_brief(slug: str, target_minutes, chapters,
                       notes: str = "", location: str = "",
-                      vo_share=None) -> "dict":
+                      vo_share=None, subject: str = "",
+                      origin: str = "footage") -> "dict":
     """The pre-production questionnaire (Caleb, 2026-08-23): target length
     and chapter count, briefed to the story-designer instead of left to its
     judgment. Bounds are the system's own: 12 chapters is the kit's chapter
@@ -2582,8 +2622,24 @@ def _save_story_brief(slug: str, target_minutes, chapters,
     location = str(location or "").strip()
     if len(location) > 200:
         raise IngestError("location: keep it under 200 characters")
+    # A visit names a PLACE; a script-led episode names a TOPIC ("why the
+    # Foucault pendulum stopped"). Both fields survive because an episode
+    # can carry both -- a topic anchored at a place -- and research reads
+    # whichever it is given.
+    subject = str(subject or "").strip()
+    if len(subject) > 200:
+        raise IngestError("subject: keep it under 200 characters")
+    # The lane is stated, never sniffed from an empty footage folder: that
+    # would make "I have not uploaded yet" and "there will never be
+    # footage" the same state, and they lead to opposite pipelines.
+    origin = str(origin or "footage").strip() or "footage"
+    if origin not in ("footage", "script"):
+        raise IngestError("origin must be 'footage' or 'script'")
+    if origin == "script" and not subject and not location:
+        raise IngestError("a script-led episode needs a subject -- with no "
+                          "footage it is the only thing to research")
     brief = {"target_minutes": mins, "chapters": chaps, "vo_share": vo,
-             "location": location,
+             "location": location, "subject": subject, "origin": origin,
              "notes": str(notes or "").strip(), "ts": int(time.time())}
     _write_json(work_path(slug) / "story_brief.json", brief)
     return brief
@@ -2645,15 +2701,149 @@ def _vo_file_prefix(section_id: str) -> str:
     return "vo_%s_t" % section_id.replace(".", "-")
 
 
+def _open_q_count(work: "Path") -> int:
+    """How many of the director's questions still wait on Caleb. Cheap
+    enough for the project row, which every desk polls."""
+    from . import schemas
+    def _load(name):
+        p = work / name
+        if not p.exists():
+            return None
+        try:
+            return json.loads(p.read_text())
+        except ValueError:
+            return None
+    return len(schemas.open_questions(_load("script_questions.json"),
+                                      _load("script_feedback.json")))
+
+
+def _script_answers(fb: "dict | None") -> "dict":
+    """Every answer Caleb has ever given, flattened newest-wins.
+
+    Answers ACCUMULATE across rounds rather than belonging to one: a
+    question he settled in round 0 stays settled in round 3. Re-asking it
+    is how a collaboration loop turns into a chore.
+    """
+    out: "dict" = {}
+    for r in (fb or {}).get("rounds", []) or []:
+        for qid, val in ((r or {}).get("answers") or {}).items():
+            if str(val or "").strip():
+                out[str(qid)] = val
+    return out
+
+
+def _save_script_answers(slug: str, answers: "dict",
+                         notes: str = "") -> "dict":
+    """Caleb answers the director's open questions. A round in its own
+    right -- the writer's next pass reads it and says which defaults it
+    fell back on for anything still blank."""
+    from . import schemas
+    if not isinstance(answers, dict):
+        raise IngestError("answers must be an object of question id -> answer")
+    work = work_path(slug)
+    qp = work / "script_questions.json"
+    if not qp.exists():
+        raise IngestError("no open questions -- run the interview first")
+    known = {str(q.get("id")) for q in
+             json.loads(qp.read_text()).get("questions", [])
+             if isinstance(q, dict)}
+    unknown = [k for k in answers if str(k) not in known]
+    if unknown:
+        raise IngestError("no such question: %s" % ", ".join(sorted(unknown)))
+    clean = {str(k): v for k, v in answers.items() if str(v or "").strip()}
+    if not clean and not str(notes or "").strip():
+        raise IngestError("nothing to send -- answer a question or write a note")
+    path = work / "script_feedback.json"
+    fb = json.loads(path.read_text()) if path.exists() else {"rounds": []}
+    fb["rounds"].append({"ts": int(time.time()),
+                         "decision": "answers",
+                         "answers": clean,
+                         "notes": str(notes or "").strip()})
+    _write_json(path, fb)
+    return fb
+
+
+def _save_script_feedback(slug: str, notes: str, decision: str) -> "dict":
+    """Caleb's verdict on a draft. 'direction' asks for a revision steered
+    by the notes; 'approve' LOCKS the script.
+
+    Locking is a POST, not a job: it costs no session and spawns nothing.
+    And re-approving an already-locked script is a NO-OP rather than a new
+    round -- the desk gave no post-approval feedback on the Story loop
+    2026-08-23, Caleb clicked approve six times, and six identical rounds
+    landed in the file. That bug does not get rebuilt here.
+    """
+    from . import schemas
+    if decision not in ("direction", "approve"):
+        raise IngestError("decision must be 'direction' or 'approve'")
+    work = work_path(slug)
+    sp = work / "script.json"
+    if not sp.exists():
+        raise IngestError("no script yet -- write a draft first")
+    if decision == "direction" and not str(notes or "").strip():
+        raise IngestError("write the direction you want the revision to take")
+    script = json.loads(sp.read_text())
+    path = work / "script_feedback.json"
+    fb = json.loads(path.read_text()) if path.exists() else {"rounds": []}
+    if decision == "approve" and script.get("locked"):
+        return fb                                   # idempotent
+    if decision == "direction" and script.get("locked"):
+        raise IngestError("the script is approved -- unlock it to revise")
+    fb["rounds"].append({"ts": int(time.time()),
+                         "round": script.get("round"),
+                         "decision": decision,
+                         "notes": str(notes or "").strip()})
+    _write_json(path, fb)
+    if decision == "approve":
+        script["locked"] = True
+        script["approved_ts"] = int(time.time())
+        _write_json(sp, script)
+    return fb
+
+
+def _unlock_script(slug: str) -> "dict":
+    """Reopen an approved script. Deliberately its own verb: approving is
+    what tells every later stage the words are final, so undoing it should
+    be a decision Caleb takes on purpose, not a side effect of typing."""
+    work = work_path(slug)
+    sp = work / "script.json"
+    if not sp.exists():
+        raise IngestError("no script yet")
+    script = json.loads(sp.read_text())
+    script["locked"] = False
+    script.pop("approved_ts", None)
+    _write_json(sp, script)
+    return script
+
+
 def _script_state(slug: str) -> "dict":
     """script.json plus per-vo-section recording status. A section is
     recorded when the catalog holds a SPEECH file named for it -- matching
     is by NAME, deterministically: the teleprompter names its uploads, so
     there is no transcript fuzz to argue with."""
+    from . import schemas
     work = work_path(slug)
     p = work / "script.json"
+    questions = fb = None
+    if (work / "script_questions.json").exists():
+        try:
+            questions = json.loads((work / "script_questions.json").read_text())
+        except ValueError:
+            questions = None
+    if (work / "script_feedback.json").exists():
+        try:
+            fb = json.loads((work / "script_feedback.json").read_text())
+        except ValueError:
+            fb = None
+    # The desk needs these whether or not a script exists yet: the interview
+    # arrives BEFORE any prose, and that is the whole point of round 0.
+    loop = {"questions": questions,
+            "feedback": fb,
+            "open": schemas.open_questions(questions, fb),
+            "blocking": schemas.blocking_questions(questions, fb),
+            "answers": _script_answers(fb)}
     if not p.exists():
-        return {"slug": slug, "script": None}
+        return dict(loop, slug=slug, script=None)
     script = json.loads(p.read_text())
     cat_p = analysis_dir(slug) / "catalog.json"
     files = (json.loads(cat_p.read_text()).get("files", [])
@@ -4101,13 +4291,28 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                            str(body.get("section_id", "")),
                                            body.get("text", ""))
                 self._send(200, {"ok": True, "section": sec})
+            elif self.path == "/api/script/answers":
+                fb = _save_script_answers(self._slug_b(body),
+                                          body.get("answers") or {},
+                                          body.get("notes", ""))
+                self._send(200, {"ok": True, "feedback": fb})
+            elif self.path == "/api/script/feedback":
+                fb = _save_script_feedback(self._slug_b(body),
+                                           body.get("notes", ""),
+                                           body.get("decision", "direction"))
+                self._send(200, {"ok": True, "feedback": fb})
+            elif self.path == "/api/script/unlock":
+                sc = _unlock_script(self._slug_b(body))
+                self._send(200, {"ok": True, "locked": sc.get("locked", False)})
             elif self.path == "/api/story/brief":
                 brief = _save_story_brief(self._slug_b(body),
                                           body.get("target_minutes"),
                                           body.get("chapters"),
                                           body.get("notes", ""),
                                           body.get("location", ""),
-                                          body.get("vo_share"))
+                                          body.get("vo_share"),
+                                          body.get("subject", ""),
+                                          body.get("origin", "footage"))
                 self._send(200, {"ok": True, "brief": brief})
             elif self.path == "/api/story/feedback":
                 fb = _save_story_feedback(self._slug_b(body),

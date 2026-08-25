@@ -75,6 +75,15 @@ class RealWorkerPolicy(unittest.TestCase):
             if not live:
                 break
             time.sleep(0.05)
+        # Draining is necessary but NOT sufficient: a settled job stays in
+        # jobs._jobs, and _persist() writes the whole store — so the next
+        # persist by any later test, with the real path restored, flushes
+        # these rows into Caleb's real history anyway. Purge them.
+        for jid in [i for i, j in jobs._jobs.items()
+                    if j.get("kind") in self._added]:
+            jobs._jobs.pop(jid, None)
+            if jid in jobs._order:
+                jobs._order.remove(jid)
         jobs.JOBS_PATH = self._jobs_path
         for k in self._added:
             jobs.KINDS.pop(k, None)
