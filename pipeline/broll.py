@@ -139,6 +139,10 @@ def catalog_broll(slug: str, log=print) -> Path:
             "duration": f["duration"],
             "width": f.get("width"),
             "height": f.get("height"),
+            # the clip's OWN rate: this shoot is 363 files at 23.976,
+            # three at 24.0, one at 25.0 and one at 29.97, and a frame
+            # picker using the project's rate would miscount five of them
+            "fps": f.get("fps"),
             "sheet": "sheets/" + sheet_name,
             # kept across re-analysis; "" only for a file never seen before
             "description": (was or {}).get("description", ""),

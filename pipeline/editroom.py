@@ -2692,14 +2692,93 @@ def _footage_state(slug: str) -> "dict":
             "favorites": _favorites(slug)}
 
 
-def _delete_footage(slug: str, name: str) -> "dict":
+def _footage_uses(slug: str, name: str) -> "dict":
+    """What the cut would lose if this file went.
+
+    Two ways a footage file is load-bearing, and only the first has ever
+    bitten: it may be a b-roll CLIP some beat covers with, or it may hold
+    the SPEECH TAKE a beat is built on. Deleting either used to succeed
+    silently and surface at assemble — Caleb deleted four garage clips,
+    one of them B184 covering BT93, and the cut failed validation with
+    "unknown b-roll clip 'B184'" hours later (2026-08-25).
+    """
+    work = work_path(slug)
+    name = os.path.basename(name)
+    covers, beats = [], []
+    clip_ids = set()
+    bp = work / "analysis" / "broll.json"
+    if bp.exists():
+        try:
+            for c in json.loads(bp.read_text()).get("clips", []):
+                if c.get("file") == name:
+                    clip_ids.add(c.get("id"))
+        except ValueError:
+            pass
+    take_ids = set()
+    tp = work / "analysis" / "takes.json"
+    if tp.exists():
+        try:
+            for t in json.loads(tp.read_text()).get("takes", []):
+                if t.get("file") == name:
+                    take_ids.add(t.get("id"))
+        except ValueError:
+            pass
+    ep = work / "edit_plan.json"
+    if ep.exists() and (clip_ids or take_ids):
+        try:
+            plan = json.loads(ep.read_text())
+        except ValueError:
+            plan = {"beats": []}
+        for b in plan.get("beats", []):
+            for c in (b.get("broll") or []):
+                if c.get("clip_id") in clip_ids:
+                    # `at` travels with it: _broll_detach matches on
+                    # POSITION as well as clip id, so a cover cannot be
+                    # removed without saying where it sits
+                    covers.append({"beat_id": b["id"],
+                                   "clip_id": c.get("clip_id"),
+                                   "at": float(c.get("at") or 0.0),
+                                   "why": (c.get("why") or "")[:120]})
+            if b.get("take_id") in take_ids:
+                beats.append({"beat_id": b["id"], "take_id": b.get("take_id"),
+                              "purpose": b.get("purpose", "")})
+    return {"covers": covers, "beats": beats}
+
+
+def _delete_footage(slug: str, name: str, force: bool = False,
+                    log=print) -> "dict":
     """Remove one dropped clip — into footage/.trash, never gone for good.
-    Removing a converted photo clip takes its source photo along."""
+    Removing a converted photo clip takes its source photo along.
+
+    REFUSES when the cut is using the file (2026-08-25). Forcing removes
+    the covers too, through `_broll_detach`, so the plan, timeline map,
+    conform ledger, review queue and cover trash all stay in step and the
+    cut is never knowingly left invalid. A beat built on a take from this
+    file refuses even under force: losing a beat's take is a re-cut
+    decision, not a cleanup, and nothing here is entitled to make it.
+    """
     fdir = work_path(slug) / "footage"
     name = os.path.basename(name)
     p = fdir / name
-    if not p.is_file():
+    if not (p.is_file() or p.is_symlink()):
         raise IngestError("no clip named '%s'" % name)
+    uses = _footage_uses(slug, name)
+    if uses["beats"]:
+        raise IngestError(
+            "%s carries the take %s is built on — re-cut that beat first"
+            % (name, ", ".join(b["beat_id"] for b in uses["beats"])))
+    if uses["covers"] and not force:
+        raise IngestError(
+            "%s is in the cut: %s. Delete it and those covers go too."
+            % (name, "; ".join("%s covers %s" % (c["clip_id"], c["beat_id"])
+                               for c in uses["covers"])))
+    detached = []
+    for c in uses["covers"]:
+        # detach FIRST: it trashes the cover before its proxy rebuild, so
+        # an interrupted delete leaves an undo entry rather than a plan
+        # pointing at a file that is already in the bin
+        _broll_detach(slug, c["beat_id"], c["clip_id"], c["at"], log=log)
+        detached.append(c)
     trash = fdir / ".trash"
     trash.mkdir(exist_ok=True)
     os.replace(p, _trash_dest(trash, p.name))
@@ -2711,7 +2790,7 @@ def _delete_footage(slug: str, name: str) -> "dict":
     th = fdir / ".thumbs" / (name + ".jpg")
     if th.exists():
         th.unlink()
-    return {"removed": removed,
+    return {"removed": removed, "detached": detached,
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
 
@@ -4624,7 +4703,10 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                        log=log)
                 self._send(200, dict(result, ok=True))
             elif self.path == "/api/footage/delete":
-                result = _delete_footage(self._slug_b(body), body.get("name", ""))
+                result = _delete_footage(self._slug_b(body),
+                                         body.get("name", ""),
+                                         force=bool(body.get("force")),
+                                         log=log)
                 log("[footage] %s removed %s" % (body.get("slug"),
                                                  result["removed"]))
                 self._send(200, dict(result, ok=True))
