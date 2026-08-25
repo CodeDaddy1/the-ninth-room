@@ -62,6 +62,19 @@ class RealWorkerPolicy(unittest.TestCase):
         os.environ["NINTH_NOTIFY"] = "0"
 
     def tearDown(self):
+        # Drain FIRST. The worker runs on its own thread and persists on
+        # every _update, so restoring JOBS_PATH while a test job is still
+        # settling sends that write to the REAL store — 21 `t_*` rows
+        # leaked into Caleb's tray that way, and this suite's own
+        # StoreIsolation test is what caught it (2026-08-24).
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            live = [j for j in jobs._jobs.values()
+                    if j["kind"] in self._added
+                    and j["state"] in ("queued", "running")]
+            if not live:
+                break
+            time.sleep(0.05)
         jobs.JOBS_PATH = self._jobs_path
         for k in self._added:
             jobs.KINDS.pop(k, None)

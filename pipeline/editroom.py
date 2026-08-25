@@ -1932,19 +1932,28 @@ def _project_row(slug: str) -> "dict":
                 speech = {f["name"] for f in
                           json.loads(cat_p.read_text()).get("files", [])
                           if f.get("class") == "speech"}
+            # Both performed kinds count toward "is this script recorded".
+            # A desk episode's lines are the SPINE — counting only vo would
+            # call a script-led episode fully recorded before Caleb has sat
+            # down in front of the camera once.
             vo_total = vo_rec = 0
             for ch in sc.get("chapters", []):
                 for sec in ch.get("sections", []):
-                    if sec.get("kind") != "vo":
+                    kind = sec.get("kind")
+                    if kind not in ("vo", "desk"):
                         continue
                     vo_total += 1
-                    prefix = _vo_file_prefix(str(sec.get("id", "")))
-                    if any(name.startswith(prefix) for name in speech):
+                    prefixes = _section_file_prefixes(
+                        kind, str(sec.get("id", "")), _sec_rev(sec))
+                    if any(n.startswith(prefixes) for n in speech):
                         vo_rec += 1
             script_status = {"exists": True, "vo_total": vo_total,
-                             "vo_recorded": vo_rec}
+                             "vo_recorded": vo_rec,
+                             "locked": bool(sc.get("locked")),
+                             "round": sc.get("round")}
         except ValueError:
-            script_status = {"exists": True, "vo_total": 0, "vo_recorded": 0}
+            script_status = {"exists": True, "vo_total": 0, "vo_recorded": 0,
+                             "locked": False, "round": None}
     # the re-cut prompt: every scripted VO line is recorded and the cut
     # predates the newest recording — the plan can't contain what didn't
     # exist when it was written (P4, 2026-08-23)
@@ -1953,9 +1962,12 @@ def _project_row(slug: str) -> "dict":
             and script_status.get("vo_recorded") == script_status.get("vo_total"):
         try:
             plan_ts = (work / "edit_plan.json").stat().st_mtime
+            # desk takes postdate the plan exactly the way vo takes do —
+            # a cut written before Caleb performed a line cannot contain it
+            fdir = work / "footage"
             vo_ts = max((f.stat().st_mtime
-                         for f in (work / "footage").glob("vo_*")),
-                        default=0)
+                         for pat in ("vo_*", "desk_*")
+                         for f in fdir.glob(pat)), default=0)
             recut = vo_ts > plan_ts
         except OSError:
             recut = False
@@ -2577,9 +2589,59 @@ def _save_story_brief(slug: str, target_minutes, chapters,
     return brief
 
 
+def _section_file_prefix(kind: str, section_id: str, rev: int = 1) -> str:
+    """The name a NEW recording of this section gets.
+
+    vo_CH1-S2_r2_t3.webm <- section CH1.S2 at revision 2, take 3. Dots swap
+    to dashes so the section id never fights the extension.
+
+    Two things ride in this name on purpose:
+
+    `kind` — `vo` recordings are a webcam capture of Caleb reading, and
+    `schemas.validate_edit_plan` HARD-BLOCKS their picture from shipping
+    (>=90% b-roll required). A `desk` recording is a real-camera
+    performance whose face IS the shot. Four separate rules key off a
+    `vo_` prefix, so a desk take carrying that prefix would be forbidden
+    from ever appearing on screen — hence a different prefix, not a flag.
+
+    `rev` — recordings match to sections by NAME. Without a revision in
+    the name, rewriting a line leaves its old take matching the new words:
+    the desk shows "recorded" and the wrong audio reaches the cut, silently.
+    With it, a rewrite simply stops matching and reads "not recorded",
+    which is the truth.
+    """
+    return "%s_%s_r%d_t" % ("desk" if kind == "desk" else "vo",
+                            section_id.replace(".", "-"), int(rev or 1))
+
+
+def _section_file_prefixes(kind: str, section_id: str,
+                           rev: int = 1) -> "tuple":
+    """Every name that counts as a recording OF this section at this rev.
+
+    Revision 1 also answers to the pre-2026-08-24 name, which carried no
+    `_r` segment at all -- hmns's recordings are on disk under it, and a
+    sharpening that orphaned real files would be the exact bug this
+    function exists to prevent.
+    """
+    canonical = _section_file_prefix(kind, section_id, rev)
+    if int(rev or 1) == 1 and kind != "desk":
+        return (canonical, "vo_%s_t" % section_id.replace(".", "-"))
+    return (canonical,)
+
+
+def _sec_rev(sec: "dict") -> int:
+    """A section with no `rev` is revision 1 -- every script written before
+    2026-08-24 is."""
+    try:
+        r = int(sec.get("rev") or 1)
+    except (TypeError, ValueError):
+        return 1
+    return r if r >= 1 else 1
+
+
 def _vo_file_prefix(section_id: str) -> str:
-    """vo_CH1-S2_t3.webm <- section CH1.S2, take 3. Dots swap to dashes so
-    the section id never fights the extension; matching normalizes both."""
+    """Back-compat shim: the legacy rev-less VO name. Still the answer for
+    'what did we call these before revisions existed'."""
     return "vo_%s_t" % section_id.replace(".", "-")
 
 
@@ -2601,11 +2663,18 @@ def _script_state(slug: str) -> "dict":
         by_prefix.setdefault(f["name"], f)
     for ch in script.get("chapters", []):
         for sec in ch.get("sections", []):
-            if sec.get("kind") != "vo":
+            kind = sec.get("kind")
+            # `oncamera` quotes a take that already exists; there is nothing
+            # to record. `vo` and `desk` are both performed later.
+            if kind not in ("vo", "desk"):
                 continue
-            prefix = _vo_file_prefix(str(sec.get("id", "")))
+            sid = str(sec.get("id", ""))
+            rev = _sec_rev(sec)
+            sec["rev"] = rev
+            sec["file_prefix"] = _section_file_prefix(kind, sid, rev)
+            prefixes = _section_file_prefixes(kind, sid, rev)
             recs = [f for name, f in by_prefix.items()
-                    if name.startswith(prefix)]
+                    if name.startswith(prefixes)]
             sec["recordings"] = sorted(f["name"] for f in recs)
             sec["recorded"] = any(f.get("class") == "speech" for f in recs)
             # ingest's real duration outranks the 150wpm estimate
@@ -2613,6 +2682,16 @@ def _script_state(slug: str) -> "dict":
             if spoken:
                 sec["recorded_s"] = round(
                     max(f.get("duration", 0) for f in spoken), 1)
+            # A recording of an EARLIER revision is not this line. It stays
+            # on disk as history, and the desk says "the line changed" --
+            # never "missing", which would read as an error the writer made
+            # rather than a consequence of the rewrite Caleb asked for.
+            if not sec["recorded"] and rev > 1:
+                earlier = tuple(p for r in range(1, rev)
+                                for p in _section_file_prefixes(kind, sid, r))
+                older = [n for n in by_prefix if n.startswith(earlier)]
+                sec["stale_recordings"] = sorted(older)
+                sec["stale"] = bool(older)
     return {"slug": slug, "script": script}
 
 
@@ -2633,13 +2712,20 @@ def _save_script_section(slug: str, section_id: str, text: str) -> "dict":
     for ch in script.get("chapters", []):
         for sec in ch.get("sections", []):
             if str(sec.get("id")) == section_id:
-                if sec.get("kind") != "vo":
+                if sec.get("kind") not in ("vo", "desk"):
                     raise IngestError(
-                        "only vo sections are editable -- an oncamera "
+                        "only written sections are editable -- an oncamera "
                         "section quotes its take; re-pick the take instead")
+                if text == str(sec.get("text") or ""):
+                    return sec          # no edit, no revision
                 sec["text"] = text
                 words = len(text.split())
                 sec["est_s"] = round(words / schemas.SPEAKING_WPM * 60, 1)
+                # The words changed, so any recording of the OLD words is no
+                # longer this line. Bumping the revision is what makes the
+                # desk say so -- without it the old take keeps matching by
+                # name and ships under words nobody ever said.
+                sec["rev"] = _sec_rev(sec) + 1
                 _write_json(p, script)
                 return sec
     raise IngestError("unknown section '%s'" % section_id)
@@ -3123,8 +3209,14 @@ def _assets_state(slug: str) -> "dict":
             thumb = str(th) if th.exists() else None
         else:
             thumb = str(p)
-        items.append(dict(a, kind=kind, thumb=thumb,
-                          size=p.stat().st_size))
+        # servable, slug-relative paths — `thumb` is an absolute filesystem
+        # path the browser cannot load, and the desk reaches media through
+        # the /pymedia rewrite (non-negotiable #4)
+        rel = "assets/%s" % a.get("file", "")
+        thumb_rel = rel if kind == "image" else (
+            "assets/.thumbs/%s.jpg" % p.name if thumb else None)
+        items.append(dict(a, kind=kind, thumb=thumb, media=rel,
+                          thumb_rel=thumb_rel, size=p.stat().st_size))
     return {"slug": slug, "assets": items, "requests": reqs}
 
 
@@ -3601,6 +3693,20 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                         return
                     self._send(404, {"error": "not found"})
                     return
+                # /media/<slug>/assets/.thumbs/<name> — the poster frames
+                # _assets_state generates for sourced video (2026-08-24).
+                # Six parts, so it cannot ride the branch below.
+                if (len(parts) == 6 and parts[3] == "assets"
+                        and parts[4] == ".thumbs" and _valid_slug(parts[2])):
+                    th = (work_path(parts[2]) / "assets" / ".thumbs" /
+                          os.path.basename(urllib.parse.unquote(parts[5]))).resolve()
+                    root = (work_path(parts[2]) / "assets").resolve()
+                    if (str(th).startswith(str(root) + os.sep)
+                            and th.is_file() and th.suffix.lower() == ".jpg"):
+                        self._send(200, th.read_bytes(), "image/jpeg")
+                        return
+                    self._send(404, {"error": "not found"})
+                    return
                 # /media/<slug>/<proxies|exports>/<name>
                 if len(parts) != 5 or not _valid_slug(parts[2]):
                     self._send(404, {"error": "not found"})
@@ -3629,6 +3735,15 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     p = (work_path(mslug) / "assets" / name).resolve()
                     if p.is_file() and p.suffix.lower() in _VIDEO_UP:
                         self._send_video(p)
+                        return
+                    # a sourced still is media as much as a sourced clip;
+                    # this branch served only video, so every image asset
+                    # 404'd and the desk showed an empty frame (2026-08-24)
+                    if p.is_file() and p.suffix.lower() in _IMAGE_UP:
+                        ctype = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                                 ".png": "image/png", ".webp": "image/webp",
+                                 ".heic": "image/heic"}[p.suffix.lower()]
+                        self._send(200, p.read_bytes(), ctype)
                         return
                 elif kind == "exports":
                     p = work_path(mslug) / "exports" / "overlays" / name

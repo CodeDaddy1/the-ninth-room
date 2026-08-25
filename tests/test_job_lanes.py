@@ -64,6 +64,15 @@ class LanesRunIndependently(unittest.TestCase):
         os.environ["NINTH_NOTIFY"] = "0"
 
     def tearDown(self):
+        # drain before restoring JOBS_PATH — see test_exception_policy
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            live = [j for j in jobs._jobs.values()
+                    if j["kind"] in self._added
+                    and j["state"] in ("queued", "running")]
+            if not live:
+                break
+            time.sleep(0.05)
         for k in self._added:
             jobs.KINDS.pop(k, None)
             jobs.SESSION_KINDS.discard(k)
