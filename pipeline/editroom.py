@@ -3256,7 +3256,13 @@ def _stranded_answers(work: "Path", fb: "dict | None") -> "list":
     since = script.get("approved_ts") or 0
     out = []
     for r in (fb or {}).get("rounds", []) or []:
-        if r.get("decision") != "answers" or int(r.get("ts", 0)) <= since:
+        # `<` not `<=`: both stamps are whole seconds, so answers sent in
+        # the SAME second as the approval were being read as part of what
+        # the script was built from and silently dropped. Rare by the clock,
+        # certain in a test, and the browser walk caught it on its first run
+        # (2026-08-25). A tie means the answer came after — approval is
+        # written first.
+        if r.get("decision") != "answers" or int(r.get("ts", 0)) < since:
             continue
         out.extend(str(k) for k, v in (r.get("answers") or {}).items()
                    if str(v or "").strip())

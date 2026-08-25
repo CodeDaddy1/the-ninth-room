@@ -427,3 +427,16 @@ class AnswersAfterApprovalAreCalledOut(unittest.TestCase):
         self.put("script_feedback.json", {"rounds": [
             {"decision": "answers", "ts": 150, "answers": {"Q7": "b"}}]})
         self.assertEqual(editroom._script_state("ep")["stranded_answers"], [])
+
+    def test_answers_in_the_SAME_second_as_the_approval_are_stranded(self):
+        """Both stamps are whole seconds. `<=` read a same-second answer as
+        part of what the script was built from and dropped it silently —
+        rare by the clock, certain in a test, and caught by the browser
+        walk on its first run. Approval is written first, so a tie means
+        the answer came after."""
+        self.script(True, approved_ts=100)
+        self.put("script_feedback.json", {"rounds": [
+            {"decision": "approve", "ts": 100},
+            {"decision": "answers", "ts": 100, "answers": {"Q7": "b"}}]})
+        self.assertEqual(editroom._script_state("ep")["stranded_answers"],
+                         ["Q7"])
