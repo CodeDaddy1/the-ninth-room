@@ -361,7 +361,14 @@ def _takes_state(slug: str) -> "dict":
     out = analysis_dir(slug)
     tk_path = out / "takes.json"
     if not tk_path.exists():
-        return {"slug": slug, "ingested": False, "takes": []}
+        # No takes is NORMAL for a script-led episode, and its sourcing
+        # proposals live on this desk — the only place they can be
+        # approved. Returning early dropped them, so the one gate between
+        # proposing and buying was unreachable for exactly the format that
+        # needs it most: Caleb ran sourcing, got ten proposals, and found
+        # an empty desk (2026-08-25).
+        return {"slug": slug, "ingested": False, "takes": [],
+                "requests": _asset_rounds(slug), "screening": None}
     data = json.loads(tk_path.read_text())
     picked, killed = {}, {}
     ep_path = work_path(slug) / "edit_plan.json"
@@ -387,16 +394,21 @@ def _takes_state(slug: str) -> "dict":
                       "beats": picked.get(t["id"], []),
                       "kill_reason": killed.get(t["id"], "")})
     screening = _take_screening(slug)
-    reqs = {"rounds": []}
-    rq_path = work_path(slug) / "asset_requests.json"
-    if rq_path.exists():
-        try:
-            reqs = json.loads(rq_path.read_text())
-        except ValueError:
-            pass
     return {"slug": slug, "ingested": True, "takes": takes,
-            "requests": reqs.get("rounds", []),
+            "requests": _asset_rounds(slug),
             "screening": screening}
+
+
+def _asset_rounds(slug: str) -> "list":
+    """The sourcing proposals on file. Read the same way whether or not the
+    project has takes — the approval gate must not depend on footage."""
+    p = work_path(slug) / "asset_requests.json"
+    if not p.exists():
+        return []
+    try:
+        return json.loads(p.read_text()).get("rounds", []) or []
+    except ValueError:
+        return []
 
 
 def _broll_catalog(slug: str) -> "list":
