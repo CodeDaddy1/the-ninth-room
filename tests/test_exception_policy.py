@@ -18,6 +18,7 @@ worker thread (not helpers):
 
 Run: /usr/bin/python3 -m unittest discover -s tests -t .
 """
+import json
 import os
 import shutil
 import sys
@@ -207,3 +208,44 @@ class StoreIsolation(unittest.TestCase):
             fakes = [r for r in rows
                      if str(r.get("kind", "")).startswith("t_")]
             self.assertEqual(fakes, [], "test jobs are in the real store")
+
+
+class RestoreIsReadOnly(unittest.TestCase):
+    """Importing this module must never rewrite the engine's job store.
+
+    `_restore()` runs on import and marks anything left 'running' as
+    failed — correct for THIS process's view, catastrophic when written
+    back: a side process (a test, a CLI verb, an inspection script)
+    would flip the live engine's in-flight jobs to
+    "failed: engine restarted mid-job" in the file the engine restores
+    from. Found live 2026-08-24 while inspecting a running queue.
+    """
+
+    def test_restore_marks_in_memory_but_writes_nothing(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            store = tmp / "_jobs.json"
+            store.write_text(json.dumps({"jobs": [
+                {"id": "J1", "kind": "ingest", "slug": "x", "label": "l",
+                 "state": "running", "pct": 40, "note": ""},
+                {"id": "J2", "kind": "assemble", "slug": "x", "label": "l",
+                 "state": "queued", "pct": 0, "note": ""},
+            ]}))
+            before = store.read_text()
+            saved_path, saved_jobs, saved_order = (
+                jobs.JOBS_PATH, dict(jobs._jobs), list(jobs._order))
+            jobs.JOBS_PATH = store
+            jobs._jobs.clear()
+            jobs._order.clear()
+            try:
+                jobs._restore()
+                self.assertEqual(jobs._jobs["J1"]["state"], "failed",
+                                 "this process must not believe it is running")
+                self.assertEqual(store.read_text(), before,
+                                 "restore wrote over the engine's store")
+            finally:
+                jobs.JOBS_PATH = saved_path
+                jobs._jobs.clear(); jobs._jobs.update(saved_jobs)
+                jobs._order.clear(); jobs._order.extend(saved_order)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

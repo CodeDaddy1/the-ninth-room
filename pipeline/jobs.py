@@ -28,8 +28,40 @@ LOG_DIR = PROJECT_ROOT / "work" / "_jobs"
 KEEP = 50
 
 _LOCK = threading.Lock()
-_QUEUE = queue.Queue()
-_WORKER = [None]
+# Two lanes, one worker each (2026-08-24). Measured: 173 minutes of the
+# tracked job life was spent QUEUEING against 342 running — 34% — and the
+# worst case was `snapcuts` waiting 57 minutes behind a dispatched Claude
+# session that was using no local CPU at all. A session job is network-
+# bound and idle on this machine; an ffmpeg job is not. Running one of
+# each concurrently costs nothing and stops the cheap thing blocking the
+# expensive one.
+#
+# The invariant that matters: AT MOST ONE LOCAL JOB AT A TIME. The point
+# is to stop sessions blocking ffmpeg, never to run two encodes at once.
+#
+# Lane membership is an explicit table, not introspection of a function's
+# source — a new kind must be classified deliberately, and
+# test_job_lanes.py fails if any kind in KINDS is missing from it.
+SESSION_KINDS = {
+    "story", "editplan", "coverage", "graphics", "script", "research",
+    "retention", "room", "publish", "scout", "fixer", "hook", "perf",
+    "retro", "diagnose",
+}
+LOCAL_KINDS = {
+    "ingest", "assemble", "reproxy", "render", "rendercards", "qcgate",
+    "snapcuts",
+}
+
+
+def lane_of(kind: str) -> str:
+    """Which lane a kind runs in. An unclassified kind falls to `local`,
+    the conservative side: it serialises with the heavy work rather than
+    running beside it."""
+    return "session" if kind in SESSION_KINDS else "local"
+
+
+_QUEUES = {"session": queue.Queue(), "local": queue.Queue()}
+_WORKERS: "dict" = {"session": None, "local": None}
 _jobs = {}
 _order = []
 
@@ -64,8 +96,15 @@ def _restore():
             changed = True
         _jobs[r["id"]] = r
         _order.append(r["id"])
-    if changed:
-        _persist()
+    # NOT persisted on purpose (2026-08-24). _restore runs as an IMPORT
+    # side effect, so any side process that imports this module — a test,
+    # a CLI verb, an inspection script — would otherwise rewrite the
+    # shared store and mark the LIVE engine's running and queued jobs
+    # "failed: engine restarted mid-job". Marking them in memory is right
+    # for this process's view; writing that view over the engine's is not.
+    # The engine persists on its own next _update, which is the only
+    # process entitled to say what the queue is doing.
+    _ = changed
 
 
 def _update(jid, **fields):
@@ -1274,9 +1313,9 @@ def _reap_chains() -> None:
             _persist()
 
 
-def _worker():
+def _worker(lane: str = "local"):
     while True:
-        jid = _QUEUE.get()
+        jid = _QUEUES[lane].get()
         job = _jobs[jid]
         # float on purpose: an ingest starting in the same second as the
         # upload it covers must still compare AFTER it (review F4)
@@ -1297,6 +1336,17 @@ def _worker():
             except Exception as chain_err:  # review F1: a persist error in
                 # the follower's enqueue must never flip THIS job to failed
                 log("[chain] follower enqueue broke: %s" % chain_err)
+        except JobError as e:
+            # A GUARD refusing is not a failure. The retention pass
+            # declining because humans are already reviewing, reproxy
+            # declining because there is no cut — these are the system
+            # working, and painting them red teaches Caleb to ignore red
+            # (2026-08-24: every re-assemble of a reviewed episode left a
+            # scarlet row behind). No traceback: there is no stack worth
+            # reading when nothing broke.
+            log("[job] declined: %s" % e)
+            _update(jid, state="declined", error=str(e)[:300],
+                    ended_ts=int(time.time()))
         except Exception as e:  # the tray must show the failure, never hang
             import traceback as _tb
             log("[job] FAILED: %s: %s" % (type(e).__name__, e))
@@ -1353,20 +1403,51 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
         _jobs[jid] = job
         _order.append(jid)
         _persist()
-        if _WORKER[0] is None:
-            _WORKER[0] = threading.Thread(target=_worker, daemon=True)
-            _WORKER[0].start()
-    _QUEUE.put(jid)
+        lane = lane_of(kind)
+        job["lane"] = lane
+        if _WORKERS.get(lane) is None:
+            _WORKERS[lane] = threading.Thread(target=_worker, args=(lane,),
+                                              daemon=True)
+            _WORKERS[lane].start()
+    _QUEUES[lane].put(jid)
     return job
 
 
 def jobs(slug: "str | None" = None) -> "list":
+    """The tray's whole truth. Rows carry `queue_pos` (1 = next to run)
+    and `next_kind` (what this job will chain into) so the desk can say
+    WHY something is waiting and WHAT it will trigger, instead of showing
+    a flat list where a queued job looks stuck (Caleb, 2026-08-24: "I
+    need transparency on tasks and how they are queued").
+
+    One worker runs one job: position is simply arrival order among the
+    queued, which is exactly what the desk needs to render "3rd in line,
+    behind Build the cut".
+    """
     _reap_chains()
     with _LOCK:
-        rows = [_jobs[i] for i in reversed(_order)]
+        rows = [dict(_jobs[i]) for i in reversed(_order)]
     if slug:
         rows = [r for r in rows if r["slug"] == slug]
-    return rows[:KEEP]
+    rows = rows[:KEEP]
+    # positions are PER LANE: with a session and a local worker running
+    # side by side, a single global ranking would tell a local job it is
+    # "3rd in line" when two of the three ahead of it are on the other
+    # lane and cannot block it
+    for lane in ("session", "local"):
+        waiting = sorted((r for r in rows if r["state"] == "queued"
+                          and (r.get("lane") or lane_of(r["kind"])) == lane),
+                         key=lambda r: r.get("queued_ts") or 0)
+        for pos, r in enumerate(waiting, start=1):
+            r["queue_pos"] = pos
+            r["lane"] = lane
+    for r in rows:
+        r.setdefault("lane", lane_of(r["kind"]))
+        nxt = CHAIN.get(r["kind"])
+        if nxt:
+            r["next_kind"] = nxt
+            r["next_label"] = KINDS[nxt][0] if nxt in KINDS else nxt
+    return rows
 
 
 def log_tail(jid: str, lines: int = 120) -> str:
