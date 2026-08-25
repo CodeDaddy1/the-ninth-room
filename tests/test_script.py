@@ -165,12 +165,13 @@ class ScriptJobGuards(unittest.TestCase):
              "questions": [{"id": "Q1", "ask": "which spine?",
                             "options": [{"id": "a", "label": "skin"}],
                             "default": "a"}]}))
-        # Reaching the dispatcher is the PASS here: the suite refuses to
-        # spawn a real session (tests/__init__), so hitting that refusal
-        # proves the guards let this through rather than blocking it.
+        # Reaching the dispatcher is the PASS here: both this fixture and
+        # the suite-wide guard (tests/__init__) refuse to spawn, so hitting
+        # either refusal proves the guards let this through rather than
+        # blocking it.
         with self.assertRaises(AssertionError) as cm:
             jobs._run_script("ep", lambda *a: None, lambda p: None)
-        self.assertIn("session dispatcher", str(cm.exception))
+        self.assertIn("spawn", str(cm.exception))
 
     def test_graphics_without_a_cut_refuses(self):
         with self.assertRaises(RuntimeError) as cm:

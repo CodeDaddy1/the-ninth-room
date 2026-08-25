@@ -1439,15 +1439,33 @@ SOURCING_FETCH_PROMPT = (
 
 def _sourcing_budget_clause(slug) -> str:
     """The arithmetic, in the prompt, so the proposals are sized to a real
-    shortfall instead of an appetite."""
+    shortfall instead of an appetite.
+
+    The two lanes need opposite framings. A VISIT has a library and a
+    shortfall against it. A SCRIPT-LED episode has no library at all, so a
+    shortfall would read "everything is missing" -- true, useless, and an
+    invitation to propose the whole film. There the SCRIPT is the brief:
+    every vo line already named the picture it wants and where it should
+    come from, so the budget is that declaration, totalled.
+    """
     work = work_path(slug)
-    try:
-        script = json.loads((work / "script.json").read_text())
-        broll = json.loads((work / "analysis" / "broll.json").read_text())
-    except (OSError, ValueError):
+    script = _read_json(work / "script.json")
+    if script is None:
         return ""
     from . import schemas as schemas_mod
+    broll = _read_json(work / "analysis" / "broll.json") or {}
     b = schemas_mod.coverage_budget(script, broll)
+    if _script_origin(slug) == "script":
+        declared = b.get("declared_seconds") or {}
+        parts = ", ".join("%s %.0fs" % (k, v)
+                          for k, v in sorted(declared.items())) or "nothing"
+        return ("Budget: %.0f minutes of narration, and this episode has NO "
+                "footage of its own -- the script is the brief. Its lines "
+                "declare where each picture should come from: %s. About "
+                "%.0f minutes of that has to be sourced or made. Work to "
+                "those declarations rather than inventing needs. "
+                % (b["vo_seconds"] / 60.0, parts,
+                   b.get("to_source_seconds", 0) / 60.0))
     return ("Budget: %.0f minutes of narration to cover, %.0f minutes of "
             "library in hand across %d clips (ratio %s). Each clip may be "
             "used ONCE, so a ratio near 1 means the cut cannot afford to "
@@ -1455,6 +1473,36 @@ def _sourcing_budget_clause(slug) -> str:
             "when the library is comfortable. "
             % (b["vo_seconds"] / 60.0, b["library_seconds"] / 60.0,
                b["library_clips"], b["ratio"]))
+
+
+SOURCING_SCRIPT_LANE = (
+    "This episode is SCRIPT-LED: there is no footage and no b-roll "
+    "catalog, and that is normal -- the pictures do not exist yet, which "
+    "is why you are here. Read work/%(slug)s/script.json and treat each "
+    "section's `visual` block as the brief: `want` is what must be on "
+    "screen, `why` is the justification it has to serve, and `from` is "
+    "where it should come from. Honour `from`:\n"
+    "  stock / archival -- propose candidates as usual.\n"
+    "  graphic -- do NOT propose stock. Write a requirement saying what "
+    "the overlay kit must draw (a map, a diagram, a stat card), because "
+    "buying a picture of a thing we would rather draw is money wasted.\n"
+    "  shoot -- do NOT propose stock. Write a requirement telling Caleb "
+    "what HE has to film: the shot, the framing, and why nothing bought "
+    "will do.\n"
+    "  library -- there is no library here; treat it as an error and say "
+    "so rather than silently sourcing it.\n"
+    "Every entry gets \"kind\": \"source\" (something to fetch) or "
+    "\"requirement\" (something Caleb or the kit must make), so the desk "
+    "can separate what it can buy from what he still owes the episode. A "
+    "requirement carries no candidates. ")
+
+
+def _sourcing_prompt(slug) -> str:
+    """The propose prompt, with the lane's own framing folded in."""
+    lane = (SOURCING_SCRIPT_LANE % {"slug": slug}
+            if _script_origin(slug) == "script" else "")
+    return SOURCING_PROMPT % {"slug": slug,
+                              "budget": _sourcing_budget_clause(slug) + lane}
 
 
 def _run_sourcing(slug, log, set_pct, arg=None):
@@ -1467,10 +1515,24 @@ def _run_sourcing(slug, log, set_pct, arg=None):
     """
     import subprocess
     work = work_path(slug)
-    if not (work / "script.json").exists():
+    script = _read_json(work / "script.json")
+    if script is None:
         raise JobError("no script yet — sourcing reads the approved script")
-    if not (work / "analysis" / "broll.json").exists():
+    origin = _script_origin(slug)
+    # The script lane has no footage and therefore no b-roll catalog, and
+    # that is its normal state rather than a missing step: the pictures do
+    # not exist yet, which is the entire reason this stage runs. Demanding
+    # the catalog made format B unable to reach sourcing at all — the same
+    # shape of bug as the unguarded takes.json read (Caleb, 2026-08-25).
+    if origin != "script" and not (work / "analysis" / "broll.json").exists():
         raise JobError("no b-roll catalog yet — ingest first")
+    # And in that lane the script IS the brief for what to buy, so buying
+    # against a draft he has not approved spends real money on words that
+    # are about to change. The footage lane keeps its old behaviour: its
+    # scripts predate the approve gate.
+    if origin == "script" and not script.get("locked"):
+        raise JobError("the script is not approved yet — approve it on the "
+                       "Script desk first; sourcing buys against the words")
     fetch = str(arg or "").lower() == "fetch"
     rq = work / "asset_requests.json"
     if fetch:
@@ -1483,9 +1545,8 @@ def _run_sourcing(slug, log, set_pct, arg=None):
         if not any(r.get("status") == "approved" for r in rounds):
             raise JobError("nothing approved — approve a proposal first")
     before = rq.stat().st_mtime if rq.exists() else None
-    prompt = ((SOURCING_FETCH_PROMPT % {"slug": slug}) if fetch else
-              (SOURCING_PROMPT % {"slug": slug,
-                                  "budget": _sourcing_budget_clause(slug)}))
+    prompt = ((SOURCING_FETCH_PROMPT % {"slug": slug}) if fetch
+              else _sourcing_prompt(slug))
     log("[sourcing] dispatching the asset sourcer to %s"
         % ("fetch approved rounds" if fetch else "propose gaps"))
     set_pct(5)

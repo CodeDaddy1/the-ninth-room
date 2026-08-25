@@ -260,3 +260,76 @@ class ScriptLedPhase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourcingInTheScriptLane(unittest.TestCase):
+    """Format B's second half: once the script is agreed, the sourcer finds
+    the materials AND says what Caleb still has to make himself.
+
+    It could not run at all before 2026-08-25: sourcing hard-required
+    analysis/broll.json, which an episode with no footage never has — the
+    same shape of blocker as the unguarded takes.json read.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "analysis").mkdir()
+        self._wp = jobs.work_path
+        jobs.work_path = lambda slug: self.tmp
+
+    def tearDown(self):
+        jobs.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def setup(self, origin="script", locked=True, frm="stock"):
+        (self.tmp / "story_brief.json").write_text(json.dumps(
+            {"target_minutes": 8, "chapters": 3, "vo_share": 0.35,
+             "origin": origin, "subject": "the pendulum"}))
+        (self.tmp / "script.json").write_text(json.dumps(
+            {"slug": "ep", "origin": origin, "locked": locked,
+             "target_minutes": 8, "chapters": [
+                 {"id": "CH1", "title": "c", "target_s": 60, "sections": [
+                     {"id": "CH1.S1", "kind": "vo", "text": "a line",
+                      "est_s": 60.0, "rev": 1,
+                      "visual": {"want": "the pendulum", "from": frm,
+                                 "why": "illustrate — the thing"}}]}]}))
+
+    def test_no_broll_catalog_is_no_longer_a_blocker(self):
+        self.setup()
+        calls = []
+        real = jobs._dispatch
+        jobs._dispatch = lambda *a, **k: calls.append(1)
+        try:
+            with self.assertRaises(Exception) as cm:
+                jobs._run_sourcing("ep", lambda *a: None, lambda p: None)
+        finally:
+            jobs._dispatch = real
+        self.assertNotIn("b-roll catalog", str(cm.exception))
+
+    def test_the_footage_lane_still_demands_the_catalog(self):
+        self.setup(origin="footage", locked=False)
+        with self.assertRaises(jobs.JobError) as cm:
+            jobs._run_sourcing("ep", lambda *a: None, lambda p: None)
+        self.assertIn("b-roll catalog", str(cm.exception))
+
+    def test_it_refuses_to_buy_against_an_unapproved_draft(self):
+        """Sourcing spends real money; the words must be settled first."""
+        self.setup(locked=False)
+        with self.assertRaises(jobs.JobError) as cm:
+            jobs._run_sourcing("ep", lambda *a: None, lambda p: None)
+        self.assertIn("not approved", str(cm.exception))
+
+    def test_the_budget_is_the_script_not_a_shortfall(self):
+        """With no library, a shortfall reads 'everything is missing' —
+        true, useless, and an invitation to propose the whole film."""
+        self.setup()
+        clause = jobs._sourcing_budget_clause("ep")
+        self.assertIn("NO footage", clause)
+        self.assertIn("stock 60s", clause)
+
+    def test_shoot_and_graphic_become_requirements_not_purchases(self):
+        for frm in ("shoot", "graphic"):
+            self.setup(frm=frm)
+            p = jobs._sourcing_prompt("ep")
+            self.assertIn("SCRIPT-LED", p)
+            self.assertIn("requirement", p)
