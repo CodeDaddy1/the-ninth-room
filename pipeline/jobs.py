@@ -681,7 +681,8 @@ def _run_interview(slug, log, set_pct):
         raise RuntimeError("session finished but script_questions.json did "
                            "not change -- read the log")
     doc = _read_json(out, {}) or {}
-    errs = schemas.validate_script_questions(doc)
+    errs = schemas.validate_script_questions(
+        doc, _read_json(work / "script_feedback.json"))
     if errs:
         raise RuntimeError("the interview is malformed: " + "; ".join(errs[:4]))
     n = len(doc.get("questions", []))

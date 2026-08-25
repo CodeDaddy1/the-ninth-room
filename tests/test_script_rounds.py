@@ -324,3 +324,40 @@ class ApprovalStartsTheSourcing(unittest.TestCase):
         self.assertTrue(editroom._script_state("ep")["script"]["locked"])
         self.assertFalse(fb["sourcing"]["queued"])
         self.assertIn("wedged", fb["sourcing"]["why"])
+
+
+class QuestionIdsAreNeverRecycled(unittest.TestCase):
+    """Answers accumulate by id across rounds, and every draft writes a
+    FRESH questions file. So a reused id makes a new question read as
+    already answered — carrying an answer Caleb gave to something else.
+
+    Same class as the retired-section-id bug, and silent the same way. The
+    director numbers Q7 onward by itself; this states the rule rather than
+    trusting it.
+    """
+
+    ANSWERED = {"rounds": [{"decision": "answers",
+                            "answers": {"Q1": "a", "Q2": "b"}}]}
+
+    def test_a_fresh_round_may_not_reuse_an_answered_id(self):
+        errs = schemas.validate_script_questions(
+            qdoc(stage="draft", questions=[q("Q1", ask="something else")]),
+            self.ANSWERED)
+        self.assertTrue(any("already answered" in e for e in errs), errs)
+
+    def test_numbering_upward_is_clean(self):
+        self.assertEqual(
+            schemas.validate_script_questions(
+                qdoc(stage="draft", questions=[q("Q7"), q("Q8")]),
+                self.ANSWERED),
+            [])
+
+    def test_an_unanswered_id_may_be_re_asked(self):
+        """He skipped it; asking again is legitimate."""
+        fb = {"rounds": [{"decision": "answers", "answers": {"Q1": "  "}}]}
+        self.assertEqual(
+            schemas.validate_script_questions(qdoc(questions=[q("Q1")]), fb),
+            [])
+
+    def test_no_feedback_yet_is_not_a_collision(self):
+        self.assertEqual(schemas.validate_script_questions(qdoc()), [])

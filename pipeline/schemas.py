@@ -1068,7 +1068,8 @@ MAX_INTERVIEW_Q = 8   # round 0. More than this spends the scarcest thing here
 MAX_DRAFT_Q = 6       # every draft after
 
 
-def validate_script_questions(doc: "dict[str, Any]") -> "list[str]":
+def validate_script_questions(doc: "dict[str, Any]",
+                              feedback: "dict[str, Any] | None" = None) -> "list[str]":
     """script_questions.json — the director's open interview.
 
     The cap is the point. Attention is the scarcest resource in this
@@ -1089,6 +1090,18 @@ def validate_script_questions(doc: "dict[str, Any]") -> "list[str]":
         errors.append("questions: %d questions at stage '%s' — the cap is "
                       "%d; ask what you cannot decide yourself"
                       % (len(qs), stage, cap))
+    # A question id that was ALREADY answered must not come back attached
+    # to a different question. Answers accumulate by id across rounds, and
+    # each draft writes a fresh questions file — so reusing "Q1" for a new
+    # question makes it read as already answered, with an answer given to
+    # something else entirely. Same class as the retired-section-id bug,
+    # and silent in the same way. (The director numbers Q7.. on its own;
+    # this is the rule stated rather than trusted.)
+    answered = set()
+    for r in (feedback or {}).get("rounds", []) or []:
+        for qid, val in ((r or {}).get("answers") or {}).items():
+            if str(val or "").strip():
+                answered.add(str(qid))
     seen = set()
     for i, q in enumerate(qs):
         where = "questions[%d]" % i
@@ -1099,6 +1112,11 @@ def validate_script_questions(doc: "dict[str, Any]") -> "list[str]":
             if q["id"] in seen:
                 errors.append("%s: duplicate question id '%s'"
                               % (where, q["id"]))
+            if q["id"] in answered:
+                errors.append(
+                    "%s: id '%s' was already answered in an earlier round — "
+                    "keep numbering upward so an old answer cannot attach "
+                    "to a new question" % (where, q["id"]))
             seen.add(q["id"])
         if not str(q.get("ask") or "").strip():
             errors.append(where + ": empty ask")
