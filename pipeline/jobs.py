@@ -382,6 +382,14 @@ def _run_story(slug, log, set_pct):
     Same pattern as the fixer: the proof of work is the artifact changing,
     not the exit code."""
     import subprocess
+    # The lane guard lives HERE as well as in start(). start() is only the
+    # queue's front door: a chain follower, a retry, or a direct call goes
+    # straight to the runner and would have dispatched a real session for
+    # a format that has no pitch. Found by an ad-hoc script doing exactly
+    # that and spawning one (2026-08-25).
+    if _script_origin(slug) == "script":
+        raise JobError("a documentary has no pitch — the story is settled "
+                       "by the interview on the Script desk")
     stories_path = work_path(slug) / "stories.json"
     before = stories_path.stat().st_mtime if stories_path.exists() else None
     log("[story] dispatching the story designer%s"
@@ -1991,6 +1999,13 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
         if conform_mod.status(slug).get("state") == "running":
             raise JobError("a conform is running — assemble after it")
     if kind == "story":
+        # A documentary has no pitch: there is no day's footage to choose
+        # a direction from, so the interview IS the story stage. Saying
+        # "ingest first" to a format that will never ingest sends Caleb to
+        # a desk that cannot help him (2026-08-25).
+        if _script_origin(slug) == "script":
+            raise JobError("a documentary has no pitch — the story is "
+                           "settled by the interview on the Script desk")
         if not (work_path(slug) / "analysis" / "catalog.json").exists():
             raise JobError("ingest first — the designer needs transcripts")
         if (work_path(slug) / "edit_plan.json").exists():

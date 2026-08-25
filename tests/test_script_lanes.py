@@ -333,3 +333,77 @@ class SourcingInTheScriptLane(unittest.TestCase):
             p = jobs._sourcing_prompt("ep")
             self.assertIn("SCRIPT-LED", p)
             self.assertIn("requirement", p)
+
+
+class EveryRefusalFitsTheLane(unittest.TestCase):
+    """The recurring failure of this format, caught as a class.
+
+    Four separate times a documentary hit a stage built for a day out and
+    got a refusal written for footage: the unguarded takes.json read, the
+    b-roll catalog demand, the Takes desk hiding its own approve control,
+    and "ingest first" from the pitch. Each was found by Caleb running
+    into it.
+
+    This walks the kinds a documentary can plausibly press and asserts
+    that whatever they say, they never send him to go and shoot something.
+    A new kind that gets this wrong fails here instead of reaching him.
+    """
+
+    # Phrases that only make sense to someone who has footage to add.
+    FOOTAGE_TALK = ("ingest first", "analyze footage", "add footage",
+                    "drop clips", "the shoot", "b-roll catalog")
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "analysis").mkdir()
+        self._wp = jobs.work_path
+        jobs.work_path = lambda slug: self.tmp
+        (self.tmp / "story_brief.json").write_text(json.dumps(
+            {"target_minutes": 8, "chapters": 3, "vo_share": 0.35,
+             "origin": "script", "delivery": "long", "subject": "the pendulum"}))
+
+    def tearDown(self):
+        jobs.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a_documentary_is_never_told_to_go_and_shoot(self):
+        """Asserted per kind, and a kind that REACHES the session counts as
+        a failure here rather than a pass.
+
+        The first version of this test looped and `continue`d on the
+        session guard, so `story` — which dispatched instead of refusing —
+        read as "got past" and the test was green while the bug was live.
+        A sweep that can skip its own subject proves nothing.
+        """
+        expected = {
+            "story": "no pitch",
+            "interview": "no research yet",
+            "script": "no interview yet",
+            "sourcing": "no script yet",
+        }
+        for kind, want in expected.items():
+            fn = jobs.KINDS[kind][1]
+            with self.assertRaises(Exception) as cm:
+                fn("ep", lambda *a: None, lambda p: None)
+            msg = str(cm.exception)
+            self.assertNotIsInstance(
+                cm.exception, AssertionError,
+                "%s reached the session instead of refusing" % kind)
+            self.assertIn(want, msg.lower(), kind)
+            hit = [w for w in self.FOOTAGE_TALK if w in msg.lower()]
+            self.assertEqual(hit, [],
+                             "%s talks about footage to a format that has "
+                             "none: %s" % (kind, msg))
+
+    def test_the_pitch_says_a_documentary_has_no_pitch(self):
+        with self.assertRaises(jobs.JobError) as cm:
+            jobs.start("story", "ep")
+        self.assertIn("no pitch", str(cm.exception))
+
+    def test_a_visit_still_gets_the_footage_message(self):
+        """The old refusal is right for the format it was written for."""
+        (self.tmp / "story_brief.json").write_text(json.dumps(
+            {"target_minutes": 25, "chapters": 9, "origin": "footage"}))
+        with self.assertRaises(jobs.JobError) as cm:
+            jobs.start("story", "ep")
+        self.assertIn("ingest first", str(cm.exception))
