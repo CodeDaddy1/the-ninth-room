@@ -3066,6 +3066,35 @@ def _still_to_clip(inp: Path, clip: Path) -> None:
                           % (inp.name, proc.stderr[-200:]))
 
 
+def _asset_round_verdict(slug: str, ts, status: str,
+                         log=print) -> "dict":
+    """Approve or skip one sourcing proposal.
+
+    The human gate between proposing and fetching. The agent that judges
+    what the library lacks does not also get to decide what is
+    downloaded — a licence is a commitment, and a file on disk before
+    this call is that commitment made on Caleb's behalf (2026-08-24).
+    """
+    if status not in ("approved", "skipped", "proposed"):
+        raise IngestError("status must be approved, skipped or proposed")
+    p = work_path(slug) / "asset_requests.json"
+    if not p.exists():
+        raise IngestError("no proposals on file")
+    doc = json.loads(p.read_text())
+    rounds = doc.get("rounds", [])
+    hit = next((r for r in rounds if str(r.get("ts")) == str(ts)), None)
+    if hit is None:
+        raise IngestError("no proposal '%s'" % ts)
+    if hit.get("status") == "done":
+        raise IngestError("that round is already fetched")
+    hit["status"] = status
+    _write_json(p, doc)
+    n = sum(1 for r in rounds if r.get("status") == "approved")
+    log("[sourcing] round %s -> %s (%d approved and waiting)"
+        % (ts, status, n))
+    return {"ts": hit.get("ts"), "status": status, "approved": n}
+
+
 def _assets_state(slug: str) -> "dict":
     work = work_path(slug)
     adir = work / "assets"
@@ -3825,6 +3854,12 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             elif self.path == "/api/project/archive":
                 _archive_project(self._slug_b(body))
                 self._send(200, {"ok": True})
+            elif self.path == "/api/asset/round":
+                out = _asset_round_verdict(self._slug_b(body),
+                                           body.get("ts"),
+                                           str(body.get("status", "")),
+                                           log=log)
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/take/verdict":
                 out = _set_take_verdict(self._slug_b(body),
                                         str(body.get("take_id", "")),

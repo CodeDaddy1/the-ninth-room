@@ -44,6 +44,7 @@ _LOCK = threading.Lock()
 # test_job_lanes.py fails if any kind in KINDS is missing from it.
 SESSION_KINDS = {
     "story", "editplan", "coverage", "graphics", "script", "research",
+    "sourcing",
     "retention", "room", "publish", "scout", "fixer", "hook", "perf",
     "retro", "diagnose",
 }
@@ -1120,6 +1121,119 @@ def _run_coverage(slug, log, set_pct):
 
 # Labels are user-facing (tray, notifications): desk vocabulary — clip,
 # preview, render — never internal jargon (P1 copy pass, 2026-08-23).
+SOURCING_PROMPT = (
+    "Propose supporting coverage for %(slug)s. Read "
+    ".claude/agents/asset-sourcer.md and act as that agent in its PROPOSE "
+    "phase. %(budget)s"
+    "Read work/%(slug)s/script.json (the approved script), "
+    "work/%(slug)s/analysis/broll.json (the library we already shot -- "
+    "descriptions and durations) and the B-roll grammar section of "
+    ".claude/agents/story-designer.md. For EVERY section with "
+    "\"kind\": \"vo\", decide whether the library can honestly cover that "
+    "line: an establisher for the place it names, the thing it names, or "
+    "the work it describes. Where it cannot, append a round to "
+    "work/%(slug)s/asset_requests.json with this shape: "
+    "{\"ts\", \"section_id\", \"line\" (the VO text), \"why\" (one clause "
+    "on what the library lacks), \"candidates\": [{\"query\", \"source\" "
+    "(pexels|pixabay|wikimedia|nasa...), \"license\", \"note\"}], "
+    "\"status\": \"proposed\"}. Three to six candidates per gap. "
+    "DOWNLOAD NOTHING and write no files under assets/ -- Caleb approves "
+    "each round first, and a file on disk before that decision is a "
+    "licence choice made on his behalf. Prefer the library over a "
+    "proposal: a gap you invent costs him money and an hour. "
+    "Do NOT touch DaVinci Resolve or the engine on :8765.")
+
+SOURCING_FETCH_PROMPT = (
+    "Fetch the APPROVED coverage for %(slug)s. Read "
+    ".claude/agents/asset-sourcer.md and act as that agent in its FETCH "
+    "phase: work/%(slug)s/asset_requests.json holds rounds; work ONLY "
+    "those with \"status\": \"approved\" and ignore every other round. "
+    "For each, source the best matching stock VIDEO or IMAGE under the "
+    "licence rules in your brief, download into work/%(slug)s/assets/, "
+    "append a row to work/%(slug)s/assets/assets.json carrying its "
+    "licence and attribution plus \"query\" and \"what\", and set that "
+    "round's status to \"done\". A candidate whose page does not state a "
+    "licence is not sourced -- skip it and say so in the round. "
+    "Do NOT touch DaVinci Resolve or the engine on :8765.")
+
+
+def _sourcing_budget_clause(slug) -> str:
+    """The arithmetic, in the prompt, so the proposals are sized to a real
+    shortfall instead of an appetite."""
+    work = work_path(slug)
+    try:
+        script = json.loads((work / "script.json").read_text())
+        broll = json.loads((work / "analysis" / "broll.json").read_text())
+    except (OSError, ValueError):
+        return ""
+    from . import schemas as schemas_mod
+    b = schemas_mod.coverage_budget(script, broll)
+    return ("Budget: %.0f minutes of narration to cover, %.0f minutes of "
+            "library in hand across %d clips (ratio %s). Each clip may be "
+            "used ONCE, so a ratio near 1 means the cut cannot afford to "
+            "reject anything -- propose accordingly, and propose nothing "
+            "when the library is comfortable. "
+            % (b["vo_seconds"] / 60.0, b["library_seconds"] / 60.0,
+               b["library_clips"], b["ratio"]))
+
+
+def _run_sourcing(slug, log, set_pct, arg=None):
+    """Propose supporting coverage, or fetch what Caleb approved.
+
+    Two phases with a HUMAN GATE between them (Caleb, 2026-08-24):
+    proposing costs a session, fetching costs licences and disk. The
+    agent that judges what is missing is not allowed to also decide what
+    gets downloaded.
+    """
+    import subprocess
+    work = work_path(slug)
+    if not (work / "script.json").exists():
+        raise JobError("no script yet — sourcing reads the approved script")
+    if not (work / "analysis" / "broll.json").exists():
+        raise JobError("no b-roll catalog yet — ingest first")
+    fetch = str(arg or "").lower() == "fetch"
+    rq = work / "asset_requests.json"
+    if fetch:
+        rounds = []
+        if rq.exists():
+            try:
+                rounds = json.loads(rq.read_text()).get("rounds", [])
+            except ValueError:
+                rounds = []
+        if not any(r.get("status") == "approved" for r in rounds):
+            raise JobError("nothing approved — approve a proposal first")
+    before = rq.stat().st_mtime if rq.exists() else None
+    prompt = ((SOURCING_FETCH_PROMPT % {"slug": slug}) if fetch else
+              (SOURCING_PROMPT % {"slug": slug,
+                                  "budget": _sourcing_budget_clause(slug)}))
+    log("[sourcing] dispatching the asset sourcer to %s"
+        % ("fetch approved rounds" if fetch else "propose gaps"))
+    set_pct(5)
+    proc = subprocess.Popen(
+        ["~/.local/bin/claude", "-p", prompt,
+         "--dangerously-skip-permissions"],
+        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    set_pct(15)
+    rc = _drain_with_heartbeat(proc, log, set_pct, "sourcing")
+    if rc != 0:
+        raise RuntimeError("sourcing session exited %d — see the log" % rc)
+    after = rq.stat().st_mtime if rq.exists() else None
+    if after is None or after == before:
+        raise RuntimeError("session finished but asset_requests.json did not "
+                           "change — read the log")
+    if not fetch:
+        # the gate: proposing must never leave media on disk
+        adir = work / "assets"
+        n = len(list(adir.iterdir())) if adir.is_dir() else 0
+        log("[sourcing] proposals written — approve them on the desk "
+            "(assets/ holds %d file(s), unchanged by this phase)" % n)
+    else:
+        log("[sourcing] approved rounds fetched — promote them to footage, "
+            "then re-ingest so they catalogue as b-roll")
+    set_pct(100)
+
+
 KINDS = {
     "ingest": ("Analyze footage — transcripts, takes, b-roll", _run_ingest),
     "assemble": ("Assemble — timeline + review previews", _run_assemble),
@@ -1129,6 +1243,7 @@ KINDS = {
     "story": ("Pitch stories — three directions", _run_story),
     "editplan": ("Build the cut", _run_editplan),
     "script": ("Write the script", _run_script),
+    "sourcing": ("Source supporting coverage", _run_sourcing),
     "research": ("Research the place", _run_research),
     "graphics": ("Suggest graphics — cards for the clips", _run_graphics),
     "scout": ("Scout ideas", _run_scout),
@@ -1155,6 +1270,9 @@ KINDS = {
 # Only DONE jobs chain — a failure stops the line and says so.
 CHAIN = {
     "editplan": "assemble",
+    # the script names what the narration must say; sourcing finds what
+    # can show it, and STOPS — approving a download is Caleb's (2026-08-24)
+    "script": "sourcing",
     "graphics": "reproxy",
     "snapcuts": "assemble",
     # the one auto-dispatched session, by explicit P10 decision: the

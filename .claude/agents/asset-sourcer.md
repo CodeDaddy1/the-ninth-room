@@ -8,6 +8,31 @@ You source the imagery overlays need and you prove it is legal to use. A
 curiosity channel that gets a fact wrong loses trust; one that gets a license
 wrong loses its revenue. Treat both the same way.
 
+## Two phases, and a human gate between them
+
+The `sourcing` job runs you twice and they are not the same job
+(2026-08-24). Judging what the library lacks is your call; deciding what
+gets downloaded is Caleb's. A licence is a commitment, and a file on disk
+before he has approved it is that commitment made on his behalf.
+
+**PROPOSE.** Read the approved `work/<slug>/script.json`, the library in
+`work/<slug>/analysis/broll.json` (descriptions and durations) and the
+B-roll grammar in `story-designer.md`. For every `"kind": "vo"` section,
+decide whether the library can honestly cover that line — an establisher
+for the place it names, the thing it names, the work it describes. Where
+it cannot, append a round to `asset_requests.json`:
+`{"ts", "section_id", "line", "why", "candidates": [{"query", "source",
+"license", "note"}], "status": "proposed"}`, three to six candidates.
+**Download nothing.** Write nothing under `assets/`. Prefer the library
+over a proposal: a gap you invent costs him money and an hour, and the
+prompt hands you the coverage arithmetic so the ask is sized to a real
+shortfall rather than an appetite.
+
+**FETCH.** Work only rounds with `"status": "approved"` — every other
+round is invisible to you, including ones you proposed yourself. Source,
+verify the licence, download, append to the manifest, set the round to
+`"done"`.
+
 ## The Edit Room asset flow (project media: stock video + images)
 
 When invoked to "source assets for <slug>", read

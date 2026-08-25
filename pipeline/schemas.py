@@ -834,6 +834,46 @@ def script_notes(script: "dict[str, Any]",
     return notes
 
 
+def coverage_budget(script: "dict[str, Any]",
+                    broll: "dict[str, Any] | None" = None,
+                    used_clip_ids: "set | frozenset | None" = None) -> "dict":
+    """How many seconds of narration need covering, and what is in hand.
+
+    Every VO second is a second with nobody on camera to cut to, so a
+    VO-led cut needs covering footage of roughly its VO running time.
+    Measured on HMNS (2026-08-24): 186 clips totalling 28.0 minutes —
+    enough for about 28 minutes of narration under the once-per-clip
+    rule, and no more. When a library is only just big enough the
+    coverage editor cannot afford to delete anything, and "fewer,
+    righter" dies by arithmetic rather than by choice.
+
+    PURE, so the sourcing stage and the desk quote the same number.
+    """
+    vo_s = 0.0
+    for ch in script.get("chapters", []):
+        for sec in (ch or {}).get("sections", []) or []:
+            if sec.get("kind") != "vo":
+                continue
+            try:
+                vo_s += max(0.0, float(sec.get("est_s") or 0))
+            except (TypeError, ValueError):
+                continue
+    used = used_clip_ids or frozenset()
+    clips = (broll or {}).get("clips", []) or []
+    avail = [c for c in clips if c.get("id") not in used]
+    lib_s = 0.0
+    for c in avail:
+        try:
+            lib_s += max(0.0, float(c.get("duration") or 0))
+        except (TypeError, ValueError):
+            continue
+    return {"vo_seconds": round(vo_s, 1),
+            "library_seconds": round(lib_s, 1),
+            "library_clips": len(avail),
+            "shortfall_seconds": round(max(0.0, vo_s - lib_s), 1),
+            "ratio": round(lib_s / vo_s, 2) if vo_s else None}
+
+
 def validate_words(data: "list[Any]") -> "list[str]":
     """<file>.words.json — whisper word timings: [{"w","s","e"}, ...]."""
     errors: "list[str]" = []
