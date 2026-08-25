@@ -94,11 +94,18 @@ class TheGate(unittest.TestCase):
         self.assertEqual(self._rounds()[0]["status"], "skipped")
         self.assertEqual(len(self._rounds()), 1)
 
-    def test_a_fetched_round_cannot_be_re_decided(self):
+    def test_a_fetched_round_may_be_re_opened_but_not_undone(self):
+        """Changed 2026-08-25: re-sourcing a gap is normal when the
+        rules change (video first). Sliding it back to skipped is not —
+        that would orphan the asset already on disk."""
         doc = {"rounds": [{"ts": 111, "status": "done"}]}
         (self.tmp / "asset_requests.json").write_text(json.dumps(doc))
+        out = editroom._asset_round_verdict("x", 111, "approved",
+                                            log=lambda *a: None)
+        self.assertEqual(out["status"], "approved")
+        (self.tmp / "asset_requests.json").write_text(json.dumps(doc))
         with self.assertRaises(IngestError):
-            editroom._asset_round_verdict("x", 111, "approved",
+            editroom._asset_round_verdict("x", 111, "skipped",
                                           log=lambda *a: None)
 
     def test_an_unknown_round_is_refused(self):
@@ -139,3 +146,42 @@ class Wiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReopeningAFetchedRound(unittest.TestCase):
+    """The rules changed (video first, 2026-08-25), so re-sourcing a gap
+    that was already fetched is a normal thing to want — but a fetched
+    round must not slide back to proposed or skipped, which would orphan
+    the asset already on disk."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._wp = editroom.work_path
+        editroom.work_path = lambda slug: self.tmp
+        (self.tmp / "asset_requests.json").write_text(json.dumps({"rounds": [
+            {"ts": 1, "status": "done", "line": "a line"}]}))
+
+    def tearDown(self):
+        editroom.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _status(self):
+        return json.loads((self.tmp / "asset_requests.json").read_text())["rounds"][0]["status"]
+
+    def test_approving_a_done_round_re_opens_it(self):
+        out = editroom._asset_round_verdict("x", 1, "approved",
+                                            log=lambda *a: None)
+        self.assertEqual(out["status"], "approved")
+        self.assertEqual(self._status(), "approved")
+
+    def test_it_cannot_slide_back_to_skipped(self):
+        with self.assertRaises(IngestError):
+            editroom._asset_round_verdict("x", 1, "skipped",
+                                          log=lambda *a: None)
+        self.assertEqual(self._status(), "done")
+
+    def test_nor_back_to_proposed(self):
+        with self.assertRaises(IngestError):
+            editroom._asset_round_verdict("x", 1, "proposed",
+                                          log=lambda *a: None)
+        self.assertEqual(self._status(), "done")

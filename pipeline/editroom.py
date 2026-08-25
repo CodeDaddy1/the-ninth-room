@@ -2373,6 +2373,65 @@ def _save_upload(slug: str, name: str, rfile, length: int) -> "dict":
     return {"stored": name, "still": False}
 
 
+def _save_asset_upload(slug: str, name: str, rfile, length: int,
+                       log=print) -> "dict":
+    """One uploaded file, streamed to assets/ and filed beside sourced
+    material.
+
+    Uploads land on the SAME shelf as anything the sourcer fetched
+    (Caleb, 2026-08-25: "I should be able to upload materials in addition
+    to the sourcer... through the library"). The Footage desk stays the
+    place to dump a camera card; the Library is where supporting material
+    lives, whoever found it, with the same verbs and the same provenance
+    row.
+
+    Its licence line says plainly where it came from. "Uploaded" is a
+    provenance, not a permission — a file Caleb dropped might be his own
+    footage or something he grabbed, and only he knows which, so the row
+    says so rather than implying a clearance nobody granted.
+    """
+    name = os.path.basename(name)
+    ext = Path(name).suffix.lower()
+    if ext not in _VIDEO_UP + _IMAGE_UP:
+        raise IngestError("unsupported file type '%s'" % ext)
+    adir = work_path(slug) / "assets"
+    adir.mkdir(parents=True, exist_ok=True)
+    tmp = adir / ("_tmp%s" % ext)
+    remaining = length
+    with open(tmp, "wb") as fh:
+        while remaining > 0:
+            chunk = rfile.read(min(1 << 20, remaining))
+            if not chunk:
+                break
+            fh.write(chunk)
+            remaining -= len(chunk)
+    if remaining:
+        tmp.unlink(missing_ok=True)
+        raise IngestError("upload of %s was truncated" % name)
+    dup = _find_duplicate(tmp, length, adir)
+    if dup:
+        tmp.unlink(missing_ok=True)
+        log("[upload] %s already on the shelf as %s" % (name, dup))
+        return {"stored": dup, "duplicate": dup}
+    name = _uniquify(adir, name)
+    os.replace(tmp, adir / name)
+    row = {
+        "id": "UP%d" % int(time.time() * 1000 % 10 ** 9),
+        "file": name,
+        "kind": "video" if ext in _VIDEO_UP else "image",
+        "what": Path(name).stem.replace("-", " ").replace("_", " "),
+        "query": "uploaded by hand",
+        # provenance, NOT permission — see the docstring
+        "license": "uploaded — provenance yours to confirm",
+        "attribution": "",
+        "uploaded_ts": int(time.time()),
+    }
+    from . import capture as capture_mod
+    capture_mod.append_to_manifest(adir, row)
+    log("[upload] %s -> assets/%s" % (slug, name))
+    return dict(row, stored=name)
+
+
 _FAV_LOCK = threading.Lock()
 
 
@@ -3506,13 +3565,19 @@ def _asset_round_verdict(slug: str, ts, status: str,
     hit = next((r for r in rounds if str(r.get("ts")) == str(ts)), None)
     if hit is None:
         raise IngestError("no proposal '%s'" % ts)
-    if hit.get("status") == "done":
-        raise IngestError("that round is already fetched")
+    if hit.get("status") == "done" and status != "approved":
+        # a fetched round may be RE-OPENED for another pass — the rules
+        # changed on 2026-08-25 (video first) and re-sourcing a gap is a
+        # normal thing to want. It may not go back to proposed or
+        # skipped, which would orphan the asset already on disk.
+        raise IngestError("that round is already fetched — approve it "
+                          "again to re-source, or leave it")
+    refetch = hit.get("status") == "done" and status == "approved"
     hit["status"] = status
     _write_json(p, doc)
     n = sum(1 for r in rounds if r.get("status") == "approved")
-    log("[sourcing] round %s -> %s (%d approved and waiting)"
-        % (ts, status, n))
+    log("[sourcing] round %s -> %s%s (%d approved and waiting)"
+        % (ts, status, " (RE-SOURCE)" if refetch else "", n))
     return {"ts": hit.get("ts"), "status": status, "approved": n}
 
 
@@ -3557,7 +3622,45 @@ def _assets_state(slug: str) -> "dict":
             "assets/.thumbs/%s.jpg" % p.name if thumb else None)
         items.append(dict(a, kind=kind, thumb=thumb, media=rel,
                           thumb_rel=thumb_rel, size=p.stat().st_size))
-    return {"slug": slug, "assets": items, "requests": reqs}
+    # Which catalogued b-roll clip each promoted asset became, so the
+    # Library can attach it to a beat without the desk having to guess at
+    # filenames (Caleb, 2026-08-25: "associate the uploaded material to a
+    # clip or beat"). An asset with no clip_id has not been promoted and
+    # analysed yet, and the desk says so rather than offering a dead verb.
+    by_file = {}
+    bp = work / "analysis" / "broll.json"
+    if bp.exists():
+        try:
+            for c in json.loads(bp.read_text()).get("clips", []):
+                by_file[c.get("file")] = c.get("id")
+        except ValueError:
+            pass
+    used = set()
+    ep = work / "edit_plan.json"
+    beats = []
+    if ep.exists():
+        try:
+            plan = json.loads(ep.read_text())
+            for b in plan.get("beats", []):
+                for c in (b.get("broll") or []):
+                    used.add(c.get("clip_id"))
+            takes = {}
+            tk = work / "analysis" / "takes.json"
+            if tk.exists():
+                takes = {t["id"]: (t.get("transcript") or "")
+                         for t in json.loads(tk.read_text()).get("takes", [])}
+            for b in plan.get("beats", []):
+                beats.append({"id": b["id"], "purpose": b.get("purpose", ""),
+                              "says": takes.get(b.get("take_id"), "")[:90],
+                              "covers": len(b.get("broll") or [])})
+        except ValueError:
+            pass
+    for it in items:
+        stem = Path(it.get("file", "")).stem
+        cid = by_file.get(it.get("file")) or by_file.get(stem + "_still.mp4")
+        it["clip_id"] = cid
+        it["in_cut"] = bool(cid and cid in used)
+    return {"slug": slug, "assets": items, "requests": reqs, "beats": beats}
 
 
 def _request_assets(slug: str, text: str) -> "dict":
@@ -4142,6 +4245,12 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     raise IngestError("unknown project '%s'" % uslug)
                 name = qs.get("name", [""])[0]
                 n = int(self.headers.get("Content-Length") or 0)
+                if qs.get("to", [""])[0] == "assets":
+                    # the Library shelf: supporting material, not the shoot
+                    out = _save_asset_upload(uslug, name, self.rfile, n,
+                                             log=log)
+                    self._send(200, dict(out, ok=True))
+                    return
                 result = _save_upload(uslug, name, self.rfile, n)
                 # local import: jobs_mod is imported LATER in this same
                 # function scope for the job routes, so the bare name here
