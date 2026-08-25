@@ -53,13 +53,35 @@ class LaneTable(unittest.TestCase):
 class LanesRunIndependently(unittest.TestCase):
     """Through the REAL queue and workers, not helpers."""
 
+
+    @classmethod
+    def setUpClass(cls):
+        # JOBS_PATH is stubbed for the whole CLASS, not per test: the
+        # worker threads are daemons that outlive any single test, and a
+        # per-test restore leaves a window where a late write lands in
+        # the real store (2026-08-25, after it leaked twice).
+        cls._class_jobs_path = jobs.JOBS_PATH
+        cls._class_tmp = Path(tempfile.mkdtemp())
+        jobs.JOBS_PATH = cls._class_tmp / "_jobs.json"
+
+    @classmethod
+    def tearDownClass(cls):
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if not [j for j in jobs._jobs.values()
+                    if str(j.get("kind", "")).startswith("t_")
+                    and j["state"] in ("queued", "running")]:
+                break
+            time.sleep(0.05)
+        time.sleep(0.2)          # let a trailing persist land in the temp
+        jobs.JOBS_PATH = cls._class_jobs_path
+        shutil.rmtree(cls._class_tmp, ignore_errors=True)
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         (self.tmp / "x").mkdir()
         self._wp = jobs.work_path
         jobs.work_path = lambda slug: self.tmp / "x"
-        self._jobs_path = jobs.JOBS_PATH
-        jobs.JOBS_PATH = self.tmp / "_jobs.json"
         self._added = []
         os.environ["NINTH_NOTIFY"] = "0"
 
@@ -88,7 +110,6 @@ class LanesRunIndependently(unittest.TestCase):
             jobs.KINDS.pop(k, None)
             jobs.SESSION_KINDS.discard(k)
             jobs.LOCAL_KINDS.discard(k)
-        jobs.JOBS_PATH = self._jobs_path
         jobs.work_path = self._wp
         del os.environ["NINTH_NOTIFY"]
         shutil.rmtree(self.tmp, ignore_errors=True)

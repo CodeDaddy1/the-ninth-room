@@ -46,6 +46,30 @@ def _wait(jid, states=("done", "failed"), timeout=10.0):
 class RealWorkerPolicy(unittest.TestCase):
     """Temp kinds registered in KINDS, real queue, real worker thread."""
 
+
+    @classmethod
+    def setUpClass(cls):
+        # JOBS_PATH is stubbed for the whole CLASS, not per test: the
+        # worker threads are daemons that outlive any single test, and a
+        # per-test restore leaves a window where a late write lands in
+        # the real store (2026-08-25, after it leaked twice).
+        cls._class_jobs_path = jobs.JOBS_PATH
+        cls._class_tmp = Path(tempfile.mkdtemp())
+        jobs.JOBS_PATH = cls._class_tmp / "_jobs.json"
+
+    @classmethod
+    def tearDownClass(cls):
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if not [j for j in jobs._jobs.values()
+                    if str(j.get("kind", "")).startswith("t_")
+                    and j["state"] in ("queued", "running")]:
+                break
+            time.sleep(0.05)
+        time.sleep(0.2)          # let a trailing persist land in the temp
+        jobs.JOBS_PATH = cls._class_jobs_path
+        shutil.rmtree(cls._class_tmp, ignore_errors=True)
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         (self.tmp / "x").mkdir()  # a slug dir so start()'s guard passes
@@ -55,8 +79,6 @@ class RealWorkerPolicy(unittest.TestCase):
         # write: without this the suite's fake jobs land in the REAL store
         # and the engine restores them into Caleb's activity tray on its
         # next restart ("t_boom FAILED: deliberate"). Found live 2026-08-24.
-        self._jobs_path = jobs.JOBS_PATH
-        jobs.JOBS_PATH = self.tmp / "_jobs.json"
         self._chain = dict(jobs.CHAIN)
         self._added = []
         os.environ["NINTH_NOTIFY"] = "0"
@@ -84,7 +106,6 @@ class RealWorkerPolicy(unittest.TestCase):
             jobs._jobs.pop(jid, None)
             if jid in jobs._order:
                 jobs._order.remove(jid)
-        jobs.JOBS_PATH = self._jobs_path
         for k in self._added:
             jobs.KINDS.pop(k, None)
         jobs.CHAIN.clear()

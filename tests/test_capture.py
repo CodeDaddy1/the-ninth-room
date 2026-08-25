@@ -99,3 +99,63 @@ class ManifestRows(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HeadlineCard(unittest.TestCase):
+    """The card is what goes ON SCREEN; the screenshot is the receipt.
+
+    A full-page capture is faithful and full of the publisher's
+    navigation and advertising — the TSHA capture has a "SHOP NOW" banner
+    in it. The card carries the article's own words at video size, on the
+    channel's ground, with the source small and grey underneath.
+    """
+
+    ROW = {"file": "a.png", "headline": "History of the Museum",
+           "publication": "Texas State Historical Association",
+           "published": "2019-04-01T00:00:00Z",
+           "source_url": "https://www.tshaonline.org/handbook/entries/x"}
+
+    def html(self, **over):
+        return capture._card_html(dict(self.ROW, **over), "a.png")
+
+    def test_it_shows_the_article_s_own_words(self):
+        h = self.html()
+        self.assertIn("History of the Museum", h)
+        self.assertIn("TEXAS STATE HISTORICAL ASSOCIATION", h)
+
+    def test_the_source_line_drops_the_scheme_and_www(self):
+        self.assertIn("tshaonline.org/handbook/entries/x", self.html())
+        self.assertNotIn("https://www.", self.html())
+
+    def test_only_the_date_survives_a_full_timestamp(self):
+        self.assertIn("2019-04-01", self.html())
+        self.assertNotIn("T00:00:00Z", self.html())
+
+    def test_a_long_headline_steps_down_rather_than_clipping(self):
+        short = self.html(headline="Short one")
+        long = self.html(headline="A headline of considerable length " * 6)
+        def size(h):
+            import re as _re
+            return int(_re.search(r"\.head\{[^}]*font-size:(\d+)px", h).group(1))
+        self.assertLess(size(long), size(short))
+
+    def test_a_headline_with_markup_is_escaped_not_rendered(self):
+        h = self.html(headline='Museum <script>alert(1)</script> "quoted"')
+        self.assertNotIn("<script>", h)
+        self.assertIn("&lt;script&gt;", h)
+        self.assertIn("&quot;quoted&quot;", h)
+
+    def test_a_missing_date_leaves_no_orphan_separator(self):
+        self.assertNotIn("·", self.html(published=""))
+
+    def test_the_screenshot_rides_behind_it(self):
+        """So the card still looks like a page, not a typed caption."""
+        self.assertIn("url('a.png')", self.html())
+        self.assertIn("blur(", self.html())
+
+    def test_a_card_is_never_required_for_the_receipt_to_survive(self):
+        import tempfile
+        from pathlib import Path
+        tmp = Path(tempfile.mkdtemp())
+        self.assertIsNone(capture.render_card({"file": "missing.png"}, tmp,
+                                              log=lambda *a: None))

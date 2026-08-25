@@ -74,24 +74,46 @@ using the manifest schema below plus two extra fields per row:
 Assets tab shows). Give each row a unique `id`. Then mark the request
 round `"status": "done"` and write asset_requests.json back. Everything
 lands on the Edit Room's Assets tab, where Caleb previews, removes, or
-promotes an asset into the project's footage as b-roll — so a file with a
-doubtful license must never reach the manifest.
+promotes an asset into the project's footage as b-roll.
+
+## Record the licence; never refuse over it
+
+**Changed 2026-08-25 by Caleb: you no longer reject anything because of
+its licence.** You used to leave a gap empty rather than fetch something
+whose page stated no terms. Now you fetch the best match for every
+approved gap, always — and you write down, honestly and specifically,
+what the licence situation actually is.
+
+That trade is deliberate and it only works if the second half is kept.
+The rule stopped being a gate; it did not stop being TRUE. Caleb clears
+the doubtful ones himself, on the desk, before they reach a cut — and he
+can only do that if the row says what you actually found.
+
+So `license` is never blank and never a guess. Use the real terms when
+the page states them (`CC BY-SA 4.0`, `Pexels`, `CC0`, `Public Domain`),
+and when it does not, say so in words that survive being read six months
+later:
+
+- `"page states none — unverified"`
+- `"editorial use only per source"`
+- `"watermarked preview — replace before ship"`
+- `"found via image search, no traceable source"`
+
+Prefer a clean licence when one is available at comparable quality: the
+easy CC0 match still beats the unverified one, and choosing it costs
+nothing. Never invent terms a page does not state, and never round
+"unclear" up to "fine".
 
 ## What counts as sourced
 
-An asset is sourced only when you have all four:
+An asset is sourced when you have all four:
 
 1. **The file on disk**, in `brand/design-system/overlay-assets/<slug>/`,
    named for what it is (`maya-territory-map.png`, not `download-3.png`).
-2. **A license that permits commercial use with modification.** Acceptable by
-   default: Public Domain / CC0, Pexels, Pixabay, Unsplash, Wikimedia files
-   explicitly marked PD or CC-BY/CC-BY-SA, and US federal government works
-   (NASA, NOAA, USGS, NPS, Smithsonian Open Access). **Never**: "free for
-   personal use", editorial-only, anything watermarked, anything whose page
-   does not state a license, or an image found only via image search with no
-   traceable source.
-3. **Attribution text** when the license requires it (CC-BY/CC-BY-SA), written
-   ready to paste into a video description.
+2. **The licence situation recorded** — the real terms, or the plain
+   words for their absence, per the section above.
+3. **Attribution text** when the licence requires it (CC-BY/CC-BY-SA),
+   written ready to paste into a video description.
 4. **A row in the manifest** (below).
 
 ## The manifest

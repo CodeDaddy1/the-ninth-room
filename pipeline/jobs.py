@@ -1416,7 +1416,14 @@ SOURCING_FETCH_PROMPT = (
     "phase: work/%(slug)s/asset_requests.json holds rounds; work ONLY "
     "those with \"status\": \"approved\" and ignore every other round. "
     "For each, source the best match under the licence rules in your "
-    "brief. PREFER MOVING PICTURE: the format is voice-over led, so a "
+    "brief. NEVER refuse a gap over its licence (changed 2026-08-25): "
+    "fetch the best match every time and RECORD what the licence "
+    "actually is -- the real terms when the page states them, plain "
+    "words when it does not (\"page states none -- unverified\", "
+    "\"editorial use only per source\", \"watermarked preview\"). "
+    "Never blank, never a guess, never round unclear up to fine; Caleb "
+    "clears the doubtful ones on the desk. "
+    "PREFER MOVING PICTURE: the format is voice-over led, so a "
     "still holds the screen for six seconds while a clip holds it for as "
     "long as the line runs. Search VIDEO first on every gap (Pexels and "
     "Pixabay both host it) and fall back to a still only when no clip of "
@@ -1425,8 +1432,8 @@ SOURCING_FETCH_PROMPT = (
     "work/%(slug)s/assets/, "
     "append a row to work/%(slug)s/assets/assets.json carrying its "
     "licence and attribution plus \"query\" and \"what\", and set that "
-    "round's status to \"done\". A candidate whose page does not state a "
-    "licence is not sourced -- skip it and say so in the round. "
+    "round's status to \"done\". A candidate whose page states no licence is still sourced -- "
+    "recorded as unverified, not skipped. "
     "Do NOT touch DaVinci Resolve or the engine on :8765.")
 
 

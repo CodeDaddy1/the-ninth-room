@@ -119,8 +119,101 @@ def capture_article(url: str, dest_dir: "Path", log=print) -> "dict":
         "attribution": " · ".join(x for x in (meta.get("publication"),
                                               meta.get("headline")) if x),
     }
+    card = render_card(row, dest_dir, log=log)
+    if card:
+        row["card"] = card          # the readable element
+        row["receipt"] = name       # the faithful page behind it
     log("[capture] %s — %s" % (row["publication"] or "?", row["headline"][:60]))
     return row
+
+
+CARD_W, CARD_H = 1920, 1080
+
+
+def _card_html(row: "dict", shot_rel: str) -> str:
+    """The on-screen element: masthead, headline, date, source line.
+
+    The full-page screenshot is the RECEIPT — faithful, and full of the
+    publisher's navigation and advertising. This is what actually goes on
+    screen: the article's own words, legible at video size, on the
+    channel's ground, with the source small and grey underneath exactly
+    as the Johnny Harris study describes the sourced-quote card.
+
+    The screenshot rides along behind it, dimmed and blurred, so the card
+    still LOOKS like a page rather than a caption someone typed.
+    """
+    from . import design_tokens as dt
+    pal = dt.palette()
+    navy, chalk = pal["navy"], pal["chalk"]
+    cyan, slate = pal["cyan"], pal["slate"]
+    disp, serif = pal["font_display"], pal["font_serif"]
+    headline = html_escape(row.get("headline") or row.get("what") or "")
+    pub = html_escape((row.get("publication") or "").upper())
+    date = html_escape((row.get("published") or "")[:10])
+    url = html_escape(re.sub(r"^https?://(www\.)?", "", row.get("source_url", "")))
+    # long headlines step down rather than overflow — the card must never
+    # clip the sentence it exists to show
+    n = len(headline)
+    size = 96 if n < 60 else 78 if n < 110 else 62 if n < 170 else 50
+    return """<!doctype html><meta charset="utf-8"><style>
+ html,body{margin:0;width:%(w)dpx;height:%(h)dpx;background:%(navy)s;overflow:hidden}
+ .shot{position:absolute;inset:0;background:url('%(shot)s') center/cover no-repeat;
+       filter:blur(14px) saturate(.6);opacity:.28}
+ .veil{position:absolute;inset:0;
+       background:linear-gradient(90deg,%(navy)s 34%%,rgba(11,35,64,.72) 100%%)}
+ .card{position:absolute;left:110px;right:110px;top:50%%;transform:translateY(-50%%)}
+ .rule{width:96px;height:5px;background:%(cyan)s;margin-bottom:30px}
+ .pub{font-family:%(disp)s;font-size:30px;font-weight:800;letter-spacing:.24em;
+      color:%(cyan)s;margin-bottom:22px}
+ .head{font-family:%(serif)s;font-size:%(size)dpx;line-height:1.1;color:%(chalk)s;
+       font-weight:500;letter-spacing:-.015em;max-width:1400px}
+ .src{font-family:%(disp)s;font-size:24px;font-weight:600;letter-spacing:.06em;
+      color:%(slate)s;margin-top:34px}
+</style>
+<div class="shot"></div><div class="veil"></div>
+<div class="card">
+  <div class="rule"></div>
+  <div class="pub">%(pub)s%(dot)s%(date)s</div>
+  <div class="head">%(head)s</div>
+  <div class="src">%(url)s</div>
+</div>""" % {"w": CARD_W, "h": CARD_H, "navy": navy, "chalk": chalk,
+             "cyan": cyan, "slate": slate, "disp": disp, "serif": serif,
+             "shot": shot_rel, "pub": pub, "date": date,
+             "dot": "  ·  " if (pub and date) else "",
+             "head": headline, "size": size, "url": url}
+
+
+def html_escape(text: str) -> str:
+    return (str(text or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def render_card(row: "dict", dest_dir: "Path", log=print) -> "str | None":
+    """Render the headline card beside its screenshot. Returns the card's
+    filename, or None when Chrome could not draw it — a missing card must
+    never cost us the receipt we already have."""
+    shot = dest_dir / row["file"]
+    if not shot.is_file():
+        return None
+    name = "%s-card.png" % Path(row["file"]).stem
+    out = dest_dir / name
+    html_p = dest_dir / (".%s.html" % Path(name).stem)
+    html_p.write_text(_card_html(row, shot.name))
+    cmd = [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
+           "--hide-scrollbars", "--force-device-scale-factor=1",
+           "--window-size=%d,%d" % (CARD_W, CARD_H),
+           "--default-background-color=ffffffff",
+           "--screenshot=" + str(out), "file://" + str(html_p)]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
+    finally:
+        html_p.unlink(missing_ok=True)
+    if out.exists() and out.stat().st_size > 0:
+        log("[capture] card rendered — %s" % name)
+        return name
+    return None
 
 
 def append_to_manifest(assets_dir: "Path", row: "dict") -> "dict":
