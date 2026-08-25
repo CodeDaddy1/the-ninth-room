@@ -29,6 +29,7 @@ import subprocess
 from pathlib import Path
 
 from .ingest import work_path, analysis_dir, IngestError
+from . import reframe
 
 W, H = 854, 480
 SCALE = W / 1920.0
@@ -209,6 +210,13 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
             missing.append(c["id"])
 
     # --- filter graph -----------------------------------------------------
+    # Centre-crop to the canvas shape BEFORE scaling. Every scale here was
+    # bare `scale=W:H`, which stretches anything that is not already the
+    # project's shape -- invisible while a project was one orientation end
+    # to end, and wrong the moment a vertical episode sources 16:9 stock
+    # (measured: a square came out 215%% too tall). A source that already
+    # matches crops to itself, so nothing changes for existing projects.
+    _fit = reframe.fit_expr(pw, ph)
     fc = []
     for i in seg_labels:
         seg = beat["segments"][i]
@@ -223,21 +231,22 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
         # accumulate); audio trims to [0, dur) so the negative-pts priming
         # packet is dropped. Measured after the fix: A/V within 4ms.
         n_frames = max(1, int(round(seg_dur * 24)))
-        fc.append("[%d:v]scale=%d:%d,fps=24,setsar=1,trim=end_frame=%d,"
-                  "setpts=PTS-STARTPTS[v%d];[%d:a]atrim=start=0:end=%.3f,"
-                  "asetpts=PTS-STARTPTS,aformat=sample_rates=48000:"
-                  "channel_layouts=stereo[a%d]" % (i, pw, ph, n_frames, i, i, seg_dur, i))
+        fc.append(("[%d:v]%s,fps=24,setsar=1,trim=end_frame=%d,"
+                   "setpts=PTS-STARTPTS[v%d];[%d:a]atrim=start=0:end=%.3f,"
+                   "asetpts=PTS-STARTPTS,aformat=sample_rates=48000:"
+                   "channel_layouts=stereo[a%d]")
+                  % (i, _fit, n_frames, i, i, seg_dur, i))
     fc.append("%sconcat=n=%d:v=1:a=1[base][aud]"
               % ("".join("[v%d][a%d]" % (i, i) for i in seg_labels), n_seg))
     cur = "base"
     for j, (k, kind, at, dur, _p) in enumerate(overlay_inputs):
         lbl = "ov%d" % j
         if kind == "broll":
-            fc.append("[%d:v]scale=%d:%d,fps=24,setsar=1,setpts=PTS-STARTPTS+%.3f/TB[%s]"
-                      % (k, pw, ph, max(at, 0.0), lbl))
+            fc.append("[%d:v]%s,fps=24,setsar=1,setpts=PTS-STARTPTS+%.3f/TB[%s]"
+                      % (k, _fit, max(at, 0.0), lbl))
         else:
-            fc.append("[%d:v]scale=%d:%d,fps=24,setpts=PTS-STARTPTS+%.3f/TB[%s]"
-                      % (k, pw, ph, max(at, 0.0), lbl))
+            fc.append("[%d:v]%s,fps=24,setpts=PTS-STARTPTS+%.3f/TB[%s]"
+                      % (k, _fit, max(at, 0.0), lbl))
         nxt = "m%d" % j
         fc.append("[%s][%s]overlay=0:0:eof_action=pass[%s]" % (cur, lbl, nxt))
         cur = nxt

@@ -318,13 +318,29 @@ def _brief_clause(slug) -> str:
     except ValueError:
         return ""
     vo = float(b.get("vo_share", 0.60))
-    clause = ("Caleb's brief: a ~%g-minute episode in %d chapters, with "
-              "about %.0f%% of its running time carried by VOICE-OVER "
-              "rather than on-camera talking -- pitch "
-              "spines that fit that budget, and say so when the footage "
-              "cannot fill it honestly. "
-              % (float(b.get("target_minutes", 10)),
-                 int(b.get("chapters", 6)), vo * 100))
+    mins = float(b.get("target_minutes", 10))
+    # State the SHAPE, do not make the writer infer it from a number. A
+    # 0.75-minute brief is a vertical Short with one loop and captions on
+    # every line; a 25-minute one is a chaptered 16:9 episode. Inferring
+    # that from target_minutes alone is exactly the kind of guess the
+    # format fields were added to stop (2026-08-25).
+    if str(b.get("delivery") or "long") == "short":
+        clause = ("Caleb's brief: a VERTICAL SHORT of about %g minutes "
+                  "(9:16, under a minute), with about %.0f%% of it carried "
+                  "by VOICE-OVER. One loop, no chapter furniture, and the "
+                  "payoff inside the runtime -- a short that saves its "
+                  "answer for the end does not get watched to the end. "
+                  "Every line is captioned, so write lines that read as "
+                  "well as they sound. "
+                  % (mins, vo * 100))
+    else:
+        clause = ("Caleb's brief: a ~%g-minute episode in %d chapters "
+                  "(16:9 long-form), with "
+                  "about %.0f%% of its running time carried by VOICE-OVER "
+                  "rather than on-camera talking -- pitch "
+                  "spines that fit that budget, and say so when the footage "
+                  "cannot fill it honestly. "
+                  % (mins, int(b.get("chapters", 6)), vo * 100))
     location = str(b.get("location") or "").strip()
     if location:
         clause += "The place: %s. " % location

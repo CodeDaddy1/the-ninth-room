@@ -237,3 +237,53 @@ class Orientation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatReachesTheWriter(unittest.TestCase):
+    """The failure mode a questionnaire invites is being politely ignored —
+    the same reason _brief_clause was made pure and separately testable."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        from pipeline import jobs
+        self.jobs = jobs
+        self._wp = jobs.work_path
+        jobs.work_path = lambda slug: self.tmp
+
+    def tearDown(self):
+        self.jobs.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def brief(self, **kw):
+        d = {"target_minutes": 8, "chapters": 3, "vo_share": 0.35,
+             "origin": "script", "delivery": "long"}
+        d.update(kw)
+        (self.tmp / "story_brief.json").write_text(json.dumps(d))
+
+    def test_a_short_is_told_it_is_a_short(self):
+        """Not left to infer the shape from target_minutes."""
+        self.brief(delivery="short", target_minutes=0.75, chapters=1)
+        c = self.jobs._brief_clause("ep")
+        self.assertIn("VERTICAL SHORT", c)
+        self.assertIn("One loop", c)
+        self.assertIn("captioned", c)
+
+    def test_a_short_is_not_told_about_chapters(self):
+        self.brief(delivery="short", target_minutes=0.75, chapters=1)
+        self.assertNotIn("chapters", self.jobs._brief_clause("ep"))
+
+    def test_long_form_still_gets_its_chapter_budget(self):
+        self.brief()
+        c = self.jobs._brief_clause("ep")
+        self.assertIn("3 chapters", c)
+        self.assertIn("16:9", c)
+
+    def test_a_brief_with_no_delivery_reads_as_long(self):
+        self.brief()
+        b = json.loads((self.tmp / "story_brief.json").read_text())
+        del b["delivery"]
+        (self.tmp / "story_brief.json").write_text(json.dumps(b))
+        self.assertIn("chapters", self.jobs._brief_clause("ep"))
+
+    def test_no_brief_is_not_a_crash(self):
+        self.assertEqual(self.jobs._brief_clause("ep"), "")

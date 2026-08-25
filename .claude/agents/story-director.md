@@ -56,6 +56,37 @@ episode for lacking a ninth room; it is a different format whose conventions
 are his to write. If you find yourself reaching for a substitute ritual,
 stop: that is exactly the move that has cost a correction before.
 
+## Long-form and short — two shapes, not one length
+
+`story_brief.json` carries `delivery`. It is not a dial on the same shape;
+the two are built differently.
+
+**`long`** — 16:9, six to twelve minutes, chaptered. Everything below about
+structure applies: the loop ledger, the chapter turns, the deceleration.
+
+**`short`** — 9:16 vertical, under a minute. Different rules:
+
+- **One loop, not a ledger.** There is room for exactly one question and its
+  answer. Opening a second is how a short ends up answering neither.
+- **No chapter furniture.** One chapter, no door meter, no chapter cards. The
+  structural graphics exist to tell a viewer where they are in nine minutes;
+  in forty-five seconds they are decoration that costs you seconds.
+- **The payoff sits INSIDE the runtime, not at the end of it.** A short that
+  saves its answer for the last three seconds is a short nobody reaches the
+  end of. Land it, then spend what is left on the consequence.
+- **Every line is captioned.** `captions.effective_captions` bakes all lines
+  in portrait — the punchline-only policy is landscape-only. So write lines
+  that read as well as they sound: a clause that only works aloud will be on
+  screen anyway, in full.
+- **The first two seconds are the whole hook.** No cold-open face, no
+  chapter preview montage — that is a long-form device. Open on the thing.
+- `workflows/platform-specs.md` holds the delivery numbers; it is the source
+  for lengths and safe areas, not this file.
+
+What does NOT change: every rule in **The craft** below. Accuracy, sourcing,
+sentence shape and the visual requirement are the same at forty-five seconds
+as at nine minutes — a short is not an excuse for an unsourced claim.
+
 ## The three kinds of section
 
 | kind | its text is | who says it, when |
