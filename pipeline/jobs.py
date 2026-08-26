@@ -178,30 +178,91 @@ def _job_log(jid):
         with open(path, "a") as f:
             f.write(line + "\n")
         _update(jid, note=line[-160:])
+
+    def note(text):
+        """Update the row's LIVE note without appending to the log.
+
+        The dock reads `note`; the log is the record. Per-file progress
+        belongs in the first and would bury the second — an ingest of 368
+        files would push every phase line out of the 120-line tail that
+        `/api/job/log` returns.
+        """
+        _update(jid, note=str(text)[-160:])
+
+    log.note = note
     return log
+
+
+def _mmss(seconds) -> str:
+    """`174` -> "2:54". Empty for nothing worth stating."""
+    try:
+        n = int(seconds)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    return "%d:%02d" % (n // 60, n % 60)
 
 
 def _run_ingest(slug, log, set_pct):
     from . import ingest as ingest_mod, takes, broll
-    set_pct(2)
-    log("[job] ingest: probe + transcribe")
-    ingest_mod.ingest(slug)
-    set_pct(60)
-    log("[job] ingest: take analysis")
-    takes.analyze(slug)
-    set_pct(75)
-    # takes.analyze rebuilds takes.json from scratch, which would
-    # silently un-kill every take Caleb screened out. His verdicts are
-    # stored separately for exactly this reason — re-apply them here, or
-    # a re-ingest quietly undoes a screening pass (2026-08-24).
-    from . import editroom as editroom_mod
-    n = editroom_mod._stamp_takes(slug)
-    if n:
-        log("[job] ingest: re-applied %d take verdict(s)" % n)
-    set_pct(80)
-    log("[job] ingest: b-roll catalog")
-    broll.catalog_broll(slug)
-    set_pct(100)
+    note = getattr(log, "note", lambda _t: None)
+
+    def on_progress(f):
+        """Forward the engine's own numbers onto the JOB.
+
+        `ingest.write_progress` has recorded byte-weighted progress with
+        an ETA since the ingest work, and it reached the project row and
+        the Footage desk — never the job. So the Activity dock, whose
+        entire purpose is showing what is running, showed a hardcoded 2%
+        and "probe + transcribe" for the whole transcription, which is by
+        far the longest phase (Caleb, 2026-08-26).
+
+        Best-effort: a progress line must never be able to sink an ingest,
+        which is why `write_progress` swallows this callback's errors too.
+        """
+        stage = str(f.get("stage") or "")
+        try:
+            done = int(f.get("done") or 0)
+            total = int(f.get("total") or 0)
+        except (TypeError, ValueError):
+            return
+        if stage == "transcribe" and total > 0:
+            # the byte fraction, not done/total: file size tracks duration
+            # closely and a 4K clip is not one 300-file unit of work
+            frac = max(0.0, min(1.0, float(f.get("pct") or 0)))
+            set_pct(2 + int(56 * frac))
+            eta = _mmss(f.get("eta_s"))
+            cur = str(f.get("current") or "")
+            note(" · ".join(x for x in (
+                "reading %d of %d" % (min(done + 1, total), total),
+                cur, "%s left" % eta if eta else "") if x))
+        elif stage == "broll" and total > 0:
+            set_pct(80 + int(19 * max(0.0, min(1.0, done / total))))
+            note("contact sheets · %d of %d" % (done, total))
+
+    with ingest_mod.observing(slug, on_progress):
+        set_pct(2)
+        log("[job] ingest: probe + transcribe")
+        ingest_mod.ingest(slug)
+        set_pct(60)
+        log("[job] ingest: take analysis")
+        takes.analyze(slug)
+        set_pct(75)
+        # takes.analyze rebuilds takes.json from scratch, which would
+        # silently un-kill every take Caleb screened out. His verdicts are
+        # stored separately for exactly this reason — re-apply them here,
+        # or a re-ingest quietly undoes a screening pass (2026-08-24).
+        from . import editroom as editroom_mod
+        n = editroom_mod._stamp_takes(slug)
+        if n:
+            log("[job] ingest: re-applied %d take verdict(s)" % n)
+        set_pct(80)
+        log("[job] ingest: b-roll catalog")
+        # inside the observer too — `catalog_broll` reports per sheet, and
+        # on a big shoot that phase is minutes of its own
+        broll.catalog_broll(slug)
+        set_pct(100)
 
 
 def _run_assemble(slug, log, set_pct):

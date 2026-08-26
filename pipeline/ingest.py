@@ -16,9 +16,11 @@ trusts this file.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,17 +65,67 @@ def work_path(slug: str) -> Path:
     return WORK_DIR / slug
 
 
+# slug -> callback, installed by whoever is RUNNING the ingest.
+#
+# `write_progress` is the one funnel every stage already goes through —
+# transcribe, takes and b-roll all call it — so an observer here reaches
+# all three without changing a single signature.
+_PROGRESS_HOOKS: "dict" = {}
+_HOOK_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def observing(slug: str, fn):
+    """While this is open, every `write_progress` for `slug` is also handed
+    to `fn`.
+
+    The engine has always known its own progress — byte-weighted, with an
+    ETA, written per file since the ingest work. It reached the project
+    row and the Footage desk and never the JOB, so the Activity dock, the
+    one surface whose whole purpose is showing what is running, sat at a
+    hardcoded 2% for the entire transcription and said "probe +
+    transcribe" (Caleb, 2026-08-26).
+    """
+    with _HOOK_LOCK:
+        _PROGRESS_HOOKS[slug] = fn
+    try:
+        yield
+    finally:
+        with _HOOK_LOCK:
+            _PROGRESS_HOOKS.pop(slug, None)
+
+
 def write_progress(slug: str, **fields) -> None:
-    """Heartbeat for the Edit Room's phase bar. Best-effort by design — a
+    """Heartbeat for the desks' phase bars. Best-effort by design — a
     progress write must never be able to sink real pipeline work."""
+    fields["ts"] = time.time()
     try:
         p = work_path(slug) / "ingest_progress.json"
-        fields["ts"] = time.time()
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(fields))
-        os.replace(tmp, p)
+        # a tmp name NOBODY ELSE CAN BE USING. A fixed `.tmp` sibling is
+        # worse than no atomicity once two writers exist: one's replace
+        # moves the file out from under the other. Auto-ingest fires per
+        # upload, so two runs 35 seconds apart is ordinary (2026-08-26).
+        tmp = p.with_suffix(".%d.%d.tmp" % (os.getpid(), threading.get_ident()))
+        try:
+            tmp.write_text(json.dumps(fields))
+            os.replace(tmp, p)
+        except BaseException:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise
     except Exception:
         pass
+    # the observer runs even if the WRITE failed: a dock that keeps moving
+    # is worth more than a file nobody is reading yet
+    with _HOOK_LOCK:
+        fn = _PROGRESS_HOOKS.get(slug)
+    if fn is not None:
+        try:
+            fn(dict(fields))
+        except Exception:
+            pass
 
 
 def analysis_dir(slug: str) -> Path:
