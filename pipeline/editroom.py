@@ -452,10 +452,34 @@ def _asset_rounds(slug: str) -> "list":
 
 
 def _broll_catalog(slug: str) -> "list":
+    """The described b-roll, with its contact sheet made REACHABLE.
+
+    `sheet` is written relative to `analysis/`, which the Studio cannot
+    resolve — and `/media/<slug>/analysis/sheets/...` 404s, so in practice
+    187 contact sheets have existed on disk and never reached a screen.
+    The desk rendered one truncated line of description instead, for a
+    library whose whole job is choosing a picture (P4 audit, 2026-08-25).
+
+    Resolved to an ABSOLUTE path, exactly as `_footage_state` already does
+    for `thumb`, so it serves through the existing `/file?p=` route — the
+    same one behind 368 footage thumbnails. A sheet that is not on disk
+    reports null rather than a path that 404s.
+    """
     p = work_path(slug) / "analysis" / "broll.json"
     if not p.exists():
         return []
-    return json.loads(p.read_text()).get("clips", [])
+    clips = json.loads(p.read_text()).get("clips", [])
+    adir = work_path(slug) / "analysis"
+    for c in clips:
+        rel = c.get("sheet")
+        c["sheet"] = None
+        if rel:
+            sp = (adir / rel).resolve()
+            # inside analysis/ only: `sheet` comes off disk, and a
+            # traversal in it must not turn into a readable path
+            if sp.is_file() and str(sp).startswith(str(adir.resolve()) + os.sep):
+                c["sheet"] = str(sp)
+    return clips
 
 
 def _clamp_cover(beat_len: float, clip_dur: float, at: float,
