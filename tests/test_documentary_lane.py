@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipeline import jobs  # noqa: E402
+from pipeline import jobs, schemas  # noqa: E402
 
 WORK = Path(__file__).resolve().parent.parent / "work"
 
@@ -152,6 +152,79 @@ class AssembleGate(LaneBase):
         self.assertNotIn("Errno", msg)
         self.assertNotIn("edit_plan.json", msg)
 
+
+
+class SourcingNoOp(LaneBase):
+    """A sourcing run that writes nothing is sometimes RIGHT.
+
+    Proposing sits behind a human gate: rounds wait at `proposed` until
+    they are approved, and the sourcer is built not to duplicate work
+    already awaiting a verdict. The mtime proof could not tell that from a
+    crash, so on the oligarchy short it called a correct refusal a failure
+    and told Caleb to "read the log" (2026-08-26).
+    """
+
+    def _script_with_visuals(self):
+        return {
+            "chapters": [{
+                "id": "CH1", "title": "c", "target_s": 45, "sections": [
+                    {"id": "CH1.S1", "kind": "vo", "text": "a", "est_s": 4,
+                     "visual": {"want": "w", "why": "y", "from": "shoot"}},
+                    {"id": "CH1.S2", "kind": "desk", "text": "b", "est_s": 7,
+                     "visual": {"want": "w", "why": "y", "from": "stock"}},
+                    {"id": "CH1.S3", "kind": "desk", "text": "c", "est_s": 5},
+                ],
+            }],
+        }
+
+    def _rounds(self, *section_ids, status="proposed"):
+        return {"slug": "ep", "rounds": [
+            {"section_id": s, "status": status, "kind": "source"}
+            for s in section_ids
+        ]}
+
+    def test_every_line_covered_is_a_no_op_not_a_failure(self):
+        gaps = schemas.unproposed_sections(
+            self._script_with_visuals(), self._rounds("CH1.S1", "CH1.S2"))
+        self.assertEqual(gaps, [])
+
+    def test_a_DESK_line_that_wants_a_cutaway_still_counts(self):
+        """The face is the shot on a desk line, so it is easy to assume it
+        needs nothing — but it can declare a cutaway, and CH1.S2 did while
+        all seven vo lines were covered. `visual.from` decides, not kind.
+        """
+        gaps = schemas.unproposed_sections(
+            self._script_with_visuals(), self._rounds("CH1.S1"))
+        self.assertEqual(gaps, ["CH1.S2"])
+
+    def test_a_line_that_declares_no_picture_is_never_a_gap(self):
+        # CH1.S3 has no `visual` at all — the face is the whole shot
+        gaps = schemas.unproposed_sections(
+            self._script_with_visuals(), self._rounds("CH1.S1", "CH1.S2"))
+        self.assertNotIn("CH1.S3", gaps)
+
+    def test_a_superseded_row_covers_nothing(self):
+        """It names a purchase the script has moved past."""
+        gaps = schemas.unproposed_sections(
+            self._script_with_visuals(),
+            self._rounds("CH1.S1", "CH1.S2", status="superseded"))
+        self.assertEqual(gaps, ["CH1.S1", "CH1.S2"])
+
+    def test_an_approved_row_covers(self):
+        gaps = schemas.unproposed_sections(
+            self._script_with_visuals(),
+            self._rounds("CH1.S1", "CH1.S2", status="approved"))
+        self.assertEqual(gaps, [])
+
+    def test_no_rounds_at_all_leaves_every_wanting_line_uncovered(self):
+        gaps = schemas.unproposed_sections(self._script_with_visuals(), None)
+        self.assertEqual(gaps, ["CH1.S1", "CH1.S2"])
+
+    def test_it_survives_a_malformed_file(self):
+        for bad in (None, {}, {"rounds": None}, {"rounds": ["x", 3]}):
+            schemas.unproposed_sections(self._script_with_visuals(), bad)
+        for bad in (None, {}, {"chapters": None}, {"chapters": [None]}):
+            self.assertEqual(schemas.unproposed_sections(bad, None), [])
 
 if __name__ == "__main__":
     unittest.main()

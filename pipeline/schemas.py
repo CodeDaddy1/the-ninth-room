@@ -1297,6 +1297,51 @@ def superseded_requests(script: "dict[str, Any]",
     return out
 
 
+def unproposed_sections(script: "dict[str, Any]",
+                        requests: "dict[str, Any] | None") -> "list[str]":
+    """Section ids that ask for a picture and have no live row.
+
+    The inverse of `superseded_requests`, and the test for whether a
+    sourcing run that wrote NOTHING was a correct no-op or a miss.
+
+    The sourcer sits behind a human gate: rounds wait at `proposed` until
+    they are approved, and it is built not to duplicate work already
+    waiting on a verdict. So "the file did not change" is a legitimate
+    outcome — but only when every section that wants a picture already has
+    one. This is what tells the two apart.
+
+    KIND IS IRRELEVANT HERE. A `desk` section is performed to camera, and
+    people assume its face IS the shot — but it can still declare a
+    cutaway, and one did: CH1.S2 on the oligarchy short wanted stock and
+    no round ever proposed it, while all seven `vo` lines were covered
+    (2026-08-26). What decides is `visual.from`, not the section's kind.
+
+    A `superseded` row does not cover anything: it names a purchase the
+    script has since moved past.
+    """
+    covered = set()
+    for r in (requests or {}).get("rounds", []) or []:
+        if not isinstance(r, dict):
+            continue
+        if r.get("status") == "superseded":
+            continue
+        sid = str(r.get("section_id") or "")
+        if sid:
+            covered.add(sid)
+    out = []
+    for ch in (script or {}).get("chapters", []) or []:
+        for sec in (ch or {}).get("sections", []) or []:
+            if not isinstance(sec, dict):
+                continue
+            vis = sec.get("visual")
+            if not isinstance(vis, dict) or not str(vis.get("from") or "").strip():
+                continue
+            sid = str(sec.get("id") or "")
+            if sid and sid not in covered:
+                out.append(sid)
+    return out
+
+
 def coverage_budget(script: "dict[str, Any]",
                     broll: "dict[str, Any] | None" = None,
                     used_clip_ids: "set | frozenset | None" = None) -> "dict":

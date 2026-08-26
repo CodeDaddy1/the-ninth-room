@@ -1718,6 +1718,40 @@ def _run_sourcing(slug, log, set_pct, arg=None):
         raise RuntimeError("sourcing session exited %d — see the log" % rc)
     after = rq.stat().st_mtime if rq.exists() else None
     if after is None or after == before:
+        # A NO-OP IS NOT AUTOMATICALLY A FAILURE HERE, and this is the one
+        # stage where that distinction is real.
+        #
+        # Proposing sits behind a HUMAN GATE: rounds wait at `proposed`
+        # until they are approved, and the sourcer is built not to
+        # duplicate work already awaiting a verdict — a second identical
+        # round would put the same decisions on the desk twice. The mtime
+        # proof cannot tell "did nothing because nothing was needed" from
+        # "did nothing because it broke", so it called a correct refusal a
+        # failure and told Caleb to read the log (2026-08-26, the
+        # oligarchy short: seven live proposals, agent declined to
+        # re-propose, job FAILED).
+        #
+        # `unproposed_sections` is what tells them apart, and when the
+        # answer is "it missed some" it can NAME them — which the old
+        # message never did. On that same run it did miss one: CH1.S2, a
+        # desk line that declares a stock cutaway, while all seven vo
+        # lines were covered.
+        from . import schemas as _sc
+        gaps = (_sc.unproposed_sections(_read_json(work / "script.json") or {},
+                                        _read_json(rq) or {})
+                if not fetch else [])
+        if not fetch and not gaps and rq.exists():
+            log("[sourcing] nothing new to propose — every line that wants a "
+                "picture already has one waiting on your verdict")
+            set_pct(100)
+            return
+        if gaps:
+            raise RuntimeError(
+                "session finished and proposed nothing, but %s still %s no "
+                "picture — read the log"
+                % (", ".join(gaps[:4]) + (" (+%d more)" % (len(gaps) - 4)
+                                          if len(gaps) > 4 else ""),
+                   "have" if len(gaps) > 1 else "has"))
         raise RuntimeError("session finished but asset_requests.json did not "
                            "change — read the log")
     if not fetch:
