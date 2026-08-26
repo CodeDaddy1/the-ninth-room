@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pipeline import editroom, schemas  # noqa: E402
+from pipeline.ingest import IngestError  # noqa: E402
 
 
 class TheModel(unittest.TestCase):
@@ -287,3 +288,78 @@ class WhatReachesTheWriter(unittest.TestCase):
 
     def test_no_brief_is_not_a_crash(self):
         self.assertEqual(self.jobs._brief_clause("ep"), "")
+
+
+class BriefStickiness(unittest.TestCase):
+    """Absence means UNCHANGED, for every field the form may not send.
+
+    `delivery` had this rule and named the reason. `origin` sat three
+    lines away with a "footage" default, and the Studio's brief form has
+    never sent it — so pressing Save brief on a documentary silently
+    converted it to the filmed lane. Verified live on `oligarchy`
+    (2026-08-26) before the fix: origin went script -> footage on a save
+    that touched neither field.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._wp = editroom.work_path
+        editroom.work_path = lambda slug: self.tmp
+        import pipeline.ingest as ingest_mod
+        self._iwp = ingest_mod.work_path
+        ingest_mod.work_path = lambda slug: self.tmp
+
+    def tearDown(self):
+        import pipeline.ingest as ingest_mod
+        editroom.work_path = self._wp
+        ingest_mod.work_path = self._iwp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _seed(self, **over):
+        base = {"target_minutes": 0.75, "chapters": 1, "vo_share": 0.6,
+                "location": "", "subject": "how ownership concentrates",
+                "origin": "script", "delivery": "short",
+                "orientation": "portrait", "format": "youtube_short"}
+        base.update(over)
+        editroom._write_json(self.tmp / "story_brief.json", base)
+
+    def test_a_save_that_omits_origin_does_not_flip_the_lane(self):
+        self._seed()
+        # exactly what the Studio's form sends
+        b = editroom._save_story_brief("ep", 0.75, 1, "")
+        self.assertEqual(b["origin"], "script")
+
+    def test_a_save_that_omits_subject_does_not_erase_it(self):
+        self._seed()
+        b = editroom._save_story_brief("ep", 0.75, 1, "")
+        self.assertEqual(b["subject"], "how ownership concentrates")
+
+    def test_a_save_that_omits_location_does_not_erase_it(self):
+        self._seed(location="Houston", subject="")
+        b = editroom._save_story_brief("ep", 10, 3, "")
+        self.assertEqual(b["location"], "Houston")
+
+    def test_an_EMPTY_STRING_still_clears_the_field(self):
+        # absent and cleared are different edits, and the form must keep
+        # being able to make the second one
+        self._seed(location="Houston")
+        b = editroom._save_story_brief("ep", 10, 3, "", "")
+        self.assertEqual(b["location"], "")
+        # and clearing the location does not take the subject with it
+        self.assertEqual(b["subject"], "how ownership concentrates")
+
+    def test_the_lane_can_still_be_stated_explicitly(self):
+        self._seed()
+        b = editroom._save_story_brief("ep", 0.75, 1, "", None, None, None, "footage")
+        self.assertEqual(b["origin"], "footage")
+
+    def test_a_script_lane_save_that_would_erase_its_only_subject_is_refused(self):
+        # the gate still bites when the subject is genuinely cleared
+        self._seed()
+        with self.assertRaises(IngestError):
+            editroom._save_story_brief("ep", 0.75, 1, "", "", 0.6, "")
+
+    def test_a_brand_new_project_still_defaults_to_footage(self):
+        b = editroom._save_story_brief("ep", 10, 3, "", "Houston")
+        self.assertEqual(b["origin"], "footage")
+        self.assertEqual(b["delivery"], "long")

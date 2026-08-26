@@ -3574,9 +3574,9 @@ def _clear_footage(slug: str) -> "dict":
 
 
 def _save_story_brief(slug: str, target_minutes, chapters,
-                      notes: str = "", location: str = "",
-                      vo_share=None, subject: str = "",
-                      origin: str = "footage",
+                      notes: str = "", location: "str | None" = None,
+                      vo_share=None, subject: "str | None" = None,
+                      origin: "str | None" = None,
                       delivery: "str | None" = None,
                       shorts_source: "str | None" = None) -> "dict":
     """The pre-production questionnaire (Caleb, 2026-08-23): target length
@@ -3613,28 +3613,20 @@ def _save_story_brief(slug: str, target_minutes, chapters,
         raise IngestError("vo_share must be a number between 0 and 1")
     if not (0.0 <= vo <= 1.0):
         raise IngestError("vo_share must be between 0 and 1")
-    location = str(location or "").strip()
-    if len(location) > 200:
-        raise IngestError("location: keep it under 200 characters")
-    # A visit names a PLACE; a script-led episode names a TOPIC ("why the
-    # Foucault pendulum stopped"). Both fields survive because an episode
-    # can carry both -- a topic anchored at a place -- and research reads
-    # whichever it is given.
-    subject = str(subject or "").strip()
-    if len(subject) > 200:
-        raise IngestError("subject: keep it under 200 characters")
-    # The lane is stated, never sniffed from an empty footage folder: that
-    # would make "I have not uploaded yet" and "there will never be
-    # footage" the same state, and they lead to opposite pipelines.
-    origin = str(origin or "footage").strip() or "footage"
-    if origin not in schemas.ORIGINS:
-        raise IngestError("origin must be 'footage' or 'script'")
-    if origin == "script" and not subject and not location:
-        raise IngestError("a script-led episode needs a subject -- with no "
-                          "footage it is the only thing to research")
-    # Delivery is sticky: editing the brief on the Story desk must not
-    # silently re-shape a project back to 16:9 because the form did not
-    # send the field. Creation decided it; absence means "unchanged".
+    # ABSENCE MEANS UNCHANGED, for every sticky field.
+    #
+    # `delivery` already had this rule and named the reason: editing the
+    # brief must not re-shape a project because the form did not send a
+    # field. `origin` sat three lines away with a "footage" DEFAULT and
+    # the Studio's form has never sent it — so pressing Save brief on a
+    # documentary silently converted it to the filmed lane, changing the
+    # rail order, the guided path and which agents run. Verified live on
+    # `oligarchy` (2026-08-26): origin went script -> footage on a save
+    # that touched neither field.
+    #
+    # `None` is "the caller said nothing"; `""` is "the caller cleared
+    # it". The route passes the body's value through untouched so the two
+    # stay distinguishable.
     prev = {}
     bp = work_path(slug) / "story_brief.json"
     if bp.exists():
@@ -3642,6 +3634,33 @@ def _save_story_brief(slug: str, target_minutes, chapters,
             prev = json.loads(bp.read_text())
         except ValueError:
             prev = {}
+    if not isinstance(prev, dict):
+        prev = {}
+
+    location = str((prev.get("location", "") if location is None else location)
+                   or "").strip()
+    if len(location) > 200:
+        raise IngestError("location: keep it under 200 characters")
+    # A visit names a PLACE; a script-led episode names a TOPIC ("why the
+    # Foucault pendulum stopped"). Both fields survive because an episode
+    # can carry both -- a topic anchored at a place -- and research reads
+    # whichever it is given.
+    subject = str((prev.get("subject", "") if subject is None else subject)
+                  or "").strip()
+    if len(subject) > 200:
+        raise IngestError("subject: keep it under 200 characters")
+    # The lane is stated, never sniffed from an empty footage folder: that
+    # would make "I have not uploaded yet" and "there will never be
+    # footage" the same state, and they lead to opposite pipelines.
+    origin = str((prev.get("origin") if origin is None else origin)
+                 or "footage").strip() or "footage"
+    if origin not in schemas.ORIGINS:
+        raise IngestError("origin must be 'footage' or 'script'")
+    if origin == "script" and not subject and not location:
+        raise IngestError("a script-led episode needs a subject -- with no "
+                          "footage it is the only thing to research")
+    # Delivery is sticky for the same reason, and was the first field to
+    # get the rule (see the block above, which now applies it to all four).
     delivery = str(delivery or prev.get("delivery") or "long").strip()
     if delivery not in schemas.DELIVERIES:
         raise IngestError("delivery must be 'long' or 'short'")
@@ -5717,10 +5736,12 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                           body.get("target_minutes"),
                                           body.get("chapters"),
                                           body.get("notes", ""),
-                                          body.get("location", ""),
+                                          # NOT `.get(k, "")` — absent and
+                                          # cleared are different edits
+                                          body.get("location"),
                                           body.get("vo_share"),
-                                          body.get("subject", ""),
-                                          body.get("origin", "footage"),
+                                          body.get("subject"),
+                                          body.get("origin"),
                                           body.get("delivery"),
                                           body.get("shorts_source"))
                 self._send(200, {"ok": True, "brief": brief})
