@@ -377,3 +377,84 @@ console settings, recordings, decisions). Check items off when done.
   count. The fix costs about ten seconds at the door: once you know what the
   episode is likely to land on, grab a wide of it on the way IN, before anyone
   reacts to it. Only you can shoot it.
+
+- [ ] **Get B030 and B100 into `the-pendulum-that-stopped`.** (added 2026-08-25,
+  from your Q8 = a on the script round.) Both pendulum clips live in
+  `work/houston-museum-of-natural-science/analysis/broll.json`; this slug's
+  `analysis/` is empty. `CH1.S2` (18.4s) and `CH1.S7` (12.4s) declare them
+  `from: "library"`, but `coverage_budget` only ever reads THIS slug's
+  `broll.json` — so until the files and an entry for each exist here, those
+  31 seconds read as an uncovered hole and the sourcing stage will try to buy
+  pendulum pictures we already own. It needs an ingest pass on this slug, which
+  is the engine's job and yours to start, not the script director's.
+
+- [ ] **Brief Claude Design: four new screens for `the-pendulum-that-stopped`**
+  (added 2026-08-25, from the sourcing PROPOSE pass). The script declares
+  105.2s of its 180s of narration `from: "graphic"`, and the kit can serve
+  only 13.6s of it today. Four components do not exist, and rule 6 says they
+  are designed there and re-implemented here, not invented in the pipeline:
+  (a) **a rotating globe** with a pinned latitude and a chalk arc sweeping
+  exactly 180 degrees (CH1.S4, 18.0s) — `flight_path` draws a travelling path
+  but across a flat map;
+  (b) **a technical cutaway** of the pivot head — collar, coil, contact
+  closing at mid-swing, the tug as one arrow — on a loop that holds 21.6s
+  (CH3.S2). This one carries the answer the whole episode is built toward;
+  (c) and (d) **two illustrative scene plates** (CH2.S7 15.6s, CH2.S8 14.8s):
+  the dented original bob in its vitrine, and the Smithsonian's pendulum down
+  its stairwell. Design these two together — they cut back to back and should
+  read as a pair. Nothing in `RENDERERS` draws a scene at all: `compare` puts
+  two *supplied* images side by side, `callout` frames a detail. Both plates
+  need the small grey "illustration" label actually shipped, or a drawing of a
+  real object reads as a photograph of it.
+  All four in Cyanotype's register, and the yellow moment goes on the thing
+  the sentence is about — the pin, the tug arrow, the dent, the falling bob.
+  Only you can open the Claude Design brief.
+
+- [ ] **Decide where `the-pendulum-that-stopped` spends its `payoff` card.**
+  (added 2026-08-25, same pass.) CH3.S6 wants a sourced-quote card and the kit
+  already draws one — `quote` is an alias of `payoff` and it does take
+  `attribution`, rendering it as a small cyan caps line. But `payoff` is
+  documented "Reserved for the takeaway line, once per video," and this
+  episode closes on a 34.4s desk section that will almost certainly want it.
+  Either the Hemberger quote gets it and the close does without, or the
+  dedicated sourced-quote card from the Johnny Harris study (item (a) above,
+  still unbuilt) finally gets briefed. Your call, not the graphics-director's.
+
+- [ ] **Approve the two archival rounds for `the-pendulum-that-stopped`, and
+  settle the 1851 problem.** (added 2026-08-25, from the sourcing PROPOSE
+  re-run.) `CH2.S3` and `CH2.S4` are the only 44s of the episode that can be
+  BOUGHT rather than drawn, and both rounds now carry six resolved candidates
+  each with real item pages and previews. The `CH2.S3` half is easy — three
+  period portraits, take one. `CH2.S4` is not, and it needs you: **no genuine
+  1851 depiction of the Pantheon demonstration exists** in Commons, Gallica or
+  Wellcome. What is available is a 1902 drawing of the event, a 1902 photo of
+  a reconstruction of it, an 1850s engraving of the WRONG demonstration (Baden
+  Powell at the Royal Institution in London), and the modern replica on video.
+  The episode spends CH2.S5 correcting a placard for confusing London 1851
+  with Paris 1851, so running the London engraving under the Pantheon line is
+  the exact error we are calling out one beat earlier. Either a date goes on
+  screen over whichever picture wins, or the sand bed becomes a fifth kit
+  plate and the archival budget drops to 18.8s. Only you can spend the money
+  or add the fifth screen to the Design brief above.
+
+- [ ] **Two CC-BY credit lines owe the description on upload day for
+  `the-pendulum-that-stopped`.** (added 2026-08-25, from the sourcing FETCH
+  run.) Both approved archival picks are Creative Commons **Attribution**, not
+  public domain — Commons' own licensing block says `AttributionRequired:
+  true` on each — so the credit is a condition of use, not a courtesy, and it
+  has to be in the published description. Paste verbatim:
+  `Fondo Antiguo de la Biblioteca de la Universidad de Sevilla, CC BY 2.0, via
+  Wikimedia Commons` (the 1882 engraving on CH2.S3) and `Zátonyi Sándor,
+  (ifj.) Fizped, CC BY 4.0, via Wikimedia Commons` (the Panthéon video on
+  CH2.S4). Both strings also live in `work/the-pendulum-that-stopped/assets/
+  assets.json`. Only you can edit the description at upload.
+
+- [ ] **Put a date on screen over the Panthéon video, and decide the CH2.S3
+  cellar.** (added 2026-08-25, same run.) The fetched CH2.S4 clip is the
+  **modern replica** swinging under the dome — it carries the room, the drop
+  and the scale of a 67 m wire, and it must not run under the 1851 sentences
+  as if it were the demonstration; that is the same London-1851/Paris-1851
+  error CH2.S5 calls out. And the CH2.S3 pick covers only the apparatus half:
+  no period image of the rue de Vaugirard cellar was found in Commons, Gallica
+  or Wellcome, so the lamplit cellar the line describes is still either a kit
+  plate or nothing. Your call on both, before the cut locks.
