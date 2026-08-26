@@ -1586,10 +1586,15 @@ def _sourcing_budget_clause(slug) -> str:
         parts = ", ".join("%s %.0fs" % (k, v)
                           for k, v in sorted(declared.items())) or "nothing"
         return ("Budget: %.0f minutes of narration, and this episode has NO "
-                "footage of its own -- the script is the brief. Its lines "
-                "declare where each picture should come from: %s. About "
-                "%.0f minutes of that has to be sourced or made. Work to "
-                "those declarations rather than inventing needs. "
+                "footage of its own -- the script is the brief. EVERY "
+                "section carrying a `visual` block declares where its "
+                "picture comes from, desk sections included: a desk line "
+                "is performed to camera and usually needs nothing, but "
+                "when it names a cutaway that cutaway is owed like any "
+                "other. Totalled: %s. About %.0f minutes of that has to be "
+                "sourced or made. Work to those declarations rather than "
+                "inventing needs, and leave nothing that declares a "
+                "picture without one. "
                 % (b["vo_seconds"] / 60.0, parts,
                    b.get("to_source_seconds", 0) / 60.0))
     return ("Budget: %.0f minutes of narration to cover, %.0f minutes of "
@@ -1624,7 +1629,14 @@ SOURCING_SCRIPT_LANE = (
 
 
 def _sourcing_prompt(slug) -> str:
-    """The propose prompt, with the lane's own framing folded in."""
+    """The propose prompt, with the lane's own framing folded in.
+
+    The two halves have to AGREE about what owes a picture. They did not:
+    the lane framing said "each section's `visual` block" while the budget
+    clause said "its lines" over a total that counted only `vo`. The agent
+    worked to the arithmetic, covered all seven vo lines, and never saw
+    CH1.S2 -- a desk section declaring a stock cutaway (2026-08-26).
+    """
     lane = (SOURCING_SCRIPT_LANE % {"slug": slug}
             if _script_origin(slug) == "script" else "")
     return SOURCING_PROMPT % {"slug": slug,

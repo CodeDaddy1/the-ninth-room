@@ -226,5 +226,52 @@ class SourcingNoOp(LaneBase):
         for bad in (None, {}, {"chapters": None}, {"chapters": [None]}):
             self.assertEqual(schemas.unproposed_sections(bad, None), [])
 
+
+class CoverageBudgetCountsEverySection(unittest.TestCase):
+    """The sourcer proposes against this arithmetic, so a picture missing
+    from it is a picture nobody buys.
+
+    `declared_seconds` counted only `vo` sections, so CH1.S2 on the
+    oligarchy short — a desk line declaring a stock cutaway — was invisible
+    to the budget and never proposed, while all seven vo lines were
+    covered (2026-08-26).
+    """
+
+    SCRIPT = {"chapters": [{"id": "CH1", "sections": [
+        {"id": "S1", "kind": "vo", "est_s": 4.0,
+         "visual": {"want": "w", "why": "y", "from": "stock"}},
+        {"id": "S2", "kind": "desk", "est_s": 6.8,
+         "visual": {"want": "w", "why": "y", "from": "stock"}},
+        {"id": "S3", "kind": "desk", "est_s": 5.0},
+        {"id": "S4", "kind": "oncamera", "est_s": 3.0,
+         "visual": {"want": "w", "why": "y", "from": "archival"}},
+    ]}]}
+
+    def test_a_desk_line_that_declares_a_cutaway_is_counted(self):
+        b = schemas.coverage_budget(self.SCRIPT, {})
+        self.assertEqual(b["declared_seconds"]["stock"], 10.8)
+
+    def test_an_oncamera_line_that_declares_one_is_counted_too(self):
+        b = schemas.coverage_budget(self.SCRIPT, {})
+        self.assertEqual(b["declared_seconds"]["archival"], 3.0)
+
+    def test_a_section_with_no_visual_is_never_counted(self):
+        # S3 is a desk line whose face IS the shot
+        b = schemas.coverage_budget(self.SCRIPT, {})
+        self.assertEqual(sum(b["declared_seconds"].values()), 13.8)
+
+    def test_vo_seconds_stays_VO_ONLY(self):
+        """A different question: narration with nobody on camera to cut
+        to. Widening it would overstate the coverage debt."""
+        b = schemas.coverage_budget(self.SCRIPT, {})
+        self.assertEqual(b["vo_seconds"], 4.0)
+
+    def test_the_budget_and_the_gap_check_agree_on_what_owes_a_picture(self):
+        # the two arithmetics the sourcer is judged by must not disagree
+        gaps = schemas.unproposed_sections(self.SCRIPT, {"rounds": []})
+        b = schemas.coverage_budget(self.SCRIPT, {})
+        self.assertEqual(sorted(gaps), ["S1", "S2", "S4"])
+        self.assertGreater(sum(b["declared_seconds"].values()), 0)
+
 if __name__ == "__main__":
     unittest.main()

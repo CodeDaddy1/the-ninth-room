@@ -1378,14 +1378,22 @@ def coverage_budget(script: "dict[str, Any]",
     # What the SCRIPT itself declared it needs (2026-08-24). A script-led
     # episode has no library to measure a shortfall against — dividing into
     # a library of zero says "everything is missing", which is true and
-    # useless. The `visual.from` on each vo line says where its picture is
+    # useless. The `visual.from` on each section says where its picture is
     # meant to come from, so the sourcing stage can propose against a brief
     # instead of against an absence.
+    #
+    # EVERY SECTION THAT DECLARES ONE, not just the vo lines. `vo_seconds`
+    # above is rightly vo-only — it measures narration with nobody on
+    # camera to cut to. This is a different question: what did the script
+    # ASK FOR. A desk line is performed to camera and usually needs
+    # nothing, but it can still declare a cutaway of its own, and one did:
+    # CH1.S2 on the oligarchy short wanted stock, was invisible to this
+    # total, and so was never proposed while all seven vo lines were
+    # covered (2026-08-26). The sourcer proposes against this arithmetic,
+    # so a picture missing from it is a picture nobody buys.
     declared: "dict[str, float]" = {k: 0.0 for k in VISUAL_FROM}
     for ch in script.get("chapters", []):
         for sec in (ch or {}).get("sections", []) or []:
-            if sec.get("kind") != "vo":
-                continue
             vis = sec.get("visual")
             if not isinstance(vis, dict):
                 continue
