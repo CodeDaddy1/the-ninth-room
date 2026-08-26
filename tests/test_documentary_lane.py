@@ -47,6 +47,11 @@ class LaneBase(unittest.TestCase):
             {"origin": origin, "subject": "how ownership concentrates",
              "target_minutes": 0.75, "chapters": 1}))
 
+    def _takes(self):
+        (self.tmp / "analysis").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "analysis" / "takes.json").write_text(
+            json.dumps({"takes": [], "groups": []}))
+
     def _script(self, locked):
         (self.tmp / "script.json").write_text(json.dumps(
             {"slug": "ep", "origin": "script", "locked": locked,
@@ -62,11 +67,30 @@ class EditPlanGate(LaneBase):
         naming a pitch can never be satisfied."""
         self._brief("script")
         self._script(locked=True)
+        self._takes()
         # it gets PAST the gate and fails later, on the dispatch — which is
         # a different thing entirely from being refused for a missing pitch
         with self.assertRaises(Exception) as cm:
             jobs._run_editplan("ep", lambda *a: None, lambda p: None)
         self.assertNotIn("pitch", str(cm.exception).lower())
+
+    def test_unrecorded_lines_are_refused_BEFORE_a_session_is_dispatched(self):
+        """The cut references recorded takes by id, so with no ingest the
+        designer has nothing to reference.
+
+        It cost a full billed session to learn that once: the agent ran,
+        explained what it could not do, and the job failed with "session
+        finished but edit_plan.json was not written". A gate a file check
+        can answer must answer before the dispatch.
+        """
+        self._brief("script")
+        self._script(locked=True)
+        with self.assertRaises(RuntimeError) as cm:
+            jobs._run_editplan("ep", lambda *a: None, lambda p: None)
+        msg = str(cm.exception)
+        self.assertIn("not recorded yet", msg)
+        # and it never reached the dispatch — that failure has its own words
+        self.assertNotIn("session finished", msg)
 
     def test_a_documentary_without_a_script_is_told_to_write_one(self):
         self._brief("script")
@@ -101,6 +125,7 @@ class EditPlanPrompt(LaneBase):
         the prompt named both unconditionally."""
         self._brief("script")
         self._script(locked=True)
+        self._takes()
         prompt = jobs._editplan_prompt("ep")
         self.assertNotIn("stories.json", prompt)
         self.assertNotIn("story_feedback.json", prompt)

@@ -909,6 +909,22 @@ def _run_editplan(slug, log, set_pct):
         if not script.get("locked"):
             raise RuntimeError("the script is not approved — approve it on "
                                "the Script desk; the cut is built from it")
+        # AND THE LINES HAVE TO EXIST. The cut references recorded takes
+        # by id, so without an ingest there is nothing to reference — the
+        # designer reads `analysis/takes.json`, finds no file, and stops.
+        #
+        # It cost a full session to learn that: the agent ran, wrote a
+        # careful account of what it could not do, and the job failed with
+        # "session finished but edit_plan.json was not written" (measured
+        # on the oligarchy short, 2026-08-26). A dispatched session is
+        # billed minutes; a gate that a file check can answer must answer
+        # before the dispatch, not after.
+        if not (work / "analysis" / "takes.json").exists():
+            raise RuntimeError(
+                "the lines are not recorded yet — record them on the "
+                "Script desk and let the analysis run; the cut is built "
+                "from the takes, so there is nothing to cut from until "
+                "then")
     else:
         fb = work / "story_feedback.json"
         if not (work / "stories.json").exists():

@@ -458,3 +458,29 @@ console settings, recordings, decisions). Check items off when done.
   no period image of the rue de Vaugirard cellar was found in Commons, Gallica
   or Wellcome, so the lamplit cellar the line describes is still either a kit
   plate or nothing. Your call on both, before the cut locks.
+
+- [ ] **`oligarchy` has an approved, locked script and zero frames of footage
+  — the cut cannot be built until you record it.** (added 2026-08-26, from the
+  edit-plan run.) All ten performed sections are unrecorded, so the engine's
+  own next step reads "Approved. Record the desk and voice-over lines, then
+  Build the cut." Recordings match sections by FILENAME, so use exactly these
+  prefixes (Studio teleprompter emits them; `<n>` is the take number):
+  `vo_CH1-S1_r1_t<n>`, `desk_CH1-S2_r1_t<n>`, `vo_CH1-S3_r1_t<n>`,
+  `vo_CH1-S4_r1_t<n>`, `desk_CH1-S5_r1_t<n>`, `vo_CH1-S6_r1_t<n>`,
+  `vo_CH1-S7_r1_t<n>`, `vo_CH1-S8_r1_t<n>`, `vo_CH1-S9_r1_t<n>`,
+  `desk_CH1-S10_r1_t<n>`. The three `desk_` names are deliberate and not
+  interchangeable with `vo_`: four rules hard-block a `vo_` picture from ever
+  reaching the screen, and S2, S5 and S10 are the ones where your face IS the
+  shot. Only you can perform these.
+
+- [ ] **`oligarchy` needs 28.8s of covering picture bought or shot, and all
+  seven asset requests are still `proposed`.** (added 2026-08-26, same run.)
+  Every voice-over second is a second with no face to cut to, and the library
+  is empty: 20.0s must come from stock, 4.4s is a kit graphic (the corrected
+  market-share stat on CH1.S6), and 4.4s **only you can shoot** — CH1.S1 is
+  the macro on the maker's name stamped inside your own glasses, and the
+  sourcer was right that no stock pair can stand in, because the whole short
+  turns on the viewer reading the name in YOUR glasses. Note the sourcer's own
+  finding on CH1.S3: no stock clip it found has a legible designer name on the
+  temple arm, so "Chanel. Prada. Armani. Versace." has no picture that proves
+  it yet. Only you can approve the candidates and spend the money.
