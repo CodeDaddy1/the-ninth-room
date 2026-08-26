@@ -96,6 +96,16 @@ class BulkBase(unittest.TestCase):
 
 
 class MoveChapter(BulkBase):
+    def test_beat_ids_must_be_a_list_of_strings(self):
+        """A bare string was ITERATED PER CHARACTER — "BT02" came back
+        "not in the cut: B, T, 0" — and a number was a 500."""
+        for bad in ("BT02", 7, {"id": "BT02"}, [1, 2]):
+            with self.assertRaises(IngestError):
+                editroom._beat_id_list(bad)
+        self.assertEqual(editroom._beat_id_list(["BT02", " BT03 ", ""]),
+                         ["BT02", "BT03"])
+        self.assertEqual(editroom._beat_id_list(None), [])
+
     def test_moves_many_clips_at_once(self):
         out = editroom._beat_move("ep", ["BT01", "BT02"], "CH2")
         self.assertEqual(out["moved"], ["BT01", "BT02"])
@@ -109,13 +119,26 @@ class MoveChapter(BulkBase):
         editroom._beat_move("ep", ["BT01"], "CH2")
         self.assertEqual(self.ids(), ["BT01", "BT02", "BT03", "BT04"])
 
-    def test_a_move_neither_resets_the_verdict_nor_reassembles(self):
+    def test_a_move_keeps_the_verdict_but_DOES_reconcile_the_render(self):
+        """This test used to assert `queued == []`, on the premise that
+        `chapter_id` only decides where a clip READS.
+
+        It does not — it is an AUDIO field. `sfx.py` groups the ducked
+        music beds by chapter and walks a per-chapter clock, so a move
+        changes which bed plays under the clip and shifts the music seek
+        position for every later beat in both chapters. Without a
+        re-assemble the rendered previews hold the old mix while the plan
+        describes a new one (review, 2026-08-26).
+
+        The verdict genuinely does stand: what the clip SHOWS is unchanged.
+        """
         (self.tmp / "review.json").write_text(json.dumps(
             {"BT01": {"status": "approved"}}))
-        editroom._beat_move("ep", ["BT01"], "CH2")
+        out = editroom._beat_move("ep", ["BT01"], "CH2")
         review = json.loads((self.tmp / "review.json").read_text())
         self.assertEqual(review["BT01"]["status"], "approved")
-        self.assertEqual(self.queued, [])
+        self.assertEqual(self.queued, ["assemble"])
+        self.assertTrue(out["assembling"])
 
     def test_an_unknown_chapter_is_refused_and_nothing_moves(self):
         with self.assertRaises(IngestError):
@@ -146,8 +169,11 @@ class RemoveClips(BulkBase):
         entry = self.trash()[-1]
         self.assertEqual(entry["kind"], "beat")
         self.assertEqual(entry["beat_id"], "BT02")
-        self.assertEqual(entry["index"], 1)
-        self.assertEqual(entry["payload"]["take_id"], "T2")
+        self.assertEqual(entry["count"], 1)
+        self.assertEqual(entry["beats"][0]["index"], 1)
+        self.assertEqual(entry["beats"][0]["beat"]["take_id"], "T2")
+
+
 
     def test_a_restore_puts_the_clip_back_where_it_was(self):
         """Appending would re-order the episode silently, which is a
@@ -213,3 +239,117 @@ class RemoveClips(BulkBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RemovalDefectsFoundInReview(BulkBase):
+    """Each of these was a confirmed defect on 2026-08-26, with a
+    reproduction. They are pinned so the fixes cannot quietly regress."""
+
+    def _big_plan(self, n=12):
+        """A cut long enough to exceed TRASH_CAP in one bulk action."""
+        beats = [{"id": "BT01", "purpose": "hook", "chapter_id": "CH1",
+                  "take_id": "T1", "trim": {"s": 1.0, "e": 6.0}, "fragment": True}]
+        takes = [{"id": "T1", "file": "a.mov", "s": 0.5, "e": 7.0, "duration": 6.5,
+                  "transcript": "the room had been sealed for forty years"}]
+        for i in range(2, n):
+            beats.append({"id": "BT%02d" % i, "purpose": "build",
+                          "chapter_id": "CH1", "take_id": "T%d" % i,
+                          "trim": {"s": 0.0, "e": 4.0}, "fragment": True})
+            takes.append({"id": "T%d" % i, "file": "f%d.mov" % i, "s": 0.0,
+                          "e": 4.5, "duration": 4.5,
+                          "transcript": "a line about the inventory number %d" % i})
+        beats.append({"id": "BT%02d" % n, "purpose": "payoff",
+                      "chapter_id": "CH2", "take_id": "T%d" % n,
+                      "trim": {"s": 0.0, "e": 5.0}, "fragment": True})
+        takes.append({"id": "T%d" % n, "file": "z.mov", "s": 0.0, "e": 5.5,
+                      "duration": 5.5, "transcript": "and then somebody opened it"})
+        plan = _plan()
+        plan["beats"] = beats
+        (self.tmp / "edit_plan.json").write_text(json.dumps(plan))
+        (self.tmp / "analysis" / "takes.json").write_text(
+            json.dumps({"takes": takes, "groups": []}))
+
+    def test_removing_more_clips_than_the_trash_cap_keeps_every_undo(self):
+        """
+        TRASH_CAP is 7 and `_beat_remove` used to add one entry per clip,
+        so removing 8 pushed the earliest ones out of their own undo — and
+        evicted every unrelated b-roll and card entry with them.
+        """
+        self._big_plan(12)
+        ids = ["BT%02d" % i for i in range(2, 11)]     # nine clips
+        editroom._beat_remove("ep", ids)
+        beat_entries = [e for e in self.trash() if e["kind"] == "beat"]
+        self.assertEqual(len(beat_entries), 1, "one batch, one entry")
+        self.assertEqual(
+            [r["beat"]["id"] for r in beat_entries[0]["beats"]], ids,
+            "every removed clip is still undoable",
+        )
+
+    def test_a_bulk_removal_does_not_evict_unrelated_trash(self):
+        self._big_plan(12)
+        editroom._trash_add("ep", "broll", {"beat_id": "BT01", "clip_id": "B001",
+                                            "at": 0, "duration": 2, "src_s": 0})
+        editroom._beat_remove("ep", ["BT%02d" % i for i in range(2, 11)])
+        kinds = [e["kind"] for e in self.trash()]
+        self.assertIn("broll", kinds, "the cover's undo survived the batch")
+
+    def test_restoring_a_batch_puts_every_clip_back_IN_ORDER(self):
+        """
+        Restoring one at a time is only correct ascending, and a trash list
+        rendered newest-first hands them back descending: remove BT02 and
+        BT03, restore BT03 then BT02, and the cut came back
+        [BT01, BT02, BT04, BT03] — the payoff before a build beat.
+        """
+        editroom._beat_remove("ep", ["BT02", "BT03"])
+        self.assertEqual(self.ids(), ["BT01", "BT04"])
+        uid = [e for e in self.trash() if e["kind"] == "beat"][-1]["uid"]
+        editroom._trash_restore("ep", uid)
+        self.assertEqual(self.ids(), ["BT01", "BT02", "BT03", "BT04"])
+
+    def test_the_undo_is_written_BEFORE_the_plan_is_committed(self):
+        """
+        Gate F11's rule, which `_broll_remove` already carries: a failure
+        after the plan is written commits the removal while losing its
+        undo. `_trash_add` reads trash.json unguarded, so a half-written
+        one raised mid-removal and left the beats gone with no way back.
+        """
+        (self.tmp / "trash.json").write_text("{truncated")
+        with self.assertRaises(Exception):
+            editroom._beat_remove("ep", ["BT02"])
+        self.assertEqual(self.ids(), ["BT01", "BT02", "BT03", "BT04"],
+                         "the plan was NOT committed when the undo failed")
+
+    def test_a_removed_clip_takes_its_verdict_with_it(self):
+        """
+        `_state` counts `approved` over every review entry but `total` over
+        the timeline's beats, so an orphaned verdict made the header read
+        "4 of 3 approved" — and `_normalize_review` re-processed the
+        stranded entry forever.
+        """
+        (self.tmp / "review.json").write_text(json.dumps({
+            "BT01": {"status": "approved"},
+            "BT02": {"status": "approved"},
+        }))
+        editroom._beat_remove("ep", ["BT02"])
+        review = json.loads((self.tmp / "review.json").read_text())
+        self.assertNotIn("BT02", review)
+        self.assertIn("BT01", review, "the surviving clip keeps its verdict")
+
+    def test_a_negative_stored_index_cannot_insert_from_the_right(self):
+        """`min(idx, len)` had no lower clamp, so a hand-edited or
+        corrupt index counted from the END of the list.
+
+        Clamped to 0 it lands at the head, which puts a build beat before
+        the hook — and the validator refuses that, leaving the plan
+        untouched. Both halves matter: the clamp stops the silent
+        mis-insert, and the validator stops the bad cut.
+        """
+        editroom._beat_remove("ep", ["BT02"])
+        before = self.ids()
+        path = self.tmp / "trash.json"
+        data = json.loads(path.read_text())
+        data["entries"][-1]["beats"][0]["index"] = -5
+        path.write_text(json.dumps(data))
+        with self.assertRaises(IngestError):
+            editroom._trash_restore("ep", data["entries"][-1]["uid"])
+        self.assertEqual(self.ids(), before, "the plan is untouched")

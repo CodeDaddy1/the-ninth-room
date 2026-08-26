@@ -208,7 +208,13 @@ def _run(slug):
     raw_ops = editroom._conform_pending(slug)
     ops = _collapse_ops(raw_ops)
     if not ops:
-        st.update({"state": "done", "stage": "done"})
+        # the version is HELD, not omitted. This is the commonest outcome —
+        # everything collapsed away — and a missing key made
+        # `status.version` read `undefined` on exactly the run where the
+        # existing value is the right answer (review, 2026-08-26).
+        from . import facts as facts_mod
+        st.update({"state": "done", "stage": "done",
+                   "version": facts_mod.timeline_version(slug)})
         _write_status(slug, st)
         return
 

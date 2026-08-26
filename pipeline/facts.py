@@ -33,10 +33,42 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 import time
 from pathlib import Path
 
 from .ingest import work_path
+
+# Every other multi-writer file in this engine has a lock (review.json,
+# graphics_plan.json, the conform ledger, trash.json, edit_plan.json) and
+# these two did not. `ThreadingHTTPServer` handles uploads in parallel and
+# a browser folder-drop fires several at once, so a read-modify-write here
+# is a real race, not a theoretical one — measured 2026-08-26: 12
+# concurrent `record_source` calls kept 2 labels and raised 9 times.
+_SOURCES_LOCK = threading.Lock()
+_VERSION_LOCK = threading.Lock()
+
+
+def _write_atomic(path: Path, data) -> None:
+    """tmp + replace, with a tmp name NOBODY ELSE CAN BE USING.
+
+    A fixed `.tmp` sibling is worse than no atomicity: thread A's
+    `os.replace` moves the file out from under thread B, and B's replace
+    raises FileNotFoundError. That surfaced as a 500 on an upload that had
+    already succeeded — the file on disk, the upload stamp never set, and
+    the Studio told it failed.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".%d.%d.tmp" % (os.getpid(), threading.get_ident()))
+    try:
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 # What a file with no recorded source is called on the Footage desk. Not
 # "unknown": the file is perfectly known, its provenance is not, and the
@@ -102,6 +134,8 @@ def read_sources(slug: str) -> "dict":
         data = json.loads(p.read_text())
     except (ValueError, OSError):
         return {}
+    if not isinstance(data, dict):
+        return {}
     files = data.get("files")
     return files if isinstance(files, dict) else {}
 
@@ -122,14 +156,13 @@ def record_source(slug: str, names, source: "str | None") -> None:
     names = [n for n in names if n]
     if not names:
         return
-    p = _sources_path(slug)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    data = {"files": read_sources(slug)}
-    for n in names:
-        data["files"][n] = label[:120]
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2))
-    os.replace(tmp, p)
+    with _SOURCES_LOCK:
+        data = {"files": read_sources(slug)}
+        for n in names:
+            # basename only: the label is user-supplied and the key is a
+            # filename, and neither has any business carrying a path
+            data["files"][os.path.basename(n)] = label[:120]
+        _write_atomic(_sources_path(slug), data)
 
 
 def forget_source(slug: str, names) -> None:
@@ -137,20 +170,29 @@ def forget_source(slug: str, names) -> None:
     keep a phantom card on the desk."""
     if isinstance(names, str):
         names = [names]
-    current = read_sources(slug)
-    if not current:
-        return
-    changed = False
-    for n in names:
-        if n in current:
-            del current[n]
-            changed = True
-    if not changed:
-        return
-    p = _sources_path(slug)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"files": current}, indent=2))
-    os.replace(tmp, p)
+    with _SOURCES_LOCK:
+        current = read_sources(slug)
+        if not current:
+            return
+        changed = False
+        for n in names:
+            key = os.path.basename(n)
+            if key in current:
+                del current[key]
+                changed = True
+        if not changed:
+            return
+        _write_atomic(_sources_path(slug), {"files": current})
+
+
+def clear_sources(slug: str) -> None:
+    """Forget every label — the shelf is empty, so nothing is attributable."""
+    with _SOURCES_LOCK:
+        p = _sources_path(slug)
+        try:
+            p.unlink()
+        except OSError:
+            pass
 
 
 def group_sources(items, labels: "dict", skipped=()) -> "list":
@@ -197,6 +239,9 @@ def live_progress(slug: str) -> "dict | None":
         pr = json.loads(p.read_text())
     except (ValueError, OSError):
         return None
+    # same shape guard as timeline_version — this one reaches /api/footage
+    if not isinstance(pr, dict):
+        return None
     if pr.get("stage") == "done":
         return None
     if time.time() - (pr.get("ts") or 0) >= PROGRESS_TTL_S:
@@ -224,19 +269,24 @@ def timeline_version(slug: str) -> int:
     if not p.exists():
         return 0
     try:
-        return int(json.loads(p.read_text()).get("version") or 0)
+        data = json.loads(p.read_text())
+        # a JSON array, a bare number, a string — every shape a hand-edited
+        # or half-written file can take. `.get` on any of them is an
+        # AttributeError, and this is read by `_state`, so an uncaught one
+        # takes the whole Shots desk down with a 500.
+        if not isinstance(data, dict):
+            return 0
+        return int(data.get("version") or 0)
     except (ValueError, OSError, TypeError):
         return 0
 
 
 def bump_timeline_version(slug: str) -> int:
-    p = _version_path(slug)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    n = timeline_version(slug) + 1
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"version": n, "ts": int(time.time())}, indent=2))
-    os.replace(tmp, p)
-    return n
+    with _VERSION_LOCK:
+        n = timeline_version(slug) + 1
+        _write_atomic(_version_path(slug),
+                      {"version": n, "ts": int(time.time())})
+        return n
 
 
 def timeline_facts(slug: str, tl: "dict | None" = None,

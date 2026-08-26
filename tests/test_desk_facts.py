@@ -194,7 +194,8 @@ class TimelineFacts(Sandboxed):
 class Origin(Sandboxed):
     def test_flips_between_the_two_lanes(self):
         editroom._write_json(self.work / "story_brief.json",
-                             {"origin": "footage", "delivery": "long"})
+                             {"origin": "footage", "delivery": "long",
+                              "subject": "the sealed room"})
         out = editroom._set_project_origin("ep", "script")
         self.assertTrue(out["changed"])
         brief = json.loads((self.work / "story_brief.json").read_text())
@@ -205,6 +206,39 @@ class Origin(Sandboxed):
     def test_setting_the_same_lane_is_a_no_op(self):
         editroom._write_json(self.work / "story_brief.json", {"origin": "script"})
         self.assertFalse(editroom._set_project_origin("ep", "script")["changed"])
+
+    def test_a_flip_to_script_needs_something_to_research(self):
+        """`_save_story_brief` refuses a script-led brief with no subject
+        or location — "with no footage it is the only thing to research".
+        This route skipped that gate, so a flip could leave a project in
+        the script lane whose own Story desk then 400s on Save."""
+        editroom._write_json(self.work / "story_brief.json", {"origin": "footage"})
+        with self.assertRaises(ingest.IngestError) as cm:
+            editroom._set_project_origin("ep", "script")
+        self.assertIn("subject", str(cm.exception))
+        # and the brief is untouched
+        brief = json.loads((self.work / "story_brief.json").read_text())
+        self.assertEqual(brief["origin"], "footage")
+
+    def test_a_location_is_enough_to_research(self):
+        editroom._write_json(self.work / "story_brief.json",
+                             {"origin": "footage", "location": "Houston"})
+        self.assertTrue(editroom._set_project_origin("ep", "script")["changed"])
+
+    def test_going_BACK_to_footage_needs_nothing(self):
+        # only the script lane has the research requirement
+        editroom._write_json(self.work / "story_brief.json", {"origin": "script"})
+        self.assertTrue(editroom._set_project_origin("ep", "footage")["changed"])
+
+    def test_a_corrupt_brief_is_a_400_not_a_500(self):
+        (self.work / "story_brief.json").write_text("{ not json")
+        with self.assertRaises(ingest.IngestError):
+            editroom._set_project_origin("ep", "footage")
+
+    def test_a_non_object_brief_is_a_400_not_a_500(self):
+        (self.work / "story_brief.json").write_text("[]")
+        with self.assertRaises(ingest.IngestError):
+            editroom._set_project_origin("ep", "footage")
 
     def test_an_unknown_lane_is_refused(self):
         with self.assertRaises(ingest.IngestError):
@@ -235,9 +269,13 @@ class IngestRetry(Sandboxed):
         cat = json.loads((self.work / "analysis" / "catalog.json").read_text())
         self.assertEqual(cat["skipped"], ["bad.mov"])
 
-    def test_a_deleted_file_leaves_the_skip_list(self):
+    def test_a_deleted_file_leaves_the_skip_list_WITHOUT_queueing_a_job(self):
         """It is not failing any more, it is gone — and leaving it on the
-        list keeps offering a retry for a file that cannot be retried."""
+        list keeps offering a retry for a file that cannot be retried.
+
+        But sweeping a name is not analysing a file. Counting it as a
+        recovery queued a full ingest over nothing (review, 2026-08-26).
+        """
         self._catalog(["gone.mov"])
         started = []
         import pipeline.jobs as jobs_mod
@@ -247,10 +285,27 @@ class IngestRetry(Sandboxed):
             out = editroom._ingest_retry("ep")
         finally:
             jobs_mod.start = orig
-        self.assertEqual(out["recovered"], ["gone.mov"])
+        self.assertEqual(out["swept"], ["gone.mov"])
+        self.assertEqual(out["recovered"], [])
         cat = json.loads((self.work / "analysis" / "catalog.json").read_text())
-        self.assertEqual(cat["skipped"], [])
-        self.assertEqual(started, [("ingest", "ep")])
+        self.assertEqual(cat["skipped"], [], "the dead name is off the list")
+        self.assertEqual(started, [], "nothing was queued over a deleted file")
+
+    def test_an_unexpected_probe_error_does_not_sink_the_batch(self):
+        """`probe_file` also raises FileNotFoundError when ffprobe is off
+        PATH, and JSONDecodeError on an empty ffprobe. Either propagated as
+        a 500, losing every result already gathered."""
+        self._catalog(["a.mov", "b.mov"])
+        self._drop("a.mov", "b.mov")
+        import pipeline.ingest as ingest_mod
+        orig = ingest_mod.probe_file
+        ingest_mod.probe_file = lambda f: (_ for _ in ()).throw(
+            FileNotFoundError(2, "No such file or directory: 'ffprobe'"))
+        try:
+            out = editroom._ingest_retry("ep")
+        finally:
+            ingest_mod.probe_file = orig
+        self.assertEqual(sorted(out["still_failing"]), ["a.mov", "b.mov"])
 
     def test_no_catalog_at_all_is_refused_by_name(self):
         with self.assertRaises(ingest.IngestError):
@@ -259,3 +314,69 @@ class IngestRetry(Sandboxed):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConcurrentSources(Sandboxed):
+    """`ThreadingHTTPServer` handles uploads in parallel and a browser
+    folder-drop fires several at once.
+
+    Before the lock (measured 2026-08-26): 12 concurrent calls kept 2
+    labels and raised 9 times — and the raise was a FileNotFoundError from
+    a SHARED tmp path, which `do_POST` turns into a 500 on an upload that
+    had already stored its file.
+    """
+
+    def test_every_concurrent_label_survives(self):
+        import threading
+        n = 24
+        start = threading.Barrier(n)
+        errors = []
+
+        def one(i):
+            try:
+                start.wait(timeout=5)
+                facts.record_source("ep", "F%02d.mov" % i, "Card %d" % (i % 3))
+            except Exception as e:      # noqa: BLE001 - the point is to see it
+                errors.append(e)
+
+        threads = [threading.Thread(target=one, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        self.assertEqual(errors, [], "a concurrent write raised")
+        self.assertEqual(len(facts.read_sources("ep")), n,
+                         "a concurrent write was lost")
+
+    def test_a_label_cannot_carry_a_path(self):
+        """The key is a filename and the label is user-supplied; neither
+        has any business escaping the project."""
+        facts.record_source("ep", "../../../etc/passwd", "Card A")
+        self.assertEqual(list(facts.read_sources("ep")), ["passwd"])
+
+    def test_no_tmp_file_is_left_behind(self):
+        facts.record_source("ep", "A.mov", "Card A")
+        leftovers = [p.name for p in self.work.iterdir() if p.name.endswith(".tmp")]
+        self.assertEqual(leftovers, [])
+
+
+class CorruptFilesDegrade(Sandboxed):
+    """Every one of these promises in a docstring that it degrades. Each
+    was a 500 through /api/state or /api/footage."""
+
+    def test_a_non_dict_version_file_reads_as_zero(self):
+        (self.work / "timeline_version.json").write_text("[1, 2, 3]")
+        self.assertEqual(facts.timeline_version("ep"), 0)
+
+    def test_a_bare_number_version_file_reads_as_zero(self):
+        (self.work / "timeline_version.json").write_text("14")
+        self.assertEqual(facts.timeline_version("ep"), 0)
+
+    def test_a_non_dict_progress_file_reports_nothing(self):
+        (self.work / "ingest_progress.json").write_text('"running"')
+        self.assertIsNone(facts.live_progress("ep"))
+
+    def test_a_non_dict_sidecar_reads_as_empty(self):
+        (self.work / "footage_sources.json").write_text("[]")
+        self.assertEqual(facts.read_sources("ep"), {})
