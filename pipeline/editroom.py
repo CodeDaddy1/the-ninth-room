@@ -111,9 +111,9 @@ def _state(slug: str) -> "dict":
             #
             # `dur` above is the ASSEMBLED length (record_e - record_s,
             # post-snapcuts); `trim` is the pre-snapcut window in the take.
-            # They are different numbers — on hmns 33 of 82 beats diverge
-            # by more than 0.5s, and BT58's `dur` (1.5) is LARGER than its
-            # window (1.1). The Studio's trim sheet pre-flighted the
+            # They are different numbers — measured on hmns, 38 of 82
+            # beats diverge by more than 0.5s and 36 have a `dur` LARGER
+            # than their window. The Studio's trim sheet pre-flighted the
             # engine's refusals against `dur` and got them wrong in both
             # directions, which is the one thing that sheet exists to
             # prevent (review, 2026-08-26).
@@ -123,8 +123,24 @@ def _state(slug: str) -> "dict":
         ch = ch_index.get(pb.get("chapter_id"))
         (ch["beats"] if ch else chapters[0]["beats"] if chapters else []).append(entry)
     total = len(tl["beats"])
-    approved = sum(1 for r in review.values() if r.get("status") == "approved")
-    flagged = sum(1 for r in review.values() if r.get("status") == "flagged")
+    # COUNT ONLY BEATS IN THE LIVE CUT.
+    #
+    # review.json keeps entries for beat ids a re-assembly dropped, and
+    # `total` counts the timeline's beats — so the two halves were reading
+    # different populations and `approved` could exceed `total`. hmns holds
+    # 96 entries against 82 beats today: fourteen ghosts, all `reworked`,
+    # so the number happens to agree right now and would stop agreeing the
+    # first time one of them was an approve.
+    #
+    # `deliver.py` has carried exactly this predicate since a row went
+    # amber over the same ghosts while the Review desk was rightly green.
+    # Sharing it is the point: a desk and a checklist that disagree about
+    # what counts are two answers to one question.
+    live_ids = {b["id"] for b in tl["beats"]}
+    approved = sum(1 for k, r in review.items()
+                   if k in live_ids and r.get("status") == "approved")
+    flagged = sum(1 for k, r in review.items()
+                  if k in live_ids and r.get("status") == "flagged")
     # The Export desk's top line, and it had no source. `duration` has sat
     # at the top of timeline_map.json since the assembler was written and
     # was read here and never forwarded; the VERSION did not exist at all
@@ -760,6 +776,18 @@ def _trash_pop(slug: str, uid: str) -> None:
         _write_json(path, data)
 
 
+def _plan_beats(slug: str) -> "list":
+    """The cut's beat list, or empty. Read outside the plan lock only for
+    a length — never to mutate."""
+    p = work_path(slug) / "edit_plan.json"
+    if not p.exists():
+        return []
+    try:
+        return json.loads(p.read_text()).get("beats", []) or []
+    except (ValueError, OSError):
+        return []
+
+
 def _trash_restore(slug: str, uid: str, kind: str = "") -> "dict":
     """Re-insert ONE trashed entry (by uid — never by second-resolution
     timestamp, P3 gate finding 1) through a VALIDATED write path. The
@@ -813,8 +841,14 @@ def _trash_restore(slug: str, uid: str, kind: str = "") -> "dict":
             # index and payload at the top level. Nothing on disk has one
             # (the `beat` kind never shipped in the old shape), but a trash
             # file is exactly the artifact that outlives a format change.
-            rows = [{"index": entry.get("index", 0), "beat": entry["payload"]}]
-        rows = sorted(rows or [], key=lambda r: int(r.get("index", 0)))
+            # default to APPEND, which is what the old code did — a 0
+            # default puts the clip at the head and the validator then
+            # refuses it for not being the hook
+            rows = [{"index": entry.get("index", len(_plan_beats(slug))),
+                     "beat": entry["payload"]}]
+        if not isinstance(rows, list):
+            raise IngestError("that trash entry is unreadable")
+        rows = sorted(rows, key=lambda r: int(r.get("index", 0)))
         if not rows:
             raise IngestError("that entry has no clips to restore")
         with _EDITPLAN_LOCK:
@@ -1741,9 +1775,29 @@ def _orientation(slug: str) -> str:
 
 
 def _write_json(path: Path, data) -> None:
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    os.replace(tmp, path)
+    """tmp + replace, with a tmp name no other writer can hold.
+
+    A FIXED `.tmp` sibling is worse than no atomicity when two threads
+    reach it: A's `os.replace` moves the file out from under B, and B's
+    replace raises FileNotFoundError. `facts.py` had exactly this and it
+    surfaced as a 500 on an upload that had already succeeded (review,
+    2026-08-26).
+
+    Most callers here hold a lock, so this was latent — but
+    `story_brief.json` now has TWO unlocked writers (`_save_story_brief`
+    and `_set_project_origin`), and a per-writer name costs nothing.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".%d.%d.tmp" % (os.getpid(), threading.get_ident()))
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _custom_path(slug: str) -> Path:
@@ -2399,16 +2453,23 @@ def _set_project_origin(slug: str, origin: str) -> "dict":
                           "fix work/%s/story_brief.json" % slug)
     if brief.get("origin") == origin:
         return {"slug": slug, "origin": origin, "changed": False}
-    # THE SAME GATE `_save_story_brief` APPLIES. It refuses a script-led
-    # brief with no subject or location — "with no footage it is the only
-    # thing to research" — and this route skipped it, so a flip could put
-    # a project in the script lane with nothing to research and the Story
-    # desk's own Save would then 400 until someone backfilled it.
-    if origin == "script" and not (str(brief.get("subject") or "").strip()
-                                   or str(brief.get("location") or "").strip()):
-        raise IngestError(
-            "a script-led episode needs a subject — with no footage it is "
-            "the only thing to research. Add one on the Story desk first.")
+    # NO SUBJECT GATE HERE, deliberately — and this reverses a fix.
+    #
+    # A first review flagged that this route skips the check
+    # `_save_story_brief` applies (a script-led brief needs a subject or a
+    # location, "with no footage it is the only thing to research"), so a
+    # flip could leave a project the Story desk would then refuse to save.
+    # The gate went in, and a second review found what it broke: a
+    # brand-new project has `subject: ""`, so NOTHING could be flipped
+    # until someone had already written a subject — three lines under the
+    # create form's own promise that "the path order can change later".
+    #
+    # `_new_project` accepts `origin="script"` with an empty subject and
+    # always has. Refusing the flip while permitting the creation is one
+    # rule enforced in one of the two places that reach the same state.
+    # `_save_story_brief` is the enforcement point: it asks for a subject
+    # when you SAVE a brief, which is when the subject is the thing being
+    # written.
     brief["origin"] = origin
     _write_json(path, brief)
     return {"slug": slug, "origin": origin, "changed": True}

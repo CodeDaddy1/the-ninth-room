@@ -207,28 +207,24 @@ class Origin(Sandboxed):
         editroom._write_json(self.work / "story_brief.json", {"origin": "script"})
         self.assertFalse(editroom._set_project_origin("ep", "script")["changed"])
 
-    def test_a_flip_to_script_needs_something_to_research(self):
-        """`_save_story_brief` refuses a script-led brief with no subject
-        or location — "with no footage it is the only thing to research".
-        This route skipped that gate, so a flip could leave a project in
-        the script lane whose own Story desk then 400s on Save."""
-        editroom._write_json(self.work / "story_brief.json", {"origin": "footage"})
-        with self.assertRaises(ingest.IngestError) as cm:
-            editroom._set_project_origin("ep", "script")
-        self.assertIn("subject", str(cm.exception))
-        # and the brief is untouched
-        brief = json.loads((self.work / "story_brief.json").read_text())
-        self.assertEqual(brief["origin"], "footage")
+    def test_a_BRAND_NEW_project_can_still_flip(self):
+        """A subject gate briefly lived here, and broke the promise the
+        create form makes three lines above the swap button.
 
-    def test_a_location_is_enough_to_research(self):
+        `_new_project` writes `subject: ""` and accepts `origin="script"`,
+        so a gate here refused a state the app creates on purpose —
+        nothing could be flipped until someone had already written a
+        subject. `_save_story_brief` is the enforcement point: it asks
+        when you SAVE a brief, which is when the subject is being written.
+        """
         editroom._write_json(self.work / "story_brief.json",
-                             {"origin": "footage", "location": "Houston"})
+                             {"origin": "footage", "subject": "", "location": ""})
         self.assertTrue(editroom._set_project_origin("ep", "script")["changed"])
 
-    def test_going_BACK_to_footage_needs_nothing(self):
-        # only the script lane has the research requirement
+    def test_a_project_born_in_the_script_lane_can_flip_back_and_forth(self):
         editroom._write_json(self.work / "story_brief.json", {"origin": "script"})
         self.assertTrue(editroom._set_project_origin("ep", "footage")["changed"])
+        self.assertTrue(editroom._set_project_origin("ep", "script")["changed"])
 
     def test_a_corrupt_brief_is_a_400_not_a_500(self):
         (self.work / "story_brief.json").write_text("{ not json")
@@ -312,9 +308,6 @@ class IngestRetry(Sandboxed):
             editroom._ingest_retry("ep")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class ConcurrentSources(Sandboxed):
     """`ThreadingHTTPServer` handles uploads in parallel and a browser
@@ -380,3 +373,6 @@ class CorruptFilesDegrade(Sandboxed):
     def test_a_non_dict_sidecar_reads_as_empty(self):
         (self.work / "footage_sources.json").write_text("[]")
         self.assertEqual(facts.read_sources("ep"), {})
+
+if __name__ == "__main__":
+    unittest.main()

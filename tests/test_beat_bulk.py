@@ -237,9 +237,6 @@ class RemoveClips(BulkBase):
         self.assertEqual(self.ids(), ["BT01", "BT02", "BT03", "BT04"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class RemovalDefectsFoundInReview(BulkBase):
     """Each of these was a confirmed defect on 2026-08-26, with a
@@ -369,3 +366,59 @@ class RemovalDefectsFoundInReview(BulkBase):
         path.write_text(json.dumps(data))
         editroom._trash_restore("ep", "legacy-1")
         self.assertEqual(self.ids(), ["BT01", "BT02", "BT03", "BT04"])
+
+
+class GhostVerdicts(BulkBase):
+    """review.json outlives the cut, and `_state` read the two halves from
+    different populations.
+
+    Live on hmns when this was found: 96 review entries against 82 timeline
+    beats. All fourteen ghosts happened to be `reworked`, so the number
+    agreed — and would have stopped agreeing the first time one of them was
+    an approve.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # `analysis_dir` is ingest's and editroom imported it BY VALUE, so
+        # patching editroom.work_path alone leaves it pointing at the real
+        # shelf — the same hazard test_footage_state's Sandboxed documents.
+        import pipeline.ingest as ingest_mod
+        self._awp = ingest_mod.work_path
+        ingest_mod.work_path = lambda slug: self.tmp
+
+    def tearDown(self):
+        import pipeline.ingest as ingest_mod
+        ingest_mod.work_path = self._awp
+        super().tearDown()
+
+    def _timeline(self, ids):
+        (self.tmp / "analysis" / "timeline_map.json").write_text(json.dumps({
+            "fps": 24, "duration": 40.0,
+            "beats": [{"id": i, "record_s": n * 10.0, "record_e": n * 10.0 + 9.0}
+                      for n, i in enumerate(ids)],
+        }))
+
+    def test_approved_can_never_exceed_total(self):
+        self._timeline(["BT01", "BT02", "BT03"])
+        (self.tmp / "review.json").write_text(json.dumps({
+            "BT01": {"status": "approved"},
+            "BT02": {"status": "approved"},
+            "BT03": {"status": "approved"},
+            "BT99": {"status": "approved"},      # a ghost from an old cut
+        }))
+        counts = editroom._state("ep")["counts"]
+        self.assertEqual(counts["total"], 3)
+        self.assertEqual(counts["approved"], 3, "the ghost was counted")
+
+    def test_a_ghost_cannot_hold_the_queue_open_either(self):
+        self._timeline(["BT01"])
+        (self.tmp / "review.json").write_text(json.dumps({
+            "BT01": {"status": "approved"},
+            "BT99": {"status": "flagged"},
+        }))
+        counts = editroom._state("ep")["counts"]
+        self.assertEqual(counts["flagged"], 0)
+
+if __name__ == "__main__":
+    unittest.main()

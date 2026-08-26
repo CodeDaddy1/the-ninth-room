@@ -299,7 +299,10 @@ def timeline_facts(slug: str, tl: "dict | None" = None,
     definition because a sum silently loses whatever sits between clips.
     """
     dur = None
-    if tl:
+    # the same shape guard `timeline_version`, `live_progress` and
+    # `read_sources` carry — a non-dict `tl` is an AttributeError, and
+    # this is read by `_state`
+    if isinstance(tl, dict):
         try:
             dur = float(tl.get("duration"))
         except (TypeError, ValueError):
