@@ -98,13 +98,35 @@ def checklist(slug: str) -> "dict":
     stale = conform_mod._stale_cards(slug)
     pend = editroom._conform_pending(slug)
     cstate = conform_mod.status(slug).get("state")
-    rows.append({"id": "cards", "label": "Cards exported and current",
-                 "ok": not stale, "detail": ("%d stale" % len(stale)) if stale
-                 else "all current", "fix": "/studio/overlays/%s" % slug})
+    # NOTHING TO CHECK is not the same as CHECKED AND FINE. This row read
+    # "all current" over an episode with zero cards, because nothing stale
+    # was found in an empty set — one of two ticks on the live checklist
+    # that meant "we did not look" (P8 audit, 2026-08-25).
+    # graphics_plan.json is the card ledger the Graphics desk reads; a
+    # custom card lands in it too, so its length is the honest count.
+    n_cards = 0
+    gp = work / "graphics_plan.json"
+    if gp.exists():
+        try:
+            n_cards = len(json.loads(gp.read_text()).get("cards", []))
+        except ValueError:
+            n_cards = 0
+    rows.append({"id": "cards", "label": "Cards exported",
+                 "ok": not stale,
+                 "state": "none" if n_cards == 0 else ("todo" if stale else "ok"),
+                 "detail": ("%d stale" % len(stale)) if stale
+                 else ("no cards on this episode" if n_cards == 0 else "all current"),
+                 "fix": "/studio/overlays/%s" % slug})
     rows.append({"id": "conform", "label": "Timeline conformed",
                  "ok": not pend and cstate != "running",
+                 # EFFECTIVE ops, not the raw ledger. The engine collapses
+                 # it before executing — an attach then a remove of the
+                 # same cover cancels out — so this row said "22 edits
+                 # queued" while the Review desk's own button correctly
+                 # said 12. One question, one number.
                  "detail": ("conform running" if cstate == "running" else
-                            ("%d edits queued" % len(pend)) if pend else "in sync"),
+                            ("%d edits queued" % len(conform_mod._collapse_ops(pend)))
+                            if pend else "in sync"),
                  "fix": "/studio/review/%s" % slug})
 
     review = editroom._normalize_review(slug)
@@ -120,11 +142,22 @@ def checklist(slug: str) -> "dict":
                   and e.get("status") in ("flagged", "reworked", "edited")]
     n_reviewed = sum(1 for k, e in review.items()
                      if k in live_ids and e.get("status"))
-    rows.append({"id": "review", "label": "Review queue empty",
-                 "ok": not open_beats,
-                 "detail": ("%d beats open" % len(open_beats)) if open_beats
-                 else ("every shot approved" if n_reviewed
-                       else "nothing reviewed yet"),
+    # CLIPS NOBODY HAS OPENED are the biggest part of "how much reviewing
+    # is left", and this row could not see them: it counted only clips
+    # SENT BACK, so it read "2 beats open" over an episode with 88
+    # untouched — while the Review desk one click away said "90 clips
+    # need you" (P8 audit, 2026-08-25). The same blind spot `handoff.ts`
+    # had, fixed there in P0 for the desk footer.
+    untouched = max(0, len(live_ids) - n_reviewed)
+    parts = []
+    if untouched:
+        parts.append("%d clip%s never opened" % (untouched, "" if untouched == 1 else "s"))
+    if open_beats:
+        parts.append("%d sent back" % len(open_beats))
+    rows.append({"id": "review", "label": "Review",
+                 "ok": not open_beats and not untouched,
+                 "detail": " · ".join(parts) if parts
+                 else ("every clip approved" if n_reviewed else "nothing to review"),
                  "fix": "/studio/review/%s" % slug})
 
     caps_missing = []
@@ -134,10 +167,15 @@ def checklist(slug: str) -> "dict":
             if (c.get("text") or "").strip() and \
                     not (work / "captions" / ("%s.mov" % c["beat_id"])).exists():
                 caps_missing.append(c["beat_id"])
-    rows.append({"id": "captions", "label": "Captions baked",
+    # Same shape as `cards`: no captions.json means the loop above never
+    # ran, so "all baked" was a tick for a question nobody answered.
+    rows.append({"id": "captions", "label": "Captions",
                  "ok": not caps_missing,
+                 "state": "none" if not cap_path.exists()
+                 else ("todo" if caps_missing else "ok"),
                  "detail": ("%d beats unbaked" % len(caps_missing))
-                 if caps_missing else "all baked",
+                 if caps_missing else
+                 ("none written" if not cap_path.exists() else "all baked"),
                  "fix": "/studio/captions/%s" % slug})
 
     tl, catalog, caps, cards_by_beat, cues_by_beat = proxy_mod._load(slug)
