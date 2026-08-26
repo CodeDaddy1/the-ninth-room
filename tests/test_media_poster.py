@@ -36,7 +36,8 @@ def _route_source() -> str:
     """
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "pipeline", "editroom.py")
-    src = open(path).read()
+    with open(path) as fh:
+        src = fh.read()
     start = src.index('elif self.path.startswith("/media/")')
     return src[start:start + 6000]
 

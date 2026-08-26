@@ -44,7 +44,19 @@ MIN_SILENCE_GAP_SEC = 0.6
 
 
 class IngestError(RuntimeError):
-    pass
+    """A pipeline failure, optionally with a STABLE CODE.
+
+    The message is for a human reading a log; the code is for the desk
+    that has to explain the failure and offer a way out. Matching on prose
+    is how a reworded error silently turns a fix door into a dead end, so
+    the Studio matches on `code` and falls back to the message when there
+    is none — which is most of them, deliberately. Only the failures a
+    desk can actually do something about earn a code.
+    """
+
+    def __init__(self, msg, code=None):
+        super().__init__(msg)
+        self.code = code
 
 
 def work_path(slug: str) -> Path:
@@ -79,7 +91,13 @@ def probe_file(path: Path) -> "dict":
          "-show_streams", "-show_format", str(path)],
         capture_output=True, text=True)
     if proc.returncode != 0:
-        raise IngestError("ffprobe failed for %s: %s" % (path.name, proc.stderr[-300:]))
+        # The FILE NAME is the whole value of this error on a 368-clip
+        # drop, so it leads; ffprobe's stderr is trimmed to its last real
+        # line ("moov atom not found") rather than 300 characters of it.
+        why = next((ln.strip() for ln in reversed(proc.stderr.splitlines())
+                    if ln.strip()), "ffprobe gave no reason")
+        raise IngestError("could not read %s — %s" % (path.name, why[:200]),
+                          code="bad_file")
     info = json.loads(proc.stdout)
     v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"
               and s.get("disposition", {}).get("attached_pic", 0) != 1), None)
@@ -170,7 +188,7 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
     """
     footage = work_path(slug) / "footage"
     if not footage.is_dir():
-        raise IngestError("no footage dir: %s" % footage)
+        raise IngestError("no footage dir: %s" % footage, code="no_media")
     files = sorted(p for p in footage.iterdir()
                    if p.suffix.lower() in VIDEO_EXT + AUDIO_EXT
                    and not p.name.startswith(".")
@@ -178,7 +196,7 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
                    # ingest once transcribed a half-uploaded clip (2026-08-23)
                    and not p.name.startswith("_tmp."))
     if not files:
-        raise IngestError("no media files in %s" % footage)
+        raise IngestError("no media files in %s" % footage, code="no_media")
 
     out = analysis_dir(slug)
     entries = []

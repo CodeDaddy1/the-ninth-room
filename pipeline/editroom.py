@@ -2820,8 +2820,29 @@ def _footage_state(slug: str) -> "dict":
                           "thumb": str(th) if th.exists() else None})
         if changed:
             _write_json(meta_path, meta)
-    ingested = (work_path(slug) / "analysis" / "catalog.json").exists()
-    return {"slug": slug, "files": items, "ingested": ingested}
+    # How much of what is ON DISK the analysis actually covers.
+    #
+    # `ingested` is only "a catalog exists", and it stays true forever once
+    # it does — so the desk could say "analyzed" over twelve clips dropped
+    # in afterwards, and its only hedge was a standing amber warning about
+    # a removal that may never have happened (P3 audit, 2026-08-25). The
+    # catalog already lists its files by name and is already being read
+    # here, so this is a set intersection, not a new pass over the media.
+    cat = work_path(slug) / "analysis" / "catalog.json"
+    ingested = cat.exists()
+    analyzed, skipped = 0, 0
+    if ingested:
+        try:
+            data = json.loads(cat.read_text())
+            covered = {f.get("name") for f in data.get("files", [])}
+            analyzed = sum(1 for it in items if it["name"] in covered)
+            skipped = len(data.get("skipped", []))
+        except Exception:
+            # a half-written catalog must not take the whole inventory
+            # down with it — the desk copes with analyzed == 0
+            pass
+    return {"slug": slug, "files": items, "ingested": ingested,
+            "analyzed": analyzed, "skipped": skipped}
 
 
 def _footage_uses(slug: str, name: str) -> "dict":

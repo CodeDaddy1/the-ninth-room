@@ -1987,9 +1987,15 @@ def _run_one(lane: str, jid: str) -> None:
         except Exception as e:  # the tray must show the failure, never hang
             import traceback as _tb
             log("[job] FAILED: %s: %s" % (type(e).__name__, e))
+            # A STABLE CODE when the raise carried one, so the desk can
+            # explain the failure and offer a door without matching on
+            # prose. Absent for the ~180 raises that carry none — those
+            # keep showing their message verbatim, which is the bargain.
+            code = getattr(e, "code", None)
             _update(jid, state="failed", error=str(e)[:300],
                     traceback=_tb.format_exc()[-2000:],
-                    ended_ts=int(time.time()))
+                    ended_ts=int(time.time()),
+                    **({"error_code": code} if isinstance(code, str) and code else {}))
             _notify("%s — failed" % _job_name(job),
                     "%s: %s" % (job["slug"], str(e)[:140]))
 

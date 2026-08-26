@@ -298,7 +298,7 @@ def analyze(slug: str, log=print) -> Path:
                 (" fillers=%d" % m["fillers"]) if m["fillers"] else ""))
 
     if not takes:
-        raise IngestError("no speech takes found in catalog")
+        raise IngestError("no speech takes found in catalog", code="no_speech")
 
     groups = group_takes(takes)
     for g in groups:
