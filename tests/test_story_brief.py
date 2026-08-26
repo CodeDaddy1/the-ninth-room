@@ -66,7 +66,18 @@ class BriefInThePrompt(unittest.TestCase):
     def test_the_prompt_teaches_clip_citations(self):
         p = jobs._story_prompt("ep")
         self.assertIn('"clips"', p)
-        self.assertIn("favorites first", p)
+        self.assertIn("real catalog filenames", p)
+
+    def test_the_prompt_says_nothing_about_starring(self):
+        """Starring was removed on 2026-08-25 — Caleb read it as "these
+        clips are mandatory" while the prompt only asked the designer to
+        build around them first, and nothing checked either way. With the
+        control gone the catalogue is just the catalogue; a prompt still
+        pointing at favorites.json would send the designer looking for a
+        file the desk can no longer write."""
+        p = jobs._story_prompt("ep")
+        for word in ("favorites", "STARRED", "starred", "unstarred"):
+            self.assertNotIn(word, p)
 
 
 class BriefValidation(unittest.TestCase):
