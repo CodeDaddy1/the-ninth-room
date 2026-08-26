@@ -64,6 +64,40 @@ may read it for intent when present.
 The inline-HTML UI `editroom.py` once served is **gone** (P5): the engine
 is API + bridge only, and every surface lives in the Studio.
 
+### The facts the desks state (2026-08-26)
+
+Every Studio desk header now states NUMBERS rather than describing itself.
+`pipeline/facts.py` owns the three the engine could not previously
+source, and the rule is that **a fact the engine cannot source honestly is
+worse than no fact** — so each of these degrades to absent, never to a
+guess.
+
+| Route / field | Note |
+|---|---|
+| `GET /api/health` | `{ok, resolve, disk}` — slug-free, answers about the MACHINE. `resolve` is **three-valued**: `null` means the `pgrep` probe itself failed, which is not "not running", and the Studio offers to launch Resolve off this field |
+| `POST /api/resolve/launch` | wraps `resolve_api.launch_resolve()` |
+| `POST /api/ingest/retry` | re-probes ONLY `catalog.json["skipped"]`, no transcription. Recovered files leave the skip list and an ingest job is queued; files that fail again are named back |
+| `POST /api/beat/move` | `{slug, beat_ids, chapter_id}` — re-parents beats. Does NOT re-order, reset a verdict, or re-assemble |
+| `POST /api/beat/remove` | `{slug, beat_ids}` — beats to `trash.json` (kind `beat`) carrying their INDEX, so a restore cannot silently re-order the episode. Pre-refuses the hook and the only payoff IN WORDS, because `validate_edit_plan`'s strings reach someone who ticked four rows |
+| `POST /api/project/origin` | flips scripted/documentary. It was written once by `_new_project` and never again |
+
+**Sources are a sidecar.** `work/<slug>/footage_sources.json` maps filename
+→ card label, written by `/api/upload?source=` and by `_link_footage` (the
+linked folder IS the card). Deliberately NOT a catalog field: ingest owns
+the catalog, and threading provenance through it means a migration on
+every project and a new way for ingest to fail. Absent, partial or
+hand-edited all degrade to `unsorted`.
+
+**`timeline_version.json` counts SUCCESSFUL conforms only** — the number
+names what Resolve is holding, so a conform that executed nothing leaves
+it alone. Served as `timeline: {version, clips, duration}` on `/api/state`
+and `/api/deliver/checklist`; `duration` is `timeline_map.json`'s own
+top-level value, which `_state` read for years and never forwarded.
+
+**Ingest progress reaches `/api/footage` now**, with the same 300s
+staleness rule `/api/projects` uses, so two surfaces cannot disagree about
+whether a run is live.
+
 ## The engine and the agent hand-offs
 
 `/usr/bin/python3 -m pipeline.cli editroom` serves the ENGINE at
