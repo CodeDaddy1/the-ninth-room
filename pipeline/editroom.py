@@ -533,6 +533,17 @@ def _broll_catalog(slug: str) -> "list":
     if not p.exists():
         return []
     clips = json.loads(p.read_text()).get("clips", [])
+    # Caleb's tags overlay at READ time. Writing them would mean rebuilding
+    # the catalog on every keystroke-sized edit; the catalog is derived and
+    # the sidecar is the record, so the read is where they meet.
+    from . import broll as broll_mod
+    manual = broll_mod.read_manual(slug)
+    for c in clips:
+        mine = manual["tags"].get(c.get("file"), [])
+        if mine:
+            c["manual_tags"] = mine
+            c["tags"] = broll_mod._union_tags(c.get("tags", []), mine)
+        c["promoted"] = c.get("file") in set(manual["promoted"])
     adir = work_path(slug) / "analysis"
     for c in clips:
         rel = c.get("sheet")
@@ -5511,6 +5522,33 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     self._send(200, {"ok": True, "removed": gone})
                 except sfx_mod.SfxError as e:
                     self._send(400, {"error": str(e)})
+            elif self.path == "/api/broll/tags":
+                from . import broll as broll_mod
+                bslug = self._slug_b(body)
+                name = str(body.get("name") or "")
+                if not name:
+                    self._send(400, {"error": "name required"})
+                    return
+                tags = broll_mod.set_tags(bslug, name, body.get("tags") or [])
+                self._send(200, {"ok": True, "name": name, "tags": tags})
+            elif self.path == "/api/broll/promote":
+                from . import broll as broll_mod
+                bslug = self._slug_b(body)
+                name = str(body.get("name") or "")
+                if not name:
+                    self._send(400, {"error": "name required"})
+                    return
+                on = bool(body.get("on", True))
+                broll_mod.promote(bslug, name, on)
+                # Rebuild so a promoted file actually GETS an id and a
+                # sheet. Sheets are cached, so this costs one sheet for the
+                # file just admitted rather than a pass over the shoot.
+                cat = work_path(bslug) / "analysis" / "catalog.json"
+                if cat.exists():
+                    broll_mod.catalog_broll(bslug, log=lambda m: None)
+                entry = next((c for c in _broll_catalog(bslug)
+                              if c.get("file") == name), None)
+                self._send(200, {"ok": True, "on": on, "clip": entry})
             elif self.path == "/api/broll/attach":
                 entry = _broll_attach(self._slug_b(body), body["beat_id"],
                                       body["clip_id"], float(body.get("at", 0)),

@@ -20,8 +20,131 @@ from PIL import Image
 
 from .ingest import analysis_dir, IngestError
 
+import threading
+
+from .ingest import work_path
+
 TILE_W, TILE_H = 480, 270  # 16:9 tiles; portrait sources letterbox inside
+
+
+# --- the manual sidecar ----------------------------------------------------
+#
+# Caleb's tags, and the takes he has admitted as picture. A SIDECAR for the
+# same reason `footage_sources.json` is one (CLAUDE.md): ingest owns
+# catalog.json and rebuilds it from probe on every run, and build_catalog
+# rebuilds broll.json from that — so anything written into either is erased
+# by the next analyze. A promoted take erased that way would take its B-id
+# with it, and every cover in the cut referencing that id by name would
+# silently point at nothing.
+#
+# Keyed by FILENAME, not by clip id: a file that has never been catalogued
+# has no id yet, and the filename is the one name that survives both
+# rebuilds. Absent, unreadable and half-written all mean "nothing manual
+# here", which is the same bargain read_sources makes.
+
+_MANUAL_LOCK = threading.Lock()
+
+
+def _manual_path(slug: str) -> Path:
+    return work_path(slug) / "broll_manual.json"
+
+
+def read_manual(slug: str) -> "dict":
+    """`{"tags": {filename: [str]}, "promoted": [filename]}` — always both
+    keys, always the right types, whatever is on disk."""
+    empty = {"tags": {}, "promoted": []}
+    p = _manual_path(slug)
+    if not p.exists():
+        return empty
+    try:
+        data = json.loads(p.read_text())
+    except (ValueError, OSError):
+        return empty
+    if not isinstance(data, dict):
+        return empty
+    tags = data.get("tags")
+    promoted = data.get("promoted")
+    return {
+        "tags": {k: [str(t) for t in v]
+                 for k, v in (tags or {}).items()
+                 if isinstance(v, list)} if isinstance(tags, dict) else {},
+        "promoted": [str(x) for x in promoted] if isinstance(promoted, list) else [],
+    }
+
+
+def _write_manual(slug: str, data: "dict") -> None:
+    p = _manual_path(slug)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".%d.tmp" % threading.get_ident())
+    try:
+        tmp.write_text(json.dumps(data, indent=2))
+        tmp.replace(p)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def set_tags(slug: str, name: str, tags) -> "list":
+    """Caleb's keywords for one file. Replaces his list, never the
+    agent's — the two are kept apart so a hand-typed tag is not lost to the
+    next description pass and an agent tag is not lost to a typo here."""
+    clean, seen = [], set()
+    for t in (tags or []):
+        t = str(t).strip().lower()
+        if t and t not in seen:
+            seen.add(t)
+            clean.append(t)
+    with _MANUAL_LOCK:
+        data = read_manual(slug)
+        if clean:
+            data["tags"][name] = clean
+        else:
+            data["tags"].pop(name, None)
+        _write_manual(slug, data)
+    return clean
+
+
+def promote(slug: str, name: str, on: bool = True) -> bool:
+    """Admit a file into the b-roll catalog that its class would exclude —
+    a spoken take, or one the story cut.
+
+    It plays SILENT and nothing had to be done to make that true: the
+    timeline writes every cover as an FCPXML `<video>` element on lane 2,
+    not an `<asset-clip>`, so a cover contributes picture and never audio.
+    That was built to stop museum crowd noise leaking over the narration
+    and it is exactly what "removing the audio makes it b-roll" means here.
+
+    Being cut from the story is left alone: the kill list is the
+    designer's judgement about what to SAY, and this is about what to
+    SHOW. A take can be both cut and useful.
+    """
+    with _MANUAL_LOCK:
+        data = read_manual(slug)
+        has = name in data["promoted"]
+        if on and not has:
+            data["promoted"].append(name)
+        elif not on and has:
+            data["promoted"] = [x for x in data["promoted"] if x != name]
+        else:
+            return has
+        _write_manual(slug, data)
+    return on
+
 GRID = 3  # 3x3 = 9 frames per sheet
+
+
+def _union_tags(agent, manual) -> "list":
+    """Both lists, in agent-then-manual order, without duplicates."""
+    out, seen = [], set()
+    for t in list(agent or []) + list(manual or []):
+        t = str(t)
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
 
 
 def _prefer_proxy(src: Path) -> Path:
@@ -82,9 +205,16 @@ def catalog_broll(slug: str, log=print) -> Path:
     tmp_dir = out / "tmp_frames"
 
     from .ingest import write_progress
+    # PROMOTED files join the catalog whatever their class says. A spoken
+    # take Caleb has admitted as picture is b-roll for every purpose that
+    # matters downstream, and the timeline already plays a cover silent.
+    # Read before the loop so a re-analyze cannot drop one — dropping it
+    # would take its B-id with it, and covers reference ids by name.
+    manual = read_manual(slug)
+    promoted = set(manual["promoted"])
     todo = [f for f in catalog["files"]
-            if f.get("class") == "broll" and f.get("kind") == "video"
-            and not f.get("screened_out")]
+            if f.get("kind") == "video" and not f.get("screened_out")
+            and (f.get("class") == "broll" or f.get("name") in promoted)]
     # MERGE, never rebuild (2026-08-25). Two things were being destroyed
     # by every re-catalog, and both are load-bearing:
     #
@@ -146,7 +276,16 @@ def catalog_broll(slug: str, log=print) -> Path:
             "sheet": "sheets/" + sheet_name,
             # kept across re-analysis; "" only for a file never seen before
             "description": (was or {}).get("description", ""),
-            "tags": (was or {}).get("tags", []),
+            # The agent's tags and Caleb's are kept APART and unioned for
+            # anyone filtering. Merging them into one list would mean the
+            # next description pass could silently drop a hand-typed
+            # keyword, and a typo here could drop the agent's.
+            "tags": _union_tags((was or {}).get("tags", []),
+                                manual["tags"].get(f["name"], [])),
+            "manual_tags": manual["tags"].get(f["name"], []),
+            # what this clip is doing here, when its class would exclude it
+            "promoted": f["name"] in promoted,
+            "from_class": f.get("class"),
         })
         log("[broll] %s %s %.1fs -> %s" % (cid, f["name"], f["duration"], sheet_name))
 
