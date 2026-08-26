@@ -206,6 +206,15 @@ def _run_ingest(slug, log, set_pct):
 
 def _run_assemble(slug, log, set_pct):
     from . import produce, proxy
+    # GUARD BEFORE THE WORK — the rule `_run_reproxy` below already
+    # carries, and for the same reason. Without a cut, `build_timeline`
+    # raised a bare FileNotFoundError at 2% and the desk showed
+    # "[Errno 2] No such file or directory: .../edit_plan.json" where the
+    # honest answer is that there is no cut yet. Found running a real
+    # short-form documentary end to end (2026-08-26).
+    if not (work_path(slug) / "edit_plan.json").exists():
+        raise JobError("no cut yet — build the cut on the Story desk "
+                       "first; assemble turns it into a timeline")
     set_pct(2)
     log("[job] assemble: building the timeline")
     produce.build_timeline(slug)
@@ -361,6 +370,8 @@ def _story_prompt(slug) -> str:
 
 def _editplan_prompt(slug) -> str:
     clause = _brief_clause(slug)
+    source = (EDITPLAN_SOURCE_SCRIPT if _script_origin(slug) == "script"
+              else EDITPLAN_SOURCE_PITCH) % {"slug": slug}
     # a script outranks improvisation: when one exists the cut FOLLOWS it
     if (work_path(slug) / "script.json").exists():
         clause += ("work/%s/script.json is the approved SCRIPT -- the cut "
@@ -370,7 +381,7 @@ def _editplan_prompt(slug) -> str:
                    "ingest) with b-roll covering their ENTIRE beat -- a "
                    "teleprompter recording on screen is a mistake. Respect "
                    "the one-use-per-b-roll-clip rule. " % slug)
-    return EDITPLAN_PROMPT % {"slug": slug, "brief": clause}
+    return EDITPLAN_PROMPT % {"slug": slug, "brief": clause, "source": source}
 
 
 def _run_story(slug, log, set_pct):
@@ -404,13 +415,25 @@ def _run_story(slug, log, set_pct):
 EDITPLAN_PROMPT = (
     "Write the edit plan for %(slug)s. %(brief)s"
     "Read .claude/agents/story-designer.md "
-    "and act as that agent for the EDIT PLAN stage: the latest round in "
-    "work/%(slug)s/story_feedback.json is an APPROVING round — build the "
-    "plan from its chosen direction in work/%(slug)s/stories.json, honoring "
-    "its notes. Read work/%(slug)s/analysis/ (takes, b-roll, timings) and "
+    "and act as that agent for the EDIT PLAN stage: %(source)s "
+    "Read work/%(slug)s/analysis/ (takes, b-roll, timings) and "
     "write work/%(slug)s/edit_plan.json that satisfies the agent's plan "
     "rules. Do NOT run conforms or renders, and do NOT touch DaVinci "
     "Resolve. The engine is running on :8765; leave it alone.")
+
+# The two lanes hand the cut a different source. A visit is cut from the
+# APPROVED PITCH; a documentary has no pitch at all — `_run_story` refuses
+# to write one — and is cut from its APPROVED SCRIPT. The prompt named the
+# pitch unconditionally, so a documentary that got past the precondition
+# would have been told to read two files that cannot exist (2026-08-26).
+EDITPLAN_SOURCE_PITCH = (
+    "the latest round in work/%(slug)s/story_feedback.json is an APPROVING "
+    "round — build the plan from its chosen direction in "
+    "work/%(slug)s/stories.json, honoring its notes.")
+EDITPLAN_SOURCE_SCRIPT = (
+    "this is a documentary and has no pitch — work/%(slug)s/script.json is "
+    "the APPROVED script and the cut is built from it, in order, section by "
+    "section.")
 
 
 INTERVIEW_PROMPT = (
@@ -867,14 +890,34 @@ def _run_editplan(slug, log, set_pct):
     import json
     import subprocess
     work = work_path(slug)
-    fb = work / "story_feedback.json"
-    if not (work / "stories.json").exists():
-        raise RuntimeError("no story pitches yet — pitch stories first")
-    rounds = (json.loads(fb.read_text()).get("rounds", [])
-              if fb.exists() else [])
-    if not rounds or rounds[-1].get("decision") != "approve":
-        raise RuntimeError("no approving round — approve a direction on "
-                           "the Story desk first")
+    # WHICH APPROVAL GATES THE CUT DEPENDS ON THE LANE.
+    #
+    # A visit is cut from an approved pitch. A documentary has no pitch —
+    # `_run_story` refuses to write one for this lane — so demanding
+    # stories.json here made the cut UNREACHABLE: the script could be
+    # written, interviewed over and approved, and "Build the cut" would
+    # answer "no story pitches yet — pitch stories first" forever. A real
+    # short-form documentary hit that dead end (2026-08-26).
+    #
+    # Its approval is the approved SCRIPT, which is the artifact the cut
+    # is actually built from on this lane.
+    if _script_origin(slug) == "script":
+        script = _read_json(work / "script.json", None)
+        if not script:
+            raise RuntimeError("no script yet — interview and write it on "
+                               "the Script desk first")
+        if not script.get("locked"):
+            raise RuntimeError("the script is not approved — approve it on "
+                               "the Script desk; the cut is built from it")
+    else:
+        fb = work / "story_feedback.json"
+        if not (work / "stories.json").exists():
+            raise RuntimeError("no story pitches yet — pitch stories first")
+        rounds = (json.loads(fb.read_text()).get("rounds", [])
+                  if fb.exists() else [])
+        if not rounds or rounds[-1].get("decision") != "approve":
+            raise RuntimeError("no approving round — approve a direction on "
+                               "the Story desk first")
     plan_path = work / "edit_plan.json"
     if plan_path.exists():
         # overwriting a cut that desks and reviews hang off is a decision,
