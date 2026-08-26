@@ -494,6 +494,17 @@ return 'saved'
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"ops": remaining}, indent=2))
         os.replace(tmp, path)
+    failed_n = sum(1 for e in st["ops"] if e["result"] == "failed")
+    # The timeline version names what RESOLVE is holding, so it advances
+    # only when something actually landed there. A conform that executed
+    # nothing (every op collapsed away) leaves the version alone — the
+    # timeline is where it was, and a bumped number would tell an operator
+    # to re-check a cut that did not move.
+    from . import facts
+    executed = sum(1 for e in st["ops"] if e["result"] == "done")
+    version = facts.timeline_version(slug)
+    if executed:
+        version = facts.bump_timeline_version(slug)
     st.update({"state": "done", "stage": "done",
-               "failed": sum(1 for e in st["ops"] if e["result"] == "failed")})
+               "failed": failed_n, "version": version})
     _write_status(slug, st)

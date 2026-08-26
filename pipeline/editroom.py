@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .ingest import work_path, analysis_dir, IngestError, VIDEO_EXT, PROJECT_ROOT
+from . import facts
 
 PORT = 8765
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -109,7 +110,13 @@ def _state(slug: str) -> "dict":
     total = len(tl["beats"])
     approved = sum(1 for r in review.values() if r.get("status") == "approved")
     flagged = sum(1 for r in review.values() if r.get("status") == "flagged")
+    # The Export desk's top line, and it had no source. `duration` has sat
+    # at the top of timeline_map.json since the assembler was written and
+    # was read here and never forwarded; the VERSION did not exist at all
+    # until conform started counting its own successes (facts.py).
+    all_beats = [b for c in chapters for b in c["beats"]]
     return {"slug": slug, "chapters": chapters,
+            "timeline": facts.timeline_facts(slug, tl, all_beats),
             "counts": {"total": total, "approved": approved, "flagged": flagged}}
 
 
@@ -770,6 +777,27 @@ def _trash_restore(slug: str, uid: str, kind: str = "") -> "dict":
             _broll_detach(slug, entry["beat_id"], entry["clip_id"], 0,
                           record_s=restored.get("record_s"))
             raise IngestError("restore refused: %s" % errs[0])
+    elif kind == "beat":
+        # A removed clip goes back where it WAS. Appending would re-order
+        # the episode silently, which is a different edit from the one
+        # being undone — and the whole point of storing the index.
+        from . import schemas
+        with _EDITPLAN_LOCK:
+            plan, takes, broll = _plan_takes_broll(slug)
+            beat = entry["payload"]
+            if any(b["id"] == beat["id"] for b in plan["beats"]):
+                raise IngestError("clip %s is in the cut again — restore "
+                                  "would duplicate it" % beat["id"])
+            idx = min(int(entry.get("index", len(plan["beats"]))),
+                      len(plan["beats"]))
+            plan["beats"].insert(idx, beat)
+            errs = schemas.validate_edit_plan(plan, takes, broll)
+            if errs:
+                raise IngestError("cannot restore %s: %s"
+                                  % (beat["id"], errs[0]))
+            _write_edit_plan(slug, plan)
+        _queue_reassemble(slug)
+        restored = beat
     elif kind == "custom_card":
         card = entry["card"]
         with _PLAN_LOCK:  # every other custom writer holds it (gate F6)
@@ -1009,6 +1037,130 @@ def _beat_trim(slug: str, beat_id: str, d_in: float, d_out: float) -> "dict":
     assembling = _queue_reassemble(slug)
     return {"beat_id": beat_id, "trim": beat["trim"],
             "assembling": assembling}
+
+
+def _beat_move(slug: str, beat_ids: "list", chapter_id: str) -> "dict":
+    """Re-parent clips to another chapter — bulk verb 3 of artboard 25.
+
+    `chapter_id` has always been a real field on a beat (schemas validates
+    it against the plan's chapter list); nothing could ever SET it. The
+    Story desk drew a chapter picker and the Review desk drew "Move to
+    chapter…" in its bulk bar, and both were dead because the only writer
+    was the edit-plan agent.
+
+    Order is untouched. A beat carries its chapter as a property, not a
+    position, so moving one does not move it in the cut — which is the
+    behaviour the bulk bar wants: re-file four clips without re-cutting
+    the episode.
+    """
+    from . import schemas
+    ids = [b for b in (beat_ids or []) if b]
+    if not ids:
+        raise IngestError("no clips given")
+    with _EDITPLAN_LOCK:
+        plan, takes, broll = _plan_takes_broll(slug)
+        known = {c["id"] for c in plan.get("chapters", []) if isinstance(c, dict)}
+        if chapter_id and chapter_id not in known:
+            raise IngestError("unknown chapter '%s'" % chapter_id)
+        by_id = {b["id"]: b for b in plan["beats"]}
+        missing = [i for i in ids if i not in by_id]
+        if missing:
+            raise IngestError("not in the cut: %s" % ", ".join(missing[:3]))
+        old = {i: by_id[i].get("chapter_id") for i in ids}
+        for i in ids:
+            if chapter_id:
+                by_id[i]["chapter_id"] = chapter_id
+            else:
+                by_id[i].pop("chapter_id", None)
+        errs = schemas.validate_edit_plan(plan, takes, broll)
+        if errs:
+            for i, was in old.items():
+                if was is None:
+                    by_id[i].pop("chapter_id", None)
+                else:
+                    by_id[i]["chapter_id"] = was
+            raise IngestError("move refused: %s" % errs[0])
+        _write_edit_plan(slug, plan)
+    # A move changes where a clip READS, never what it shows, so the review
+    # verdict stands and nothing re-assembles. Conform still has to know:
+    # chapter markers in Resolve are built from this field.
+    return {"moved": ids, "chapter_id": chapter_id or None}
+
+
+def _beat_remove(slug: str, beat_ids: "list") -> "dict":
+    """Take clips out of the cut — bulk verb 4, and the only destructive one.
+
+    Removals land in the same trash every dropped cover and deleted card
+    goes to, so this is an undo rather than a deletion: the beat's whole
+    object is stored and `_trash_restore` puts it back at its old index.
+
+    The plan must keep at least one beat — `validate_edit_plan` rejects an
+    empty beat list outright, and a cut of nothing is not a state any desk
+    can render. Refusing here names the reason; letting the validator
+    refuse would report it as a schema error on a rollback.
+    """
+    from . import schemas
+    ids = [b for b in (beat_ids or []) if b]
+    if not ids:
+        raise IngestError("no clips given")
+    with _EDITPLAN_LOCK:
+        plan, takes, broll = _plan_takes_broll(slug)
+        beats = plan["beats"]
+        by_id = {b["id"]: b for b in beats}
+        missing = [i for i in ids if i not in by_id]
+        if missing:
+            raise IngestError("not in the cut: %s" % ", ".join(missing[:3]))
+        if len(beats) - len(set(ids)) < 1:
+            raise IngestError("a cut needs at least one clip")
+        # Two of the plan's structural rules make some clips unremovable,
+        # and `validate_edit_plan` states both as schema strings ("plan:
+        # first beat must be the hook", "plan: no payoff beat — the
+        # curiosity loop never closes"). Those reach someone who ticked
+        # four rows and pressed Remove. Say the actual thing here; the
+        # validator stays as the backstop it already is.
+        gone = set(ids)
+        kept = [b for b in beats if b["id"] not in gone]
+        if beats[0]["id"] in gone and kept and kept[0].get("purpose") != "hook":
+            raise IngestError(
+                "the opening clip is the episode's hook — removing it would "
+                "leave the cut without one. Swap its take instead, or re-cut "
+                "from the Story desk.")
+        if any(b.get("purpose") == "payoff" for b in beats) \
+                and not any(b.get("purpose") == "payoff" for b in kept):
+            raise IngestError(
+                "that is the cut's only payoff — removing it leaves the "
+                "episode without an ending. Re-cut from the Story desk.")
+        removed = []
+        for i in set(ids):
+            idx = next(n for n, b in enumerate(beats) if b["id"] == i)
+            # the index travels with the beat: restoring to the end would
+            # silently re-order the episode, which is a different edit
+            removed.append({"index": idx, "beat": by_id[i]})
+        kept = [b for b in beats if b["id"] not in set(ids)]
+        plan["beats"] = kept
+        errs = schemas.validate_edit_plan(plan, takes, broll)
+        if errs:
+            plan["beats"] = beats
+            raise IngestError("remove refused: %s" % errs[0])
+        _write_edit_plan(slug, plan)
+    for r in sorted(removed, key=lambda r: r["index"]):
+        _trash_add(slug, "beat", {"beat_id": r["beat"]["id"],
+                                  "index": r["index"],
+                                  "purpose": r["beat"].get("purpose", ""),
+                                  "payload": r["beat"]})
+    assembling = _queue_reassemble(slug)
+    return {"removed": [r["beat"]["id"] for r in removed],
+            "remaining": len(plan["beats"]), "assembling": assembling}
+
+
+def _write_edit_plan(slug: str, plan: "dict") -> None:
+    """The one writer. `_beat_swap` and `_beat_trim` each open-coded this
+    three-line tmp-and-replace; a third and fourth copy is where one of
+    them loses `ensure_ascii=False` and mangles a chapter title."""
+    ep_path = work_path(slug) / "edit_plan.json"
+    tmp = ep_path.with_suffix(".ep.tmp")
+    tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+    os.replace(tmp, ep_path)
 
 
 def _mark_edited(slug: str, beat_id: str) -> None:
@@ -2090,6 +2242,94 @@ def _new_project(name: str, origin: str = "footage",
     return slug
 
 
+def _set_project_origin(slug: str, origin: str) -> "dict":
+    """Flip a project between the filmed and script-first lanes.
+
+    Artboard 28 says of the three questions it asks: "the path order can
+    change later · nothing else here can". It was the only one of the
+    three with no way to change it — origin was written once by
+    `_new_project` and never again, so a documentary created as a day out
+    was stuck in the wrong rail order for life.
+
+    Only this field moves. Delivery, orientation and format are the
+    "nothing else" half of that sentence: they decide frame size and every
+    baked card built against it, and changing them after graphics exist
+    invalidates work on disk.
+    """
+    if origin not in ("footage", "script"):
+        raise IngestError("origin must be 'footage' or 'script'")
+    work = work_path(slug)
+    path = work / "story_brief.json"
+    brief = json.loads(path.read_text()) if path.exists() else {}
+    if brief.get("origin") == origin:
+        return {"slug": slug, "origin": origin, "changed": False}
+    brief["origin"] = origin
+    _write_json(path, brief)
+    return {"slug": slug, "origin": origin, "changed": True}
+
+
+def _ingest_retry(slug: str) -> "dict":
+    """Re-probe only the files the last analysis set aside.
+
+    Artboard 23 draws "4 files on Card C are unreadable · Retry these 4 /
+    Skip and continue", and the only re-run the engine had was a full
+    `ingest` over every file.
+
+    The distinction this route exists to make: a skip is USUALLY permanent
+    (a DJI stub cut off mid-write reproduces exactly, which is why
+    `_catalog_read`'s docstring warns against offering Analyze forever) —
+    but not always. A card still copying when ingest ran, a volume that
+    dropped, a file locked by another app: those probe fine on the second
+    ask. Re-probing is an ffprobe per file with no transcription, so the
+    question is cheap to ask and the answer is honest either way.
+
+    Recovered files are dropped from the catalog's skip list and a normal
+    ingest job is queued to actually analyse them. Files that fail again
+    are named back to the desk, which is the one useful thing to say.
+    """
+    from . import ingest as ingest_mod
+    cat = work_path(slug) / "analysis" / "catalog.json"
+    if not cat.exists():
+        raise IngestError("nothing has been analysed yet")
+    data = json.loads(cat.read_text())
+    names = [s.get("name") if isinstance(s, dict) else s
+             for s in data.get("skipped", [])]
+    names = [n for n in names if n]
+    if not names:
+        return {"retried": 0, "recovered": [], "still_failing": [], "job": None}
+    fdir = work_path(slug) / "footage"
+    recovered, still = [], []
+    for n in names:
+        f = fdir / os.path.basename(n)
+        if not (f.is_file() or f.is_symlink()):
+            # deleted since the skip — it is not failing any more, it is
+            # gone, and leaving it on the list would keep offering a retry
+            # for a file that cannot be retried
+            recovered.append(n)
+            continue
+        try:
+            entry = ingest_mod.probe_file(f)
+            (recovered if entry.get("duration", 0) > 0 else still).append(n)
+        except IngestError:
+            still.append(n)
+    job = None
+    if recovered:
+        data["skipped"] = [s for s in data.get("skipped", [])
+                           if (s.get("name") if isinstance(s, dict) else s)
+                           not in set(recovered)]
+        _write_json(cat, data)
+        _CATALOG_CACHE.pop(str(cat), None)
+        from . import jobs as jobs_mod
+        try:
+            job = jobs_mod.start("ingest", slug)
+        except Exception as e:
+            # the list is already corrected on disk; a busy queue must not
+            # look like a failed retry
+            job = {"error": str(e)}
+    return {"retried": len(names), "recovered": recovered,
+            "still_failing": still, "job": job}
+
+
 # catalog path -> ((mtime, size), frozenset(names), skipped_count)
 _CATALOG_CACHE: "dict" = {}
 
@@ -2552,6 +2792,9 @@ def _link_footage(slug: str, folder: str, log=print) -> "dict":
             continue
         os.symlink(p.resolve(), dest)
         linked.append(p.name)
+    # The linked folder IS the card — this is the one ingest path where
+    # provenance is a fact rather than an inference, so record it.
+    facts.record_source(slug, linked, src.name)
     log("[link] %s: linked %d, skipped %d already present"
         % (slug, len(linked), len(skipped)))
     return {"linked": len(linked), "skipped": len(skipped),
@@ -2862,6 +3105,9 @@ def _footage_state(slug: str) -> "dict":
     (size, mtime) so the panel stays instant with a card full of 4K."""
     fdir = work_path(slug) / "footage"
     items = []
+    # which card each file arrived on — a sidecar, so an unlabelled file is
+    # simply `unsorted` rather than an ingest failure (see pipeline/facts.py)
+    src_labels = facts.read_sources(slug)
     if fdir.is_dir():
         thumbs = fdir / ".thumbs"
         thumbs.mkdir(exist_ok=True)
@@ -2906,6 +3152,7 @@ def _footage_state(slug: str) -> "dict":
                           "dur": m[2], "w": m[3], "h": m[4],
                           "still": p.stem.endswith("_still"),
                           "still_src": still_src, "src_size": src_size,
+                          "source": src_labels.get(p.name) or facts.UNSORTED,
                           "thumb": str(th) if th.exists() else None})
         if changed:
             _write_json(meta_path, meta)
@@ -2939,7 +3186,13 @@ def _footage_state(slug: str) -> "dict":
             # can say about it is which one to replace.
             skipped = [it["name"] for it in items if it["name"] in set_aside]
     return {"slug": slug, "files": items, "ingested": ingested,
-            "analyzed": analyzed, "skipped": skipped}
+            "analyzed": analyzed, "skipped": skipped,
+            # SOURCES panel (artboard 23) and the live copy readout. The
+            # progress has always been written by ingest and only ever
+            # reached /api/projects — the desk watching the copy happen
+            # had to make do with the job queue's 2/60/75/80/100 ladder.
+            "sources": facts.group_sources(items, src_labels, skipped),
+            "progress": facts.live_progress(slug)}
 
 
 def _footage_uses(slug: str, name: str) -> "dict":
@@ -4554,6 +4807,13 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
         def _get(self):
             if self.path in ("/", "/index.html") or self.path.startswith("/#"):
                 self._send(200, page.encode(), "text/html; charset=utf-8")
+            elif self.path.startswith("/api/health"):
+                # The engine had no liveness route at all: "is Resolve
+                # running" reached the Studio only as a 500 from a conform
+                # that had already started. Deliberately slug-free — it
+                # answers about the MACHINE, and a desk with no project
+                # open still needs it.
+                self._send(200, facts.health(PROJECT_ROOT))
             elif self.path == "/api/projects":
                 self._send(200, _projects_state())
             elif self.path.startswith("/api/state"):
@@ -4847,6 +5107,21 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                     self._send(200, dict(out, ok=True))
                     return
                 result = _save_upload(uslug, name, self.rfile, n)
+                # The browser sends the top-level folder the file was
+                # dropped from — the only moment provenance is knowable.
+                # Loose files carry no source and read as `unsorted`,
+                # which is what an unlabelled file honestly is.
+                #
+                # Two shapes matter. A photo stores as `stored` but ENTERS
+                # the inventory as `as` (the 6s clip built from it), and
+                # the inventory is what the SOURCES panel counts. And a
+                # duplicate stores nothing — relabelling the file it
+                # matched would move an existing file onto a card it never
+                # came from, which is worse than leaving it unsorted.
+                if not result.get("duplicate"):
+                    facts.record_source(uslug,
+                                        result.get("as") or result.get("stored"),
+                                        qs.get("source", [""])[0])
                 # local import: jobs_mod is imported LATER in this same
                 # function scope for the job routes, so the bare name here
                 # is an unassigned local (found live: every upload 500'd)
@@ -5204,6 +5479,26 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                           body.get("notes", ""),
                                           body.get("decision", "direction"))
                 self._send(200, {"ok": True, "feedback": fb})
+            elif self.path == "/api/resolve/launch":
+                from . import resolve_api as _ra
+                _ra.launch_resolve()
+                self._send(200, {"ok": True})
+            elif self.path == "/api/ingest/retry":
+                self._send(200, dict(_ingest_retry(self._slug_b(body)),
+                                     ok=True))
+            elif self.path == "/api/beat/move":
+                out = _beat_move(self._slug_b(body),
+                                 body.get("beat_ids") or [],
+                                 str(body.get("chapter_id") or ""))
+                self._send(200, dict(out, ok=True))
+            elif self.path == "/api/beat/remove":
+                out = _beat_remove(self._slug_b(body),
+                                   body.get("beat_ids") or [])
+                self._send(200, dict(out, ok=True))
+            elif self.path == "/api/project/origin":
+                out = _set_project_origin(self._slug_b(body),
+                                          str(body.get("origin") or ""))
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/reveal":
                 bslug = self._slug_b(body)
                 if body.get("footage"):

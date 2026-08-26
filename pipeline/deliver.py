@@ -218,8 +218,17 @@ def checklist(slug: str) -> "dict":
         st = os.stat(f)
         masters.append({"file": os.path.basename(f), "bytes": st.st_size,
                         "duration": round(dur, 1), "ts": int(st.st_mtime)})
+    # Same block the Shots desk gets, so "timeline v14 · 93 clips · 22:41"
+    # is one computation rather than two that drift.
+    from . import editroom, facts
+    try:
+        st = editroom._state(slug)
+        tlf = st.get("timeline") or {}
+    except Exception:
+        tlf = {"version": facts.timeline_version(slug),
+               "clips": 0, "duration": None}
     return {"slug": slug, "ready": all(r["ok"] for r in rows),
-            "rows": rows, "masters": masters}
+            "rows": rows, "masters": masters, "timeline": tlf}
 
 
 def render_master(slug: str, log=print, set_pct=lambda p: None) -> str:
