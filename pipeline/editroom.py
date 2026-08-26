@@ -2838,6 +2838,12 @@ def _project_row(slug: str) -> "dict":
                             or str(brief_doc.get("location") or "").strip()),
             "research": (work / "research.json").exists(),
             "assets": _asset_count(work),
+            # Proposals still waiting on a HUMAN VERDICT. The row already
+            # carried `assets` — files on disk — which says nothing about
+            # whether anything is owed. The guided path confirms pictures
+            # BEFORE recording, so this is the number that decides whether
+            # a line is safe to perform (Caleb, 2026-08-26).
+            "assets_pending": _pending_asset_count(work),
             "review": {"approved": n_appr, "flagged": n_flag,
                        "queue": n_queue}}
 
@@ -3822,6 +3828,28 @@ def _tool_target(inp: "Any") -> str:
             v = v.strip().replace(str(PROJECT_ROOT) + "/", "")
             return v[:160]
     return ""
+
+
+def _pending_asset_count(work: "Path") -> int:
+    """Proposals awaiting a verdict — `proposed`, and only the ones a
+    verdict can act on.
+
+    A `requirement` is work Caleb or the overlay kit must make; there is
+    nothing to approve on one, so counting it as "waiting on your verdict"
+    asks for a decision that has no button (the same distinction the
+    fetch phase already draws).
+    """
+    p = work / "asset_requests.json"
+    if not p.exists():
+        return 0
+    try:
+        rounds = json.loads(p.read_text()).get("rounds", []) or []
+    except ValueError:
+        return 0
+    return sum(1 for r in rounds
+               if isinstance(r, dict)
+               and r.get("status") == "proposed"
+               and r.get("kind", "source") == "source")
 
 
 def _asset_count(work: "Path") -> int:
