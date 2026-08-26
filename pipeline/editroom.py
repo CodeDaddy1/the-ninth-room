@@ -2894,7 +2894,15 @@ def _footage_state(slug: str) -> "dict":
     # catalog already lists its files by name and is already being read
     # here, so this is a set intersection, not a new pass over the media.
     cat = work_path(slug) / "analysis" / "catalog.json"
-    ingested = cat.exists()
+    # The SAME definition the project row uses. They disagreed: this read
+    # only catalog.json, the row reads catalog AND takes. An ingest that
+    # dies at the takes stage writes the catalog and no takes, so the desk
+    # said "all analyzed" directly above a footer saying "1 file waiting to
+    # be analyzed" and a band explaining why the analysis failed — three
+    # sources, two answers, on one screen (browser check, 2026-08-25).
+    # A catalog with no takes is a half-finished analysis, so the row's
+    # stricter definition is the right one.
+    ingested = cat.exists() and (work_path(slug) / "analysis" / "takes.json").exists()
     analyzed, skipped = 0, []
     if ingested:
         covered, set_aside = _catalog_read(cat)

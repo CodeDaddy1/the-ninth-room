@@ -70,9 +70,11 @@ class FootageState(Sandboxed):
         for n in names:
             (self.work / "footage" / n).write_bytes(b"not really a video")
 
-    def _catalog(self, names, skipped=()):
+    def _catalog(self, names, skipped=(), takes=True):
         d = self.work / "analysis"
         d.mkdir(exist_ok=True)
+        if takes:
+            (d / "takes.json").write_text("{}")
         (d / "catalog.json").write_text(json.dumps({
             "slug": "ep",
             "files": [{"name": n} for n in names],
@@ -137,12 +139,25 @@ class FootageState(Sandboxed):
         self._catalog(["a.mp4"], skipped=[{"name": "broken.mp4", "why": "stub"}])
         self.assertEqual(editroom._footage_state("ep")["skipped"], ["broken.mp4"])
 
+    def test_a_catalog_with_no_TAKES_is_not_analyzed(self):
+        """An ingest that dies at the takes stage writes the catalog and no
+        takes. Reading only catalog.json made this desk say "all analyzed"
+        directly above a footer saying "1 file waiting to be analyzed" and
+        a band explaining why the analysis failed — the project row has
+        always used the stricter definition, and now so does this."""
+        self._drop("a.mp4")
+        self._catalog(["a.mp4"], takes=False)
+        st = editroom._footage_state("ep")
+        self.assertFalse(st["ingested"])
+        self.assertEqual(st["analyzed"], 0)
+
     def test_a_half_written_catalog_does_not_take_the_inventory_down(self):
         """A catalog being written while the desk polls is a real race on
         a machine doing both. The inventory is the important half."""
         self._drop("a.mp4", "b.mp4")
         d = self.work / "analysis"
         d.mkdir(exist_ok=True)
+        (d / "takes.json").write_text("{}")
         (d / "catalog.json").write_text('{"slug": "ep", "files": [{"na')
         st = editroom._footage_state("ep")
         self.assertEqual(len(st["files"]), 2)
