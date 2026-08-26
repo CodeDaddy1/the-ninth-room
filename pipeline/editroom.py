@@ -77,6 +77,16 @@ def _state(slug: str) -> "dict":
             proxies[p.name.split(".")[0]] = "%s?v=%d" % (p.name, p.stat().st_mtime)
 
     plan_by_id = {b["id"]: b for b in plan["beats"]}
+    # the takes a trim is bounded by — read once, not per beat
+    takes_by_id: "dict" = {}
+    tk_path = out / "takes.json"
+    if tk_path.exists():
+        try:
+            for t in json.loads(tk_path.read_text()).get("takes", []):
+                if isinstance(t, dict) and "id" in t:
+                    takes_by_id[t["id"]] = t
+        except (ValueError, OSError):
+            takes_by_id = {}
     chapters = [{"id": c["id"], "title": c["title"], "beats": []}
                 for c in plan.get("chapters", [])]
     ch_index = {c["id"]: c for c in chapters}
@@ -118,6 +128,18 @@ def _state(slug: str) -> "dict":
             # directions, which is the one thing that sheet exists to
             # prevent (review, 2026-08-26).
             "trim": pb.get("trim") or beat.get("trim"),
+            # AND THE TAKE IT SITS INSIDE.
+            #
+            # `validate_edit_plan` is the real floor on a trim, not the
+            # `new_s < 0` guard in `_beat_trim`: schemas.py requires
+            # `t.s - 0.01 <= trim.s < trim.e <= t.e + 0.01`. Without these
+            # bounds the Studio's sheet could only mirror the zero case,
+            # and a ONE-FRAME nudge is refused on ~35 of hmns's 82 beats
+            # because their trim already sits on the take's edge (second
+            # review, 2026-08-26).
+            "take_bounds": ({"s": takes_by_id[pb["take_id"]]["s"],
+                             "e": takes_by_id[pb["take_id"]]["e"]}
+                            if pb.get("take_id") in takes_by_id else None),
             "review": review.get(beat["id"], {}),
         }
         ch = ch_index.get(pb.get("chapter_id"))

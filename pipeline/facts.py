@@ -37,7 +37,24 @@ import threading
 import time
 from pathlib import Path
 
-from .ingest import work_path
+from . import ingest as _ingest
+
+
+def work_path(slug: str) -> Path:
+    """Resolved through the ingest MODULE, not bound by value.
+
+    `from .ingest import work_path` binds the function object at import
+    time, so a test that patches `ingest.work_path` — which is how every
+    sandboxed test in this repo isolates itself — does not reach this
+    module. `_link_footage` calls `record_source`, so
+    tests/test_footage_linking.py wrote a real `work/ep/` into the live
+    shelf, where it showed up as a phantom project on the Studio's board
+    (found 2026-08-26).
+
+    Re-exported under the same name so this module's own tests can patch
+    `facts.work_path` directly as well.
+    """
+    return _ingest.work_path(slug)
 
 # Every other multi-writer file in this engine has a lock (review.json,
 # graphics_plan.json, the conform ledger, trash.json, edit_plan.json) and

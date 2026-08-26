@@ -27,6 +27,9 @@ from pipeline import editroom  # noqa: E402
 from pipeline.ingest import IngestError  # noqa: E402
 
 
+WORK = Path(__file__).resolve().parent.parent / "work"
+
+
 class Linking(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -36,10 +39,26 @@ class Linking(unittest.TestCase):
         (self.work / "footage").mkdir(parents=True)
         self._wp = editroom.work_path
         editroom.work_path = lambda slug: self.root / "work" / slug
+        # `_link_footage` records the card the folder came from, and
+        # `facts` resolves its work dir through INGEST — patching
+        # editroom's alone left it writing a real `work/ep/` into the live
+        # shelf, where it showed up as a phantom project on the Studio's
+        # board (2026-08-26). The guard below is the same one
+        # test_footage_state has carried since the first time this
+        # happened to it.
+        import pipeline.ingest as ingest_mod
+        self._iwp = ingest_mod.work_path
+        ingest_mod.work_path = lambda slug: self.root / "work" / slug
+        self._before = set(p.name for p in WORK.iterdir()) if WORK.is_dir() else set()
 
     def tearDown(self):
+        import pipeline.ingest as ingest_mod
         editroom.work_path = self._wp
+        ingest_mod.work_path = self._iwp
         shutil.rmtree(self.root, ignore_errors=True)
+        after = set(p.name for p in WORK.iterdir()) if WORK.is_dir() else set()
+        self.assertEqual(after - self._before, set(),
+                         "the test wrote into the REAL work dir")
 
     def clip(self, name, body=b"CLIP", where=None):
         p = (where or (self.lib / "shoot")) / name

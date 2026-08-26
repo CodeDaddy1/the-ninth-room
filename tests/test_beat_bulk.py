@@ -65,7 +65,20 @@ def _takes():
     ], "groups": []}
 
 
+WORK = Path(__file__).resolve().parent.parent / "work"
+
+
 class BulkBase(unittest.TestCase):
+    """A work dir of our own, and a guard that we stayed in it.
+
+    Patching `editroom.work_path` alone is not enough: `analysis_dir` is
+    ingest's and it MKDIRS, so a test that reaches `_state` creates a real
+    `work/<slug>/analysis` in the live tree — which then shows up as a
+    phantom project on the Studio's board. That happened here (2026-08-26,
+    a `work/ep` left behind), and the same guard has been in
+    test_footage_state since the first time it did.
+    """
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         (self.tmp / "analysis").mkdir()
@@ -78,11 +91,22 @@ class BulkBase(unittest.TestCase):
         self._start = jobs.start
         self.queued = []
         jobs.start = lambda kind, slug: self.queued.append(kind)
+        # every test in this file patches ingest's work_path too, so
+        # `analysis_dir` cannot mkdir into the real shelf
+        import pipeline.ingest as ingest_mod
+        self._iwp = ingest_mod.work_path
+        ingest_mod.work_path = lambda slug: self.tmp
+        self._before = set(p.name for p in WORK.iterdir()) if WORK.is_dir() else set()
 
     def tearDown(self):
+        import pipeline.ingest as ingest_mod
         editroom.work_path = self._wp
+        ingest_mod.work_path = self._iwp
         jobs.start = self._start
         shutil.rmtree(self.tmp, ignore_errors=True)
+        after = set(p.name for p in WORK.iterdir()) if WORK.is_dir() else set()
+        self.assertEqual(after - self._before, set(),
+                         "the test wrote into the REAL work dir")
 
     def plan(self):
         return json.loads((self.tmp / "edit_plan.json").read_text())
@@ -377,20 +401,6 @@ class GhostVerdicts(BulkBase):
     agreed — and would have stopped agreeing the first time one of them was
     an approve.
     """
-
-    def setUp(self):
-        super().setUp()
-        # `analysis_dir` is ingest's and editroom imported it BY VALUE, so
-        # patching editroom.work_path alone leaves it pointing at the real
-        # shelf — the same hazard test_footage_state's Sandboxed documents.
-        import pipeline.ingest as ingest_mod
-        self._awp = ingest_mod.work_path
-        ingest_mod.work_path = lambda slug: self.tmp
-
-    def tearDown(self):
-        import pipeline.ingest as ingest_mod
-        ingest_mod.work_path = self._awp
-        super().tearDown()
 
     def _timeline(self, ids):
         (self.tmp / "analysis" / "timeline_map.json").write_text(json.dumps({
