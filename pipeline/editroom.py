@@ -2066,6 +2066,48 @@ def _new_project(name: str, origin: str = "footage",
     return slug
 
 
+# catalog path -> ((mtime, size), frozenset(names), skipped_count)
+_CATALOG_CACHE: "dict" = {}
+
+
+def _catalog_read(cat: "Path") -> "tuple":
+    """What the catalog covers and what it set aside, memoised on
+    (mtime, size).
+
+    Every project row and every footage-state call wants the same answer
+    from the same 240 KB file, and neither can afford to parse it on each
+    poll as the shelf grows. A half-written catalog — a real race on a
+    machine that analyses and serves at once — returns (None, None) so
+    callers fall back rather than reporting an empty analysis.
+
+    `skipped` matters as much as `files`. Ingest SKIPS an unreadable or
+    zero-duration clip rather than failing the batch (one DJI stub cut off
+    mid-write must not sink 368 files), and nothing in the Studio has ever
+    shown that list — hmns has been carrying one since August and nobody
+    knew. Without it, "367 of 368 analyzed" reads as work outstanding and
+    Analyze is offered again forever: the skip is deliberate and re-running
+    reproduces it exactly.
+    """
+    try:
+        st = cat.stat()
+    except OSError:
+        return None, None
+    key = (st.st_mtime, st.st_size)
+    hit = _CATALOG_CACHE.get(str(cat))
+    if hit is not None and hit[0] == key:
+        return hit[1], hit[2]
+    try:
+        data = json.loads(cat.read_text())
+        names = frozenset(f.get("name") for f in data.get("files", []))
+        # written as bare names today; tolerate a dict in case that changes
+        skipped = frozenset(s.get("name") if isinstance(s, dict) else s
+                            for s in data.get("skipped", []))
+    except Exception:
+        return None, None
+    _CATALOG_CACHE[str(cat)] = (key, names, skipped)
+    return names, skipped
+
+
 def _project_row(slug: str) -> "dict":
     work = work_path(slug)
     out = work / "analysis"
@@ -2074,6 +2116,25 @@ def _project_row(slug: str) -> "dict":
                 if p.suffix.lower() in _VIDEO_UP and not p.name.startswith((".", "_tmp"))]
                if fdir.is_dir() else [])
     ingested = (out / "catalog.json").exists() and (out / "takes.json").exists()
+    # How many of the files ON DISK the analysis covers. `ingested` is a
+    # latch — true forever once a catalog exists — so a clip dropped in
+    # afterwards left every desk reading "analyzed" over footage nothing
+    # had watched.
+    #
+    # This started as an mtime comparison, to avoid parsing a 240 KB
+    # catalog per project on every board poll. It was WRONG on live data:
+    # `footage/` holds `.thumbs`, `stills` and `.trash`, so its own mtime
+    # moves whenever a preview is cached or a clip is binned, and both real
+    # projects reported stale with no footage newer than their catalogs.
+    # The names are the only honest answer, so they are read and MEMOISED
+    # on (mtime, size) instead — one parse per catalog, not per poll.
+    analyzed = len(footage) if ingested else 0
+    n_skipped = 0
+    if ingested and footage:
+        covered, set_aside = _catalog_read(out / "catalog.json")
+        if covered is not None:
+            analyzed = sum(1 for n in footage if n in covered)
+            n_skipped = sum(1 for n in footage if n in set_aside)
     stories = None
     if (work / "stories.json").exists():
         stories = json.loads((work / "stories.json").read_text())
@@ -2248,6 +2309,10 @@ def _project_row(slug: str) -> "dict":
             "poster": _project_poster(slug),
             "storage": _project_storage(slug),
             "footage": len(footage), "ingested": ingested,
+            # analyzed + skipped == footage means nothing is outstanding.
+            # Counting a deliberate skip as work would offer Analyze again
+            # forever — re-running reproduces the same skip.
+            "analyzed": analyzed, "skipped": n_skipped,
             "stories": bool(stories), "approved": approved,
             "recut_suggested": recut,
             "plan": plan, "graphics": graphics, "proxies": prox,
@@ -2830,17 +2895,17 @@ def _footage_state(slug: str) -> "dict":
     # here, so this is a set intersection, not a new pass over the media.
     cat = work_path(slug) / "analysis" / "catalog.json"
     ingested = cat.exists()
-    analyzed, skipped = 0, 0
+    analyzed, skipped = 0, []
     if ingested:
-        try:
-            data = json.loads(cat.read_text())
-            covered = {f.get("name") for f in data.get("files", [])}
+        covered, set_aside = _catalog_read(cat)
+        # `covered is None` is a half-written catalog, which must not take
+        # the whole inventory down with it — the desk copes with 0
+        if covered is not None:
             analyzed = sum(1 for it in items if it["name"] in covered)
-            skipped = len(data.get("skipped", []))
-        except Exception:
-            # a half-written catalog must not take the whole inventory
-            # down with it — the desk copes with analyzed == 0
-            pass
+            # NAMES, not a count: a skipped clip is unreadable or an
+            # interrupted recording, and the only useful thing the desk
+            # can say about it is which one to replace.
+            skipped = [it["name"] for it in items if it["name"] in set_aside]
     return {"slug": slug, "files": items, "ingested": ingested,
             "analyzed": analyzed, "skipped": skipped}
 
