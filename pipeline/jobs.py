@@ -670,7 +670,10 @@ def _run_interview(slug, log, set_pct):
         # The script lane has no footage, so research is the ONLY material
         # the director has. Interviewing without it would be asking Caleb
         # to supply what the pipeline is meant to fetch.
-        raise RuntimeError("no research yet -- run Research the place on "
+        # names the button as the SCRIPT lane labels it — this branch is
+        # only reachable there, and "Research the place" is what the
+        # filmed lane calls it
+        raise RuntimeError("no research yet -- run Research the topic on "
                            "the Story desk; with no footage it is the only "
                            "material the director has")
     out = work / "script_questions.json"
@@ -1694,7 +1697,10 @@ KINDS = {
     "interview": ("Interview me — the director's questions", _run_interview),
     "script": ("Write the script", _run_script),
     "sourcing": ("Source supporting coverage", _run_sourcing),
-    "research": ("Research the place", _run_research),
+    # "the place" is filmed-lane wording, and `_run_research` has always
+    # accepted a topic as readily as a location — a documentary named one
+    # and the Activity dock still called it a place (2026-08-26)
+    "research": ("Research — sourced facts", _run_research),
     "graphics": ("Suggest graphics — cards for the clips", _run_graphics),
     "scout": ("Scout ideas", _run_scout),
     "snapcuts": ("Tighten cuts — edges onto clean audio", _run_snapcuts),
