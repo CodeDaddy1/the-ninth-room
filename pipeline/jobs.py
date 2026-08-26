@@ -1403,6 +1403,11 @@ def _dispatch_json(prompt, log, set_pct, what):
     seen_session = [False]
     t0 = time.time()
     last = [t0]
+    # How many tool steps the session has taken. The heartbeat used to say
+    # "session silent" whatever was happening, which is only half true: a
+    # session reading files is working hard and saying nothing, and that
+    # reads very differently from one that is genuinely stuck.
+    steps = [0]
     # Captured HERE, on the worker thread, and closed over. The drain runs
     # on its own thread with its own empty thread-local, so reading the
     # current job from inside it finds nothing and the id never lands.
@@ -1413,11 +1418,22 @@ def _dispatch_json(prompt, log, set_pct, what):
             line = line.strip()
             if not line:
                 continue
-            last[0] = time.time()
+            # NOT here. The timer must measure how long it has been since
+            # anything was SAID, and most lines on this stream are tool
+            # events that say nothing. Resetting on every one of them meant
+            # a session reading ninety-four takes files kept the heartbeat
+            # permanently fresh while the log sat frozen on its last
+            # sentence and the bar sat on heartbeat_pct's 15% floor — the
+            # exact "still showing 15%" symptom the heartbeat was written
+            # to end, returning whenever the session is BUSY rather than
+            # idle (Caleb, 2026-08-26, 13.5 minutes into a live script
+            # job). The plain dispatcher never had this: every line it
+            # reads is a line it logs.
             try:
                 ev = _json.loads(line)
             except ValueError:
                 log(line)
+                last[0] = time.time()
                 continue
             # Every event carries it; the first one is enough. Stamped as
             # soon as it arrives rather than at the end, so a session that
@@ -1428,10 +1444,14 @@ def _dispatch_json(prompt, log, set_pct, what):
             etype = ev.get("type")
             if etype == "assistant":
                 for block in (ev.get("message") or {}).get("content", []):
+                    if block.get("type") == "tool_use":
+                        steps[0] += 1
                     if block.get("type") == "text" and block.get("text"):
                         for tl in block["text"].splitlines():
                             if tl.strip():
                                 log(tl)
+                                # said something: the clock starts again
+                                last[0] = time.time()
             elif etype == "result":
                 u = ev.get("usage") or {}
                 usage.update({
@@ -1452,8 +1472,10 @@ def _dispatch_json(prompt, log, set_pct, what):
         now = time.time()
         if now - last[0] >= HEARTBEAT_S:
             set_pct(heartbeat_pct(now - t0))
-            log("[%s] still working — %.0fm elapsed, session silent"
-                % (what, (now - t0) / 60.0))
+            log("[%s] still working — %.0fm elapsed, %s"
+                % (what, (now - t0) / 60.0,
+                   ("%d steps so far" % steps[0]) if steps[0]
+                   else "session silent"))
             last[0] = now
     t.join(timeout=5)
     rc = proc.wait()
