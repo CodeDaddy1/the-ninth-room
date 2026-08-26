@@ -298,6 +298,20 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
             pass
         entry = screen_mod.screen(entry, seen_sigs)
         if entry.get("screened_out"):
+            # `class` is REQUIRED on every catalog file, and this branch
+            # jumps past both places that set it — so the first
+            # screened-out clip in a shoot failed the whole ingest at
+            # validation with "catalog.files[N]: missing 'class'", and no
+            # catalog was written at all (2026-08-26).
+            #
+            # `broll` is the honest value: whisper never ran on this file,
+            # so it is certainly not speech, and it carries no words_file
+            # — which validate_catalog demands of anything claiming to be.
+            # Nothing downstream is misled: every other consumer keys on
+            # class == "speech", and broll.py, the one that looks for
+            # "broll", already excludes screened_out on the next line.
+            # What governs this file is `screened_out`, not its class.
+            entry["class"] = "broll"
             entries.append(entry)
             log("[ingest] SET ASIDE %s — %s"
                 % (entry["name"], entry["screen_reason"]))

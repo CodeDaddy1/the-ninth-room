@@ -146,3 +146,65 @@ class BlackDetection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScreenedEntriesSurviveTheCatalog(unittest.TestCase):
+    """The seam between screen.py and schemas.py, which nothing tested.
+
+    Both modules were correct on their own. `screen()` stamps an entry
+    with `screened_out` and a reason and — per its own contract — leaves
+    it in the catalog so undoing a wrong call is editing one field rather
+    than restoring a file. `validate_catalog()` requires `class` on every
+    file. Ingest's screened-out branch `continue`d past both places that
+    assign one.
+
+    The result: the first mechanically-useless clip in a shoot failed the
+    ENTIRE ingest at validation — "catalog.files[91]: missing 'class'" —
+    and no catalog was written at all. A half-second fumbled record
+    button took down a 368-file run (2026-08-26).
+
+    These tests assert the contract across the seam, not inside either
+    module, because that is where it broke.
+    """
+
+    def _entry(self, **over):
+        e = {"name": "DJI_0091.MP4", "path": "/tmp/DJI_0091.MP4",
+             "duration": 12.0, "kind": "video", "has_audio": False,
+             "width": 3840, "height": 2160, "fps": 24}
+        e.update(over)
+        return e
+
+    def test_a_screened_out_entry_is_a_valid_catalog_file(self):
+        from pipeline import schemas
+        # too short to cut — the cheapest screen, and the one that bit
+        entry = screen.screen(self._entry(duration=0.4), {}, check_black=False)
+        self.assertTrue(entry.get("screened_out"), "the fixture must screen out")
+        entry["class"] = "broll"          # what ingest now stamps
+        errors = schemas.validate_catalog(
+            {"slug": "x", "files": [entry], "skipped": []})
+        self.assertEqual(errors, [], "a set-aside clip must not fail the catalog")
+
+    def test_ingest_stamps_the_class_itself(self):
+        """The real guard: ingest's own branch, not a value re-typed here."""
+        import re
+        src = Path(__file__).resolve().parent.parent / "pipeline" / "ingest.py"
+        body = src.read_text()
+        # `continue` as a STATEMENT — matching the bare word stops inside
+        # the branch's own comment, which says "continues past both places"
+        m = re.search(r'if entry\.get\("screened_out"\):(.*?)\n\s+continue\n',
+                      body, re.S)
+        self.assertIsNotNone(m, "the screened-out branch moved — re-point this test")
+        self.assertIn('entry["class"]', m.group(1),
+                      "the screened-out branch must set a class before appending, "
+                      "or the catalog fails validation on the first set-aside clip")
+
+    def test_a_screened_out_clip_never_claims_to_be_speech(self):
+        """Whisper never ran on it, so it carries no words_file — and
+        validate_catalog rejects a speech file without one."""
+        from pipeline import schemas
+        entry = screen.screen(self._entry(duration=0.4), {}, check_black=False)
+        entry["class"] = "speech"
+        errors = schemas.validate_catalog(
+            {"slug": "x", "files": [entry], "skipped": []})
+        self.assertTrue(any("words_file" in e for e in errors),
+                        "speech without a transcript must still be rejected")
