@@ -353,3 +353,19 @@ class RemovalDefectsFoundInReview(BulkBase):
         with self.assertRaises(IngestError):
             editroom._trash_restore("ep", data["entries"][-1]["uid"])
         self.assertEqual(self.ids(), before, "the plan is untouched")
+
+    def test_a_legacy_single_beat_trash_entry_still_restores(self):
+        """A trash file is exactly the artifact that outlives a format
+        change. Nothing on disk carries the old one-beat-per-entry shape,
+        but restoring must not depend on that being true."""
+        editroom._beat_remove("ep", ["BT02"])
+        path = self.tmp / "trash.json"
+        data = json.loads(path.read_text())
+        e = data["entries"][-1]
+        legacy = {"kind": "beat", "ts": e["ts"], "uid": "legacy-1",
+                  "beat_id": "BT02", "index": e["beats"][0]["index"],
+                  "payload": e["beats"][0]["beat"]}
+        data["entries"] = [legacy]
+        path.write_text(json.dumps(data))
+        editroom._trash_restore("ep", "legacy-1")
+        self.assertEqual(self.ids(), ["BT01", "BT02", "BT03", "BT04"])

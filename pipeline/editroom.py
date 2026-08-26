@@ -807,7 +807,14 @@ def _trash_restore(slug: str, uid: str, kind: str = "") -> "dict":
         # and the cut comes back [BT01, BT02, BT04, BT03] (found in review,
         # 2026-08-26). One entry, one insert pass, one validation.
         from . import schemas
-        rows = sorted(entry.get("beats", []), key=lambda r: int(r.get("index", 0)))
+        rows = entry.get("beats")
+        if not rows and entry.get("payload"):
+            # an entry written before the batch format — one beat, with the
+            # index and payload at the top level. Nothing on disk has one
+            # (the `beat` kind never shipped in the old shape), but a trash
+            # file is exactly the artifact that outlives a format change.
+            rows = [{"index": entry.get("index", 0), "beat": entry["payload"]}]
+        rows = sorted(rows or [], key=lambda r: int(r.get("index", 0)))
         if not rows:
             raise IngestError("that entry has no clips to restore")
         with _EDITPLAN_LOCK:
