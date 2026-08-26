@@ -4618,6 +4618,22 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                         return
                     self._send(404, {"error": "not found"})
                     return
+                # /media/<slug>/poster.jpg — the episode poster, which
+                # `_poster` writes BESIDE the work files rather than in a
+                # subdirectory. The project row has advertised it since the
+                # Home board learned to show poster tiles, and this route
+                # required exactly five path parts, so every card on the
+                # board showed a broken image (found 2026-08-25). One
+                # allow-listed name: the root of a work dir holds JSON and
+                # symlinked footage, and must not become browsable.
+                if (len(parts) == 4 and _valid_slug(parts[2])
+                        and os.path.basename(urllib.parse.unquote(parts[3])) == "poster.jpg"):
+                    pj = (work_path(parts[2]) / "poster.jpg").resolve()
+                    if pj.is_file() and pj.parent == work_path(parts[2]).resolve():
+                        self._send(200, pj.read_bytes(), "image/jpeg")
+                        return
+                    self._send(404, {"error": "not found"})
+                    return
                 # /media/<slug>/<proxies|exports>/<name>
                 if len(parts) != 5 or not _valid_slug(parts[2]):
                     self._send(404, {"error": "not found"})
