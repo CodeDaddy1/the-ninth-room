@@ -250,6 +250,33 @@ def group_takes(takes: "list[dict]") -> "list[dict]":
     return groups
 
 
+def take_thumb(path: str, s: float, e: float, dest: Path) -> bool:
+    """One frame from INSIDE this take, cached on disk.
+
+    Caleb, 2026-08-26: "All clips in the library should have previews
+    regardless of class." Every file already has a thumbnail — the Footage
+    desk makes one per file, 371 of them — but a take is a SEGMENT, and on
+    this episode 249 of 375 takes share their file with another. One file
+    holds sixteen. Reusing the file's thumbnail would have given two thirds
+    of the library a picture of a different moment, which is worse than no
+    picture: a wrong frame is read as this take's frame.
+
+    Grabbed a beat INTO the take rather than on its first frame, which is
+    often mid-blink on the cut from the previous one.
+    """
+    if dest.exists():
+        return True
+    at = s + min(0.5, max((e - s) / 3.0, 0.0))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    from .broll import _prefer_proxy
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-ss", "%.2f" % at,
+         "-i", str(_prefer_proxy(Path(path))), "-frames:v", "1",
+         "-vf", "scale=320:-2", str(dest)],
+        capture_output=True)
+    return dest.exists()
+
+
 def analyze(slug: str, log=print) -> Path:
     """Read catalog.json, write analysis/takes.json."""
     out = analysis_dir(slug)
@@ -299,6 +326,20 @@ def analyze(slug: str, log=print) -> Path:
 
     if not takes:
         raise IngestError("no speech takes found in catalog", code="no_speech")
+
+    # The previews. Cheap next to what has already run — one frame each
+    # against whisper's pass over the same audio — and cached, so a
+    # re-analyze pays only for takes that are new.
+    thumbs_dir = out / "take_thumbs"
+    made = 0
+    by_file = {f["name"]: f for f in catalog["files"]}
+    for t in takes:
+        src = by_file.get(t["file"], {}).get("path")
+        if not src:
+            continue
+        if take_thumb(src, t["s"], t["e"], thumbs_dir / (t["id"] + ".jpg")):
+            made += 1
+    log("[takes] %d of %d takes have a preview" % (made, len(takes)))
 
     groups = group_takes(takes)
     for g in groups:

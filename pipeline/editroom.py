@@ -416,6 +416,20 @@ def _take_screening(slug: str) -> "dict":
                                            if t.get("screened_out"))}}
 
 
+def _take_thumb_path(slug: str, take_id: str) -> "str | None":
+    """The absolute path to one take's preview, or None.
+
+    Guarded to `analysis/take_thumbs/` the same way `_broll_catalog` guards
+    its sheets: the id comes off disk, and a traversal in it must not turn
+    into a readable path.
+    """
+    d = (work_path(slug) / "analysis" / "take_thumbs").resolve()
+    p = (d / (take_id + ".jpg")).resolve()
+    if p.is_file() and str(p).startswith(str(d) + os.sep):
+        return str(p)
+    return None
+
+
 def _takes_state(slug: str) -> "dict":
     """The Takes desk (P7): every transcribed take with its fate.
 
@@ -456,7 +470,13 @@ def _takes_state(slug: str) -> "dict":
                       "fillers": int(t.get("fillers", 0)),
                       "fate": fate,
                       "beats": picked.get(t["id"], []),
-                      "kill_reason": killed.get(t["id"], "")})
+                      "kill_reason": killed.get(t["id"], ""),
+                      # Resolved ABSOLUTE, exactly as `_footage_state` does
+                      # for its thumbnails and `_broll_catalog` for its
+                      # contact sheets, so it serves through the existing
+                      # `/file?p=` route. A take with no preview reports
+                      # null rather than a path that 404s.
+                      "thumb": _take_thumb_path(slug, t["id"])})
     screening = _take_screening(slug)
     return {"slug": slug, "ingested": True, "takes": takes,
             "requests": _asset_rounds(slug),
