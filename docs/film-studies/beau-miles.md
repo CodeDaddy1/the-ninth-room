@@ -49,10 +49,14 @@ block for 24 hours, alone, narrating in first person, filmed by one mate.
 Versus a family of three exploring public places together. Two things do
 **not** transfer and are overridden by brand non-negotiables:
 
-1. **He is a solo "I" narrator.** We are an ensemble and the system says
-   **"we"**, never "I", and nobody on camera is "the host"
-   (`brand/voice-and-tone.md`). Every VO rule below has to be re-voiced as
-   the family collectively.
+1. ~~**He is a solo "I" narrator.**~~ **Corrected 2026-08-27** — this
+   distance has largely closed. Caleb hosts and narrates, and "I" is not
+   banned anywhere (`brand/voice-and-tone.md`, S1 in
+   `.claude/agents/story-director.md`). His VO rules below can now be read
+   straight rather than re-voiced as the family collectively. What still
+   differs: he is alone in frame and we are not, so a rule that depends on
+   solitude — long unbroken self-narration over one continuous action —
+   still has to make room for Alma and Sofia being there.
 2. **His subject is himself.** Ours is the place and the ninth-room moment.
    His "what did I get done" spine becomes our "what wasn't on the map".
 

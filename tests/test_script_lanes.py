@@ -135,15 +135,27 @@ class Lanes(unittest.TestCase):
             {"slug": "ep", "stage": "interview", "questions": []}))
         p = jobs._script_prompt("ep")
         self.assertIn("SCRIPT-LED", p)
-        self.assertIn("first person singular is allowed", p)
+        self.assertIn("`desk` sections carry the spine", p)
         self.assertIn("no ninth-room moment", p)
 
     def test_the_visit_lane_says_the_opposite(self):
         self.brief()
         p = jobs._script_prompt("ep")
         self.assertIn("VISIT", p)
-        self.assertIn("ensemble", p)
+        self.assertIn("Caleb hosts", p)
         self.assertIn("ninth-room moment", p)
+
+    def test_neither_lane_bans_the_first_person(self):
+        """The prompt used to tell the writer "the system never says
+        \"I\"" on every visit dispatch — a contradicting instruction
+        arriving at write time, which is why a docs-only edit would not
+        have held (Caleb, 2026-08-27)."""
+        for origin in ("footage", "script"):
+            self.brief(origin=origin, subject="the pendulum")
+            p = jobs._script_prompt("ep")
+            self.assertNotIn('never says "I"', p)
+            self.assertIn('"I" is not banned anywhere', p)
+            self.assertIn("everyone speaks as themselves", p)
 
     def test_his_answers_reach_the_writer(self):
         """The failure mode an interview invites is being politely

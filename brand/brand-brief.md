@@ -48,8 +48,9 @@ owes the viewer one.
   real thing is. If the humour would survive the fact being removed, it isn't
   our humour.
 - **The family is real, and it's everyone's show.** Caleb, Alma and Sofia
-  (Alma's little sister), as an ensemble — everyone gets bits, votes, and
-  camera time. Nobody performs surprise, and nobody is "the host."
+  (Alma's little sister) — everyone gets bits, votes, and camera time.
+  Nobody performs surprise. Caleb hosts and narrates (2026-08-27); that is
+  a fact about the writing, not a smaller part for anyone on camera.
 
 ## Brand promise
 
@@ -84,9 +85,10 @@ people send to a friend are the scoreboard.
 - **Tagline:** Nine rooms. One you can't find.
 - **Mark:** the Archway (13c) — an arch seen straight on, warm light in the
   passage, one figure at the threshold.
-- **Cast:** the whole family, as an ensemble — Caleb, Alma, Sofia. No single
-  host. (Supersedes both "voice on, face off" and "Caleb carries the
-  narration.")
+- **Cast:** the whole family on camera — Caleb, Alma, Sofia — with **Caleb
+  hosting and narrating** (2026-08-27). This supersedes "no single host",
+  which in turn had superseded "voice on, face off". The written narration is
+  his; the screen stays everyone's.
 - **Episode unit:** one full visit, chaptered internally. Any place worth
   exploring qualifies.
 - **Cadence:** an episode ships **when it's ready** — no calendar promise.

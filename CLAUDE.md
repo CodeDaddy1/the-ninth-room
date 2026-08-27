@@ -193,10 +193,12 @@ world is, and from the family's real reactions on camera — never from
 mockery, profanity, or shock. An episode should teach something true and
 make someone laugh on the way.
 
-On-screen family — an **ensemble, no single host**: Caleb, **Alma** (his
-wife) and **Sofia** (Alma's little sister, *not* Caleb's daughter). Everyone
-gets bits, votes, and camera time. Never "Mom" on a card. Whisper mishears
-Sofia as "Sophia"; `brand/names.json` corrects it automatically.
+On-screen family — **Caleb hosts and narrates; Alma and Sofia carry the show
+with him** (2026-08-27, superseding "no single host"). **Alma** is his wife,
+**Sofia** her little sister, *not* Caleb's daughter. The change is to the
+writing, not the screen: everyone still gets bits, votes, and camera time.
+Never "Mom" on a card. Whisper mishears Sofia as "Sophia"; `brand/names.json`
+corrects it automatically.
 
 See `brand/voice-and-tone.md` — and note its hard rules, which the renderer
 enforces: no exclamation marks and honest numbers only. **Emoji are
@@ -248,8 +250,10 @@ exactly this. Which card, how often, and how they fail:
 4. **Any place worth exploring qualifies** — there is no pillar taxonomy.
    The bar is the brand promise, not a category: something true, something
    funny, and a ninth-room moment.
-5. **One voice** (`brand/voice-and-tone.md`) — the family's, collectively.
-   The system says "we", never "I"; nobody on camera is "the host".
+5. **One voice** (`brand/voice-and-tone.md`) — Caleb's, hosting. **"I" is not
+   banned anywhere** (2026-08-27): it is his in both written lanes, and "we"
+   is for the family moving as one. On camera everyone speaks as themselves —
+   Caleb, Alma and Sofia each say "I" in a take, and no rule touches a quote.
 6. **Design system first.** If it isn't in the Cyanotype kit, don't invent it
    here — brief it into Claude Design and re-implement what comes back.
 7. **Platform-native** (`workflows/platform-specs.md`): safe zones, lengths,

@@ -379,7 +379,7 @@ means our brand outranks it.
 |---|---|---|
 | **R1** title holds the gap, hook holds momentum | **Adopt** | The hook beat may open *in the middle of the day*, on a real moment, without restating the title. It must not open with "today we're at…". The gap lives in the title + thumbnail; the hook's job is velocity. |
 | **R17** three tenses | **Translate** | Present tense for the visit ("we're walking into…"), past only for the reveal's resolution, present for the takeaway. Our voice is a family narrating a day, so the historical present is already natural — this just names it. |
-| **R18** narrator is not a character | **Reject** | Our ensemble *is* the show (`CLAUDE.md`, "One voice… nobody on camera is 'the host'"). A 0%-face episode would not be a Ninth Room episode. Keep the number as a warning in the other direction only: he proves an explainer stretch can run several minutes with no face, so a long exhibit explanation does **not** need a cutaway to a talking head every 20s. |
+| **R18** narrator is not a character | **Reject** | Our family on camera *is* the show — Caleb hosting, Alma and Sofia with him (`CLAUDE.md` rule 5, rewritten 2026-08-27; the old citation read "nobody on camera is 'the host'"). A 0%-face episode would not be a Ninth Room episode. Keep the number as a warning in the other direction only: he proves an explainer stretch can run several minutes with no face, so a long exhibit explanation does **not** need a cutaway to a talking head every 20s. |
 | **R19** ad at peak gap | **N/A** | We have no sponsor. Noted for the day we do. |
 | **R14** engineered silence at the peak | **Adopt** | `edit_plan.json` should be allowed a beat with **no VO and no caption** — footage and sound only — at the episode's single biggest moment. 10–15s at our length. This is the third study to land on peak protection; it is now a rule, not an observation. |
 | **R16** payoff is the opening canvas, stripped | **Adopt** | The last beat should return to the episode's first image with every overlay removed. For us: the establishing wide of the room, held clean, no card, at the takeaway. |
@@ -434,8 +434,10 @@ applies it over a doctrine:
    enforced in `overlay_kit.py`). His entire graphic language breaks this.
    Ours does not bend.
 3. **Emoji are encouraged** (`brand/voice-and-tone.md`, Caleb 2026-08-20).
-4. **The family is on camera** — ensemble, no host. A faceless explainer is
-   a technique we may borrow *inside* an episode, never as an episode.
+4. **The family is on camera** — Caleb hosting, Alma and Sofia with him
+   (corrected 2026-08-27; this read "ensemble, no host"). A faceless
+   explainer is a technique we may borrow *inside* an episode, never as an
+   episode.
 5. **Fun first, funny while learning.** This video contains zero jokes in
    16:26. Every craft rule taken from it must survive being funny.
 6. **Accuracy is the brand.** R15 is the one rule here that actively

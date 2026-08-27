@@ -260,6 +260,88 @@ def coverage_notes(plan: "dict[str, Any]") -> "list[str]":
     return notes
 
 
+# Yes Theory's gear change, measured. That film runs 18.8 cuts/min overall
+# -- within 2% of Mark Rober -- which kills cut rate as the thing that
+# separates these films. What separates them is TEXTURE: the 19.3% of
+# runtime that is scripted VO carries 35% of all the cuts, 34.2 cuts/min
+# against 15.2 everywhere else, ~1.8s mean shot against ~4.0s.
+GEAR_VO_REF_S = 1.8        # their VO mean shot, for reference only
+GEAR_SCENE_REF_S = 4.0     # their scene mean shot, for reference only
+
+
+def gear_change(plan: "dict[str, Any]") -> "dict":
+    """Mean shot length on VO beats vs scene beats (2026-08-27).
+
+    S5 says "a chapter that is one texture end to end is a flat chapter"
+    and nothing measured it, though the edit plan already holds every
+    number needed. A flat episode is visible here as the two means
+    collapsing toward each other.
+
+    APPROXIMATE, deliberately. On a VO beat the b-roll IS the picture
+    (the teleprompter take can never ship), so its shots are its covers.
+    On a scene beat the shots are the face plus each cutaway. That
+    under-counts a beat whose covers do not tile it exactly, which is
+    most of them -- close enough to compare two textures, not close
+    enough to quote as a cuts/min figure.
+
+    Returns {vo_mean_s, scene_mean_s, ratio, vo_beats, scene_beats}.
+    `ratio` is scene/vo: high means the gear change is there, near 1.0
+    means the episode runs one texture end to end. There is deliberately
+    NO threshold here and no note anywhere -- `coverage_notes` is
+    required empty by the coverage job, and shipping an unmeasured number
+    into a gating list turns a green pipeline red on work that was fine.
+
+    MEASURED ON OUR OWN CUTS, 2026-08-27 -- and the answer was that there
+    is nothing to calibrate against yet. All four existing edit plans
+    (hmns, allure, and both _compare_ cuts) contain ZERO `vo_` beats:
+
+        hmns             scene 5.62s, 0 VO beats, 82 scene beats
+        allure           scene 5.42s, 0 VO beats, 34 scene beats
+        _compare_room    scene 7.02s, 0 VO beats
+        _compare_oneshot scene 6.50s, 0 VO beats
+
+    They all predate the VO-led format (2026-08-24), so every cut we have
+    ever made runs ONE texture end to end -- exactly the flat chapter S5
+    warns about, at feature length. Two things follow: our scene beats run
+    5.4-7.0s against Yes Theory's 4.0s, and the ratio is undefined rather
+    than bad. Set a threshold from the first cut that actually has a VO
+    half; until then this reports and gates nothing.
+    """
+    vo_s = vo_n = scene_s = scene_n = 0.0
+    vo_beats = scene_beats = 0
+    for b in plan.get("beats", []) or []:
+        if not isinstance(b, dict):
+            continue
+        trim = b.get("trim") or {}
+        try:
+            dur = float(trim.get("e", 0)) - float(trim.get("s", 0))
+        except (TypeError, ValueError):
+            continue
+        if dur <= 0:
+            continue
+        covers = [c for c in (b.get("broll") or []) if isinstance(c, dict)]
+        if str(b.get("take_id", "")).startswith("vo_"):
+            vo_beats += 1
+            for c in covers:
+                try:
+                    d = float(c.get("duration", 0))
+                except (TypeError, ValueError):
+                    continue
+                if d > 0:
+                    vo_s += d
+                    vo_n += 1
+        else:
+            scene_beats += 1
+            scene_s += dur
+            scene_n += 1 + len(covers)
+    vo_mean = (vo_s / vo_n) if vo_n else 0.0
+    scene_mean = (scene_s / scene_n) if scene_n else 0.0
+    return {"vo_mean_s": round(vo_mean, 2),
+            "scene_mean_s": round(scene_mean, 2),
+            "ratio": round(scene_mean / vo_mean, 2) if vo_mean else 0.0,
+            "vo_beats": vo_beats, "scene_beats": scene_beats}
+
+
 def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
                        broll: "dict[str, Any]") -> "list[str]":
     """edit_plan.json — the story-designer's output, cross-checked against
@@ -885,9 +967,23 @@ def validate_script(script: "dict[str, Any]",
                 if isinstance(rev, bool) or not isinstance(rev, int) or rev < 1:
                     errors.append("%s: rev must be an integer of 1 or more"
                                   % sw)
+            # Engineered silence is a real section (Caleb, 2026-08-27).
+            # S7 has told the writer for a while that "a `visual` and no
+            # words is a legitimate section", and this line refused to let
+            # them write one -- peak protection survived six studies and
+            # the format would not hold it. A wordless `vo` with a picture
+            # is the shape; anything else with no words is still a hole.
+            # A `desk` piece with no words is nothing, and a quote with no
+            # words is not a quote.
             if not str(sec.get("text") or "").strip():
-                errors.append("%s: empty text — a section with nothing to "
-                              "say is a hole in the episode" % sw)
+                if kind == "vo" and isinstance(sec.get("visual"), dict):
+                    pass
+                else:
+                    errors.append("%s: empty text — a section with nothing "
+                                  "to say is a hole in the episode. Silence "
+                                  "is legal as a `vo` section WITH a "
+                                  "`visual`: there has to be something to "
+                                  "look at" % sw)
             est = sec.get("est_s")
             if isinstance(est, bool) or not isinstance(est, (int, float)) or est <= 0:
                 errors.append("%s: est_s must be a positive number" % sw)
@@ -908,6 +1004,48 @@ def validate_script(script: "dict[str, Any]",
                     "%s: sections estimate %.0fs against a %.0fs target — "
                     "off by more than 25%%; rebudget the chapter or the "
                     "script" % (cw, est_sum, target))
+    errors.extend(_loop_ledger_errors(script, seen_sections))
+    return errors
+
+
+def _loop_ledger_errors(script: "dict[str, Any]",
+                        section_ids: "set") -> "list[str]":
+    """`loops[]` — the hook's promises, written down (2026-08-27).
+
+    STRUCTURE ONLY, and only when the field is there. An absent ledger is
+    silent here and picked up as a NOTE by `script_notes`, because the
+    house rule is that an existing script must not become invalid when the
+    bar gets sharper. What IS an error is a ledger that points at a
+    section id which does not exist: that is the same silent-corruption
+    class as a reused section id -- it reads fine and means nothing, and
+    nobody finds out until the loop goes unpaid in the cut.
+    """
+    errors: "list[str]" = []
+    loops = script.get("loops")
+    if loops is None:
+        return errors
+    if not isinstance(loops, list):
+        return ["script: loops must be a list"]
+    seen: "set" = set()
+    for i, lp in enumerate(loops):
+        lw = "loops[%d]" % i
+        if not isinstance(lp, dict):
+            errors.append(lw + ": not an object")
+            continue
+        lid = lp.get("id")
+        if not isinstance(lid, str) or not lid.strip():
+            errors.append(lw + ": id must be a non-empty string")
+        elif lid in seen:
+            errors.append("%s: duplicate loop id '%s'" % (lw, lid))
+        else:
+            seen.add(lid)
+        for field in ("opens", "pays"):
+            ref = lp.get(field)
+            if not isinstance(ref, str) or not ref.strip():
+                errors.append("%s: %s must name a section" % (lw, field))
+            elif section_ids and ref not in section_ids:
+                errors.append("%s: %s names '%s', which is not a section in "
+                              "this script" % (lw, field, ref))
     return errors
 
 
@@ -921,6 +1059,14 @@ def vo_share(script: "dict[str, Any]") -> float:
     Time, not section count: three one-line VO sections beside one long
     on-camera answer is not a VO-led episode, and counting sections would
     say it was.
+
+    A WORDLESS `vo` section -- engineered silence -- counts toward the
+    running time and NOT toward the voice-over (2026-08-27). Fifteen
+    seconds of held picture is not fifteen seconds of narration, and
+    counting it as such would read the episode as VO-heavy and push the
+    writer to cut real narration to get back under the dial. The dial
+    would be lying in the exact direction that destroys the beat it was
+    protecting.
     """
     vo = total = 0.0
     for ch in script.get("chapters", []):
@@ -932,7 +1078,7 @@ def vo_share(script: "dict[str, Any]") -> float:
             if est <= 0:
                 continue
             total += est
-            if sec.get("kind") == "vo":
+            if sec.get("kind") == "vo" and str(sec.get("text") or "").strip():
                 vo += est
     return (vo / total) if total else 0.0
 
@@ -980,17 +1126,16 @@ def script_notes(script: "dict[str, Any]",
     dial rather than a doctrine — so this checks the script against THAT
     episode's target, not against a constant.
 
-    `origin` picks the lane. A visit ("footage") is an ensemble and the
-    system never says "I"; a desk episode ("script") is Caleb alone on
-    camera, where first person singular is allowed — his call, 2026-08-24,
-    written into brand/voice-and-tone.md. Everything else applies to both.
+    **Nothing here checks person** (Caleb, 2026-08-27). "I" is not banned
+    in either lane — Caleb hosts, and on camera Alma and Sofia speak in the
+    first person too. `origin` stays in the signature because the lane still
+    decides the ninth room and the door meter, and every caller passes it.
 
     Only `vo` and `desk` text is judged. An `oncamera` section is a QUOTE,
     and marking a real person's real sentence as too long would be asking
     the past to rewrite itself.
     """
     notes: "list[str]" = []
-    lane = str(origin or script.get("origin") or "footage")
     want = VO_TARGET_DEFAULT if target is None else float(target)
     got = vo_share(script)
     if abs(got - want) > VO_TOLERANCE:
@@ -1015,14 +1160,11 @@ def script_notes(script: "dict[str, Any]",
             if word in low:
                 notes.append("%s: \"%s\" is on the banned list — label the "
                              "wonder less, show it more" % (sid, word))
-        if re.search(r"\bguys\b", low):
-            notes.append("%s: \"guys\" as an address — we speak to one "
-                         "person" % sid)
-        # "I" is the one rule the desk lane lifts. In a visit the family is
-        # an ensemble and nobody is the host, so the system never says it.
-        if lane != "script" and re.search(r"\b(I|I'm|I'll|I've|I'd)\b", text):
-            notes.append("%s: says \"I\" — a visit is an ensemble, and the "
-                         "system speaks as \"we\"" % sid)
+        # NOTHING here checks person, in either lane, for any speaker
+        # (Caleb, 2026-08-27). "I" is his in both written lanes, and on
+        # camera Caleb, Alma and Sofia each say it when they give a take.
+        # A check that reached a quote would be asking a real sentence
+        # somebody really said to rewrite itself. "guys" went with it.
         # --- S3: sentence shape ---
         for s in _sentences(text):
             n = len(s.split())
@@ -1055,6 +1197,68 @@ def script_notes(script: "dict[str, Any]",
             notes.append("median sentence is %d words against a %d-word "
                          "house shape — short declaratives, a fragment to "
                          "land it" % (mid, MEDIAN_SENTENCE_W))
+    notes.extend(loop_ledger_notes(script))
+    return notes
+
+
+# S6's ledger, checked. Mark Rober opens eight loops between 4:43 and 6:38
+# and pays all eight IN THE SAME ORDER between 8:10 and 15:43, landing the
+# climax at 72% of runtime rather than at the end.
+LEDGER_MIN_CHAPTERS = 2    # a short has one loop, not a ledger
+CLIMAX_AT = 0.70           # the last payment should not land before this
+
+
+def loop_ledger_notes(script: "dict[str, Any]") -> "list[str]":
+    """S6 as far as a machine can take it (2026-08-27).
+
+    ADVISORY, like everything else in `script_notes`: "the payoff must
+    always land" is the brand's one non-negotiable and until now it was
+    the only rule with nothing behind it at all -- `validate_edit_plan`
+    checks that *a* payoff beat exists and nothing checks that the
+    promises the hook actually made were kept.
+
+    What is NOT checked: the widening gap between opening and payment.
+    That is taste, it stays in S6, and a number would only make it worse.
+    """
+    notes: "list[str]" = []
+    chapters = script.get("chapters") or []
+    order: "list[str]" = [str(sec.get("id"))
+                          for ch in chapters
+                          for sec in (ch or {}).get("sections", []) or []]
+    at = {sid: i for i, sid in enumerate(order)}
+    loops = script.get("loops")
+    if not isinstance(loops, list) or not loops:
+        if len(chapters) >= LEDGER_MIN_CHAPTERS:
+            notes.append("no loop ledger — the promises the hook makes are "
+                         "not written down, so nothing can tell whether they "
+                         "were paid. Declare `loops` (S6)")
+        return notes
+    paid: "list[tuple]" = []
+    for lp in loops:
+        if not isinstance(lp, dict):
+            continue
+        lid = str(lp.get("id") or "?")
+        o, y = at.get(str(lp.get("opens"))), at.get(str(lp.get("pays")))
+        if o is None or y is None:
+            continue        # a dangling ref is validate_script's error
+        if y <= o:
+            notes.append("%s: paid at or before it opens — the viewer cannot "
+                         "remember a loop that had not been opened yet" % lid)
+            continue
+        paid.append((o, y, lid))
+    paid.sort()
+    for (o1, y1, id1), (o2, y2, id2) in zip(paid, paid[1:]):
+        if y2 < y1:
+            notes.append("%s pays before %s, which opened first — pay them "
+                         "in the order they were opened (S6)" % (id2, id1))
+    if paid and order:
+        last = max(y for _, y, _ in paid)
+        where = (last + 1) / float(len(order))
+        if where < CLIMAX_AT:
+            notes.append("the last loop closes %.0f%% of the way in — the "
+                         "climax should sit late (Rober lands his at 72%%), "
+                         "and the run after it has nothing left to pay"
+                         % (where * 100))
     return notes
 
 

@@ -576,15 +576,20 @@ def _script_prompt(slug) -> str:
                 "pitch. The script IS the backbone -- build it from the "
                 "brief and work/%s/research.json. Caleb presents at his "
                 "desk, so `desk` sections carry the spine and `vo` lines "
-                "connect them; first person singular is allowed in this "
-                "lane. It owes no ninth-room moment and no door meter. "
-                % slug)
+                "connect them. It owes no ninth-room moment and no door "
+                "meter. " % slug)
     else:
         lane = ("This is a VISIT: the latest round in "
                 "work/%s/story_feedback.json approves a direction in "
-                "work/%s/stories.json -- script THAT direction. The cast "
-                "is an ensemble, the system never says \"I\", and the "
-                "episode owes one ninth-room moment. " % (slug, slug))
+                "work/%s/stories.json -- script THAT direction. Caleb "
+                "hosts; Alma and Sofia are on camera with him. The "
+                "episode owes one ninth-room moment, and the spine is "
+                "WRITTEN -- `oncamera` takes support it, they do not "
+                "carry it. " % (slug, slug))
+    lane += ('Person: "I" is not banned anywhere -- it is Caleb\'s in both '
+             'lanes, and "we" is for the family moving as one. On camera '
+             'everyone speaks as themselves, so a take that says "I" stays '
+             'exactly as it was said. ')
     if existing is not None:
         latest = next((r for r in reversed(rounds)
                        if r.get("decision") in ("direction", "answers")), {})
@@ -1573,6 +1578,18 @@ def _run_coverage(slug, log, set_pct):
         editroom._reset_review(slug, bid)
     log("[coverage] %d beats re-covered -- their verdicts reset (notes "
         "kept); assembling next" % len(changed))
+    # S5's gear change, reported and NOT gated (2026-08-27). coverage_notes
+    # is required empty by this job, so a threshold in there would fail a
+    # real cut on a number nobody has calibrated. Watch it first.
+    g = schemas.gear_change(plan)
+    if g["vo_beats"]:
+        log("[coverage] gear change: VO %.1fs mean shot vs scene %.1fs "
+            "(ratio %.2f) -- Yes Theory ran 1.8 / 4.0, ratio 2.22"
+            % (g["vo_mean_s"], g["scene_mean_s"], g["ratio"]))
+    else:
+        log("[coverage] gear change: no VO beats in this cut, so there is "
+            "one texture end to end -- scene mean shot %.1fs"
+            % g["scene_mean_s"])
     set_pct(100)
 
 

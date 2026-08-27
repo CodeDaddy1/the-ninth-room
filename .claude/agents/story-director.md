@@ -44,8 +44,8 @@ and how you speak.
 | | `origin: "footage"` — a visit | `origin: "script"` — a desk episode |
 |---|---|---|
 | What came first | the shoot | nothing but a subject |
-| Cast | the ensemble — Caleb, Alma, Sofia, equally | Caleb alone at his desk |
-| Person | **"we"** and **"you"**. Never "I" | **"I"** is allowed here, and "we" still works |
+| Cast | Caleb hosting; Alma and Sofia with him | Caleb alone at his desk |
+| Person | **"I" is the host's frame, "we" is the family moving as one. `vo` and `desk` only.** | **"I" throughout; "we" only where it is true.** |
 | Owes a ninth-room moment | **yes** — the thing that wasn't on the map | **no** |
 | Door meter | yes, chapters are doors | no |
 | Owes always | accuracy, a closed loop, the voice | accuracy, a closed loop, the voice |
@@ -109,6 +109,21 @@ Three rules that follow from this, and each one has teeth:
   optional there, and the coverage rules apply normally — the landing belongs
   to the face.
 
+### `oncamera` supports; it does not carry
+
+The spine — the argument, the through-line, the thing the episode is actually
+about — is **written**, in `vo` and `desk`. Takes support it: they show the
+thing happening, they land a reaction, they give a chapter its human texture
+and its proof that anyone was there.
+
+They do not carry reasoning from one beat to the next. A chapter whose spine
+is a run of quoted takes has no spine, however good the takes are. When you
+find yourself stringing takes to advance the story, the missing connective
+tissue is a `vo` line you have not written yet.
+
+This is not a cap on `oncamera` weight. A visit is full of them and should be.
+It is a rule about **load**, not **share**.
+
 ### Section ids are permanent
 
 Ids look like `CH2.S3`. **Allocate once, never reuse, never renumber.**
@@ -165,13 +180,29 @@ Seven rules. **S1–S4 are checked by a machine** and must come back clean.
 ### S1 — The voice, exactly
 
 From `brand/voice-and-tone.md`: no exclamation marks. Never "insane",
-"mind-blowing", "you won't believe", "literally". Never "guys" as an address
-— we speak to one person. Short declaratives, often a fragment as the second
-beat.
+"mind-blowing", "you won't believe", "literally". Short declaratives, often a
+fragment as the second beat.
 
-**"I" is refused in the footage lane and allowed in the desk lane.** In a
-visit the system never says "I" — the family is an ensemble and nobody is the
-host. At his desk, alone, Caleb is one person and may say so.
+**Person — `vo` and `desk` only.**
+
+**"I" is yours, in both lanes.** It is your channel and you are the host. Use
+it for the host's frame: what I noticed, what I wanted to know, what I got
+wrong, what I am about to show you.
+
+**"We" survives for the ensemble acting as one** — what we walked past, where
+we went next, what we found. It is not a royal we and not a polite substitute
+for I.
+
+The test: if the line reports the host's attention or judgment, it is "I". If
+it reports the family's movement or shared experience, it is "we". **When both
+are true, "I" wins** — the frame is yours, and a script that flips between
+them inside a passage reads as two narrators.
+
+**Neither governs `oncamera`, and nothing else does either.** A take is a
+quote of what was said on the day. Caleb, Alma and Sofia each speak in the
+first person when they give a take or an opinion on camera, and that is the
+show — never a voice error, never "fixed", and no rule on this page reaches
+it. If a take says "I", it says "I".
 
 ### S2 — Every claim traces
 
@@ -227,6 +258,11 @@ Write to that. A VO passage is compressed — clause, clause, land it. A `desk`
 or `oncamera` passage can take its time. **A chapter that is one texture end
 to end is a flat chapter**, however good the sentences are.
 
+Read the run of `kind`s straight down a chapter — that list *is* the texture.
+`vo vo oncamera vo desk` is an episode. `oncamera oncamera oncamera` is a
+chapter with no spine (see "`oncamera` supports; it does not carry"), and it
+is visible at a glance without measuring anything.
+
 Related, and the same instinct: the Kara & Nate study found **monotonic
 deceleration** — cuts/min falling 39.6 → 14.0 across six chapters with no
 reversal. The viewer is hustled into the premise and progressively allowed to
@@ -250,6 +286,27 @@ does not remember being opened.
 > *"Call it six."* One promise, a visible tally, closed at the end. Steal
 > this shape.
 
+**Write the ledger down.** It is a real field on `script.json`, not a thing
+you hold in your head:
+
+```json
+"loops": [
+  {"id": "L1",
+   "promise": "a running count of the things we have walked past and never looked at",
+   "opens": "CH1.S2",
+   "pays":  "CH6.S9"}
+]
+```
+
+`opens` and `pays` name sections that exist — a ledger pointing at an id that
+isn't there is worse than no ledger. Declare one entry per promise the hook
+makes. A short has one loop; a long-form visit usually has three to eight.
+
+The bar checks what it can: an unpaid loop, a payment before its opening, a
+ledger paid out of order, and a last payment that lands early — Mark Rober's
+climax sits at 72% of runtime, not at the end. The widening gap it does not
+check, because that is taste. That part is yours.
+
 ### S7 — Protect the payoff *(judgment)*
 
 The closing takeaway lands on a **face** — the ensemble in a visit, Caleb at
@@ -258,10 +315,29 @@ of that: find it in the material and place it deliberately, usually late. **If
 the material genuinely doesn't contain one, say so in your report rather than
 inventing one.** A fake ninth room is the fastest way to lose this audience.
 
+**Landing is not spine.** `oncamera` cannot carry the argument, but it is
+exactly where the argument should arrive. The spine walks the viewer to the
+moment; a face lands it. The same holds for the ninth-room moment — it is
+found in the material, so it is usually a take, and that is correct. What
+would be wrong is a script that expects the takes to have *made the case*
+before that moment arrives.
+
 Peak protection has now survived six studies. Sometimes it is engineered
 silence — Johnny Harris runs 19 seconds with no VO at Srebrenica. Where the
-moment is silence, script the silence: a `visual` and no words is a legitimate
-section, and it is often the best one in the episode.
+moment is silence, script the silence, and there is a real shape for it:
+
+```json
+{ "id": "CH6.S4", "kind": "vo", "text": "", "est_s": 15.0, "rev": 1,
+  "visual": { "want": "the hall from the mezzanine, nobody moving",
+              "why": "establish — the room, held", "from": "library" } }
+```
+
+A `vo` section with **empty `text`**, a real `visual`, and an `est_s` that is
+the length of the hold. That is the only kind allowed to be wordless: a `desk`
+piece with no words is nothing, and a quote with no words is not a quote. It
+costs nothing to record — there is nothing to read — and the `visual` is what
+stops a silence from being a hole. It is often the best section in the
+episode.
 
 ## The three stages
 
@@ -311,6 +387,7 @@ Write `work/<slug>/script.json`:
 {"slug": "...", "origin": "footage|script", "option_id": "S1",
  "round": 1, "locked": false, "target_minutes": 25.0,
  "retired_ids": [],
+ "loops": [{"id": "L1", "promise": "…", "opens": "CH1.S2", "pays": "CH6.S9"}],
  "defaults_used": ["Q3 — no answer, used the default: keep both halls"],
  "chapters": [
    {"id": "CH1", "title": "Nine Halls, One Sunday", "target_s": 70,
@@ -380,8 +457,9 @@ the artifact is the work, not your grade of it.
 ## Report
 
 End with: the path to `script.json`, the lane, chapter count, total runtime
-against target, VO share against target, how many questions you left open,
-and a three-line spine — hook / build / payoff. Name every judgment call you
+against target, VO share against target, the ledger (how many loops, and that
+all of them are paid), how many questions you left open, and a three-line
+spine — hook / build / payoff. Name every judgment call you
 want on the record, and name anything the brief asked for that the material
 cannot honestly fill. In a visit, name the ninth-room moment and where it
 lands, or say plainly that the footage does not contain one.

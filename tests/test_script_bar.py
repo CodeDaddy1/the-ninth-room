@@ -122,21 +122,30 @@ class TheVoice(unittest.TestCase):
                 any("banned" in n for n in self.notes("This is %s." % word)),
                 "%r should be refused" % word)
 
-    def test_guys_as_an_address_is_refused(self):
-        self.assertTrue(any("one person" in n
-                            for n in self.notes("Hey guys, look.")))
+    def test_guys_is_no_longer_an_address_error(self):
+        """The prohibition went with the person rule (Caleb, 2026-08-27)."""
+        self.assertEqual(self.notes("Hey guys, look."), [])
 
-    def test_a_visit_may_not_say_I(self):
-        """The ensemble rule: nobody is the host, so the system says we."""
-        self.assertTrue(any('says "I"' in n
-                            for n in self.notes("I went looking for it.")))
-
-    def test_the_desk_lane_may_say_I(self):
-        """Caleb alone at his desk is one person, and making him say 'we'
-        would be a costume (his call, 2026-08-24)."""
-        self.assertFalse(any('says "I"' in n
-                             for n in self.notes("I went looking for it.",
-                                                 origin="script")))
+    def test_I_passes_in_every_shape(self):
+        """The whole point of the 2026-08-27 change: NOTHING checks person,
+        in either lane, for any speaker. Caleb hosts and says "I"; on camera
+        Alma and Sofia say it too. A checker that reached a take would be
+        asking a real sentence somebody really said to rewrite itself."""
+        line = "I went looking for it."
+        person = lambda n: '"I"' in n or "person" in n or "ensemble" in n
+        for origin in ("footage", "script"):
+            for kind in ("vo", "desk"):
+                # a `desk` section trips the VO dial, which is a different
+                # rule -- assert on person, not on emptiness
+                got = self.notes(line, origin=origin, kind=kind)
+                self.assertFalse([n for n in got if person(n)],
+                                 "%s/%s flagged person: %s"
+                                 % (origin, kind, got))
+        self.assertEqual(self.notes(line), [])   # the vo case is fully clean
+        # and in a quote, where it is not even our sentence
+        s = script([sec(kind="oncamera", take_id="T1", text=line)])
+        del s["chapters"][0]["sections"][0]["visual"]
+        self.assertEqual(schemas.script_notes(s, target=0.0), [])
 
     def test_a_quoted_take_is_not_held_to_a_writing_standard(self):
         """oncamera text is a transcript. Marking a real person's real
@@ -145,6 +154,130 @@ class TheVoice(unittest.TestCase):
                         text="I literally can't believe it!", visual=None)])
         del s["chapters"][0]["sections"][0]["visual"]
         self.assertEqual(schemas.script_notes(s, target=0.0), [])
+
+
+class EngineeredSilence(unittest.TestCase):
+    """A wordless `vo` section (Caleb, 2026-08-27).
+
+    S7 had told the writer for a while that "a `visual` and no words is a
+    legitimate section, and it is often the best one in the episode", and
+    validate_script rejected every one of them — so peak protection, the
+    finding that has survived six studies, was unwritable. Johnny Harris
+    runs 19 wordless seconds at Srebrenica.
+    """
+
+    def silent(self, **over):
+        d = {"id": "CH1.S1", "kind": "vo", "text": "", "est_s": 15.0,
+             "rev": 1, "visual": dict(VISUAL)}
+        d.update(over)
+        return d
+
+    def test_a_wordless_vo_with_a_picture_is_legal(self):
+        s = script([self.silent()])
+        s["chapters"][0]["target_s"] = 15
+        self.assertEqual(schemas.validate_script(s, TAKES), [])
+
+    def test_a_wordless_vo_with_no_picture_is_still_a_hole(self):
+        """The `visual` is the whole difference between silence and a gap
+        — there has to be something to look at."""
+        s = self.silent()
+        del s["visual"]
+        self.assertTrue(any("hole" in e for e in
+                            schemas.validate_script(script([s]), TAKES)))
+
+    def test_a_wordless_desk_piece_is_nothing(self):
+        self.assertTrue(any("hole" in e for e in schemas.validate_script(
+            script([self.silent(kind="desk")]), TAKES)))
+
+    def test_a_wordless_quote_is_not_a_quote(self):
+        self.assertTrue(any("hole" in e for e in schemas.validate_script(
+            script([self.silent(kind="oncamera", take_id="T1")]), TAKES)))
+
+    def test_silence_is_running_time_but_not_narration(self):
+        """The dial would otherwise read a 15s held picture as 15s of
+        voice-over and push the writer to cut real narration to get back
+        under it — lying in the exact direction that destroys the beat."""
+        s = script([sec(est_s=15.0), self.silent(id="CH1.S2")])
+        self.assertAlmostEqual(schemas.vo_share(s), 0.5)
+
+
+class LoopLedger(unittest.TestCase):
+    """S6 written down (Caleb, 2026-08-27). "The payoff must always land"
+    is the brand's one non-negotiable and was the only rule with nothing
+    behind it — validate_edit_plan checks that *a* payoff beat exists and
+    nothing checked that the hook's actual promises were kept."""
+
+    def two_chapters(self, **over):
+        d = {"slug": "ep", "option_id": "S1", "target_minutes": 1.0,
+             "chapters": [
+                 {"id": "CH1", "title": "One", "target_s": 120,
+                  "sections": [sec(id="CH1.S1"), sec(id="CH1.S2")]},
+                 {"id": "CH2", "title": "Two", "target_s": 120,
+                  "sections": [sec(id="CH2.S1"), sec(id="CH2.S2")]}]}
+        d.update(over)
+        return d
+
+    def notes(self, doc):
+        return schemas.script_notes(doc, target=1.0)
+
+    # --- structure: an error, because a dangling ref means nothing ---
+
+    def test_a_ledger_pointing_at_a_missing_section_is_an_error(self):
+        d = self.two_chapters(loops=[{"id": "L1", "opens": "CH1.S1",
+                                      "pays": "CH9.S9"}])
+        self.assertTrue(any("not a section" in e
+                            for e in schemas.validate_script(d, TAKES)))
+
+    def test_duplicate_loop_ids_are_refused(self):
+        d = self.two_chapters(loops=[
+            {"id": "L1", "opens": "CH1.S1", "pays": "CH2.S2"},
+            {"id": "L1", "opens": "CH1.S2", "pays": "CH2.S2"}])
+        self.assertTrue(any("duplicate loop id" in e
+                            for e in schemas.validate_script(d, TAKES)))
+
+    def test_an_absent_ledger_never_invalidates_an_existing_script(self):
+        """The house rule: an existing script must not become invalid when
+        the bar gets sharper. Absence is a NOTE, never an error."""
+        self.assertEqual(schemas.validate_script(self.two_chapters(),
+                                                 TAKES), [])
+
+    # --- the bar: advisory ---
+
+    def test_a_missing_ledger_is_noted(self):
+        self.assertTrue(any("no loop ledger" in n
+                            for n in self.notes(self.two_chapters())))
+
+    def test_a_short_owes_no_ledger(self):
+        """One loop, not a ledger — a single chapter is exempt."""
+        self.assertEqual(
+            [n for n in schemas.script_notes(script(), target=1.0)
+             if "ledger" in n], [])
+
+    def test_a_loop_paid_before_it_opens_is_noted(self):
+        d = self.two_chapters(loops=[{"id": "L1", "opens": "CH2.S2",
+                                      "pays": "CH1.S1"}])
+        self.assertTrue(any("before it opens" in n for n in self.notes(d)))
+
+    def test_loops_paid_out_of_order_are_noted(self):
+        """Rober opens eight and pays all eight in the SAME order."""
+        d = self.two_chapters(loops=[
+            {"id": "L1", "opens": "CH1.S1", "pays": "CH2.S2"},
+            {"id": "L2", "opens": "CH1.S2", "pays": "CH2.S1"}])
+        self.assertTrue(any("in the order they were opened" in n
+                            for n in self.notes(d)))
+
+    def test_a_climax_that_lands_early_is_noted(self):
+        d = self.two_chapters(loops=[{"id": "L1", "opens": "CH1.S1",
+                                      "pays": "CH1.S2"}])
+        self.assertTrue(any("climax should sit late" in n
+                            for n in self.notes(d)))
+
+    def test_a_sound_ledger_is_silent(self):
+        d = self.two_chapters(loops=[
+            {"id": "L1", "opens": "CH1.S1", "pays": "CH2.S1"},
+            {"id": "L2", "opens": "CH1.S2", "pays": "CH2.S2"}])
+        self.assertEqual([n for n in self.notes(d) if "loop" in n
+                          or "climax" in n], [])
 
 
 class SentenceShape(unittest.TestCase):

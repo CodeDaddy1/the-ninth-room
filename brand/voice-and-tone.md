@@ -24,32 +24,53 @@ it. Plain, warm, faintly wry. Confidence without hype.
 
 ## Person
 
-- **"We"** for the family. **"You"** for the viewer. The system never says
-  "I".
+**"I" is not banned anywhere** (Caleb, 2026-08-27). Caleb is the host, and
+"I" is his in both written lanes — a visit and a desk episode alike. Use it
+for the host's frame: what I noticed, what I wanted to know, what I got
+wrong, what I am about to show you.
 
-### The desk lane exception (Caleb, 2026-08-24)
+**"We" survives for the ensemble acting as one** — what we walked past,
+where we went next, what we found. It is not a royal we and not a polite
+substitute for I. **"You"** is still the viewer, and still one person.
 
-The rule above governs **visit episodes** — the format this document was
-written for, where a family explores a place and nobody is the host.
+The test: if the line reports the host's attention or judgment, it is "I".
+If it reports the family's movement or shared experience, it is "we". When
+both are true, **"I" wins** — the frame is his, and a passage that flips
+between them reads as two narrators.
 
-Some episodes are **script-led**: written first from a subject and research,
-with Caleb alone at his desk presenting to camera and stock, archival and
+**The viewer is given a job**, constantly: "Guess before we do." "Say it out
+loud. We'll wait." "Comment yours and we'll follow it next time."
+
+### On camera, everyone speaks as themselves
+
+All of the above governs **written** lines only — the narration Caleb
+records later and the pieces he performs at his desk. It does not reach a
+take.
+
+Caleb, Alma and Sofia each say "I" when they give a take or an opinion on
+camera, and that is the show. It is never a voice error, it is never
+"fixed", and no rule on this page touches it. A take is a quote of what was
+actually said on the day: if it says "I", it says "I".
+
+This supersedes the old rule that the system never said "I" and the desk
+lane exception that carved a hole in it — there is nothing left to carve.
+
+### What a desk episode does
+
+A **script-led** episode is written first from a subject and research, with
+Caleb alone at his desk presenting to camera and stock, archival and
 graphics carrying the picture. `story_brief.json` marks these
-`origin: "script"`. There, **first person singular is allowed** — he is one
-person, visibly by himself, and making him say "we" would be a costume.
-"We" still works when he means the family or the channel.
+`origin: "script"`.
 
-Nothing else is lifted. The desk lane keeps every other rule on this page:
-no exclamation marks, honest numbers, sentence case, the banned tics, the
-length caps. And it keeps the gut check.
+It keeps every other rule on this page: no exclamation marks, honest
+numbers, sentence case, the banned tics, the length caps. And it keeps the
+gut check.
 
 What the desk lane does **not** owe: the ninth-room moment and the door
 meter, both of which are conventions of a physical visit. Its own signatures
 are not yet defined — that is Caleb's to name, and until he does, a desk
 episode ships on accuracy, a closed loop, and this voice. Do not invent a
 substitute ritual for it.
-- **The viewer is given a job**, constantly: "Guess before we do." "Say it out
-  loud. We'll wait." "Comment yours and we'll follow it next time."
 
 ## Sentence shape
 
@@ -101,10 +122,12 @@ document nobody reads is not a standard.
 
 ## The family on camera
 
-An **ensemble — no single host.** Caleb, **Alma** (his wife) and **Sofia**
-(Alma's little sister — *not* Caleb's daughter) carry the show equally:
-everyone gets bits, votes, and camera time, and the dynamic between the
-three of them IS the voice. Their real reactions are the show. Let them be
+**Caleb hosts and narrates; Alma and Sofia carry the show with him**
+(2026-08-27, superseding "no single host"). **Alma** is his wife, **Sofia**
+her little sister — *not* Caleb's daughter. The change is to the writing,
+not to the screen: everyone still gets bits, votes, and camera time, and the
+dynamic between the three of them IS the voice. What moved is only who the
+written narration speaks as. Their real reactions are the show. Let them be
 funny. Cut around flubs, never at someone's expense. Never write "Mom" on a
 card or scoreboard.
 
@@ -147,7 +170,6 @@ reads the payoff word.
 - "You won't believe…", "insane", "mind-blowing", "literally"
 - Labelling the wonder instead of showing it
 - Exclamation marks
-- "Guys" as an address — we speak to one person
 
 ## A quick gut check
 

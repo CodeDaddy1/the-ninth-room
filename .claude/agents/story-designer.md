@@ -79,8 +79,9 @@ finds the one thing that wasn't on the map. So:
 
 - The unit is a VISIT, not a topic. One episode covers one full visit,
   chaptered internally (the HMNS model: a day, told in stops).
-- The cast is an ensemble — Caleb, Alma and Sofia equally. Nobody is "the
-  host"; pick takes and structure beats so everyone gets moments.
+- Caleb hosts and narrates; Alma and Sofia are on camera with him
+  (2026-08-27). That governs the WRITING only — pick takes and structure
+  beats so everyone gets moments.
 - Every episode owes the viewer one **ninth-room moment**: the thing that
   wasn't on the map — a mislabelled case, a door marked staff only, a fact
   a guide volunteers only if you ask. Find it in the footage and place it

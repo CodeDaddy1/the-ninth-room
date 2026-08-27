@@ -2,6 +2,24 @@
 
 One line per study: title, source, the single biggest takeaway.
 
+> **Read this before quoting a study's "non-negotiables" section
+> (2026-08-27).** Every study on this shelf was commissioned while the
+> channel's rule was *"the system says 'we', never 'I'; nobody on camera is
+> 'the host'"*. That rule is retired: **Caleb hosts and narrates, "I" is not
+> banned anywhere, and on camera Caleb, Alma and Sofia each speak as
+> themselves.** The current rule is S1 in `.claude/agents/story-director.md`
+> and the Person section of `brand/voice-and-tone.md` — those are
+> authoritative, not the studies. The four bullets that stated the old rule
+> as a live constraint are marked corrected in place
+> (`beau-miles.md`, `mark-rober.md`, `kara-and-nate.md`, `johnny-harris.md`);
+> every measurement, timing and finding in all seven studies is untouched
+> and still stands.
+>
+> The shelf has a **gap this opened**: no study of a host-led family channel,
+> which is the format we now are. Yes Theory is an ensemble with no host;
+> Beau Miles and Johnny Harris are solo narrators with no family; Kara & Nate
+> is a couple. That is the next commission.
+
 - **Hangtime — "I Tried 5 Levels of Waterparks"** ([study](hangtime-5-levels-of-waterparks.md), [source](https://www.youtube.com/watch?v=dakebYDWN6Q)) — The hook previews every chapter with stamped real footage and pre-plays the finale's scariest moment; then one recurring progress-map card carries chapter state + running scores, and the cut rate breathes: 2.8s median shots for connective tissue, 16–43s uncut holds on the emotional peaks.
 - **Hangtime — "I Tested 1-Star vs 5-Star Waterparks"** ([study](hangtime-1-star-vs-5-star-waterparks.md), [source](https://www.youtube.com/watch?v=RzQJc3pRtes)) — Same creator, different format, so the standing rules got tested: peak-protected rhythm and the chapter-preview hook survive (3.0s tissue median, all twelve longest shots are uncut peaks), but the progress-map card does NOT — the recurring chapter-door graphic is whatever encodes the video's structure (here a globe with a "+5455 mi" flight arc), and the biggest new pattern is the dread poll: one loop question asked to five different groups, every answer pointing at the promised finale.
 - **Johnny Harris — "The Worst War You Never Learned About, Mapped"** ([study](johnny-harris.md), [source](https://www.youtube.com/watch?v=czQrU0OPIR8)) — The opposite of the Hangtime rhythm and it works: the hook is the SLOWEST-cut section (4.1 cuts/min vs 12.4 in its own sponsor read), the first hard cut lands at 0:14.93, and the two longest shots in the 16-minute video are both maps in the first 2:14 (61.0s and 54.6s). The reconciliation is that the rule was never "cut fast" but "change state fast" — inside that 54.6s shot the board changes ten times, one every ~3s. Peak protection survives a third study, now as engineered silence (19s and 13s of no VO at Srebrenica), and the single most useful artefact is the sourced-quote card at 10:32: the primary source speaks in the silence, subtitled, with a small grey attribution line underneath.

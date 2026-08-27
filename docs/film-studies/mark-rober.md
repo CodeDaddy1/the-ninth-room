@@ -572,11 +572,13 @@ wins and the study's device must be re-expressed or dropped.
    (2:55.65), *"…rodent-sized Simone Biles!"* (3:00.30), *"Even the plants are
    amazing!"* (19:25.80). `brand/voice-and-tone.md` forbids them and the renderer
    enforces it. Steal the escalation, not the punctuation.
-3. **We are an ensemble and we say "we."** This film is first-person singular
-   throughout — *I*, *my buddy*, *my wife*, *my backyard*. CLAUDE.md rule 5 is
-   one collective voice, no host. So **D1 must be re-expressed**: it is not "the
-   presenter disappears," it is "**the family stops addressing camera**" once the
-   payoff act opens. The voice remains ours, plural.
+3. ~~**We are an ensemble and we say "we."**~~ **Corrected 2026-08-27** —
+   this film is first-person singular throughout (*I*, *my buddy*, *my wife*,
+   *my backyard*), and so are we now: Caleb hosts, and "I" is his in both
+   written lanes (CLAUDE.md rule 5, rewritten). The film's person is no
+   longer a border to cross. **D1 still stands as re-expressed** — "the
+   family stops addressing camera" once the payoff act opens — but on its
+   own merits now, not because the voice had to be plural.
 4. **No filled plates, one yellow moment.** His cards are white-on-black
    full-bleed; the SMPTE bars and the Google screenshot are filled plates in the
    most literal sense. `pipeline/overlay_kit.py` enforces the opposite. **Every

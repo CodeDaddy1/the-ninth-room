@@ -147,3 +147,55 @@ class JustifiedWhys(unittest.TestCase):
         self.assertIsNone(schemas.why_kind(""))
         self.assertIsNone(schemas.why_kind(None))
         self.assertIsNone(schemas.why_kind("vibes"))
+
+
+class GearChange(unittest.TestCase):
+    """S5, measured (2026-08-27).
+
+    Yes Theory runs 18.8 cuts/min overall — within 2% of Mark Rober — so
+    cut rate is not what separates these films. TEXTURE is: their scripted
+    VO carries 35% of all cuts at ~1.8s mean shot while everything else
+    runs ~4.0s. This reports the two numbers and gates nothing, because
+    `coverage_notes` is required empty by the coverage job and a threshold
+    nobody has calibrated would fail a real cut.
+    """
+
+    def test_an_empty_plan_reports_zeros_rather_than_dividing_by_zero(self):
+        g = schemas.gear_change({"beats": []})
+        self.assertEqual(g["ratio"], 0.0)
+        self.assertEqual(g["vo_beats"], 0)
+
+    def test_a_vo_beat_is_measured_by_its_covers(self):
+        """On a VO beat the b-roll IS the picture — the teleprompter take
+        can never ship, so the covers are the shots."""
+        g = schemas.gear_change({"beats": [
+            beat("BT01", dur=12.0, take_id="vo_CH1-S1_r1_t1",
+                 covers=[cover(dur=2.0), cover(dur=2.0), cover(dur=2.0)])]})
+        self.assertEqual(g["vo_mean_s"], 2.0)
+        self.assertEqual(g["vo_beats"], 1)
+        self.assertEqual(g["scene_beats"], 0)
+
+    def test_a_scene_beat_is_the_face_plus_each_cutaway(self):
+        g = schemas.gear_change({"beats": [
+            beat("BT01", dur=12.0, covers=[cover(), cover()])]})
+        self.assertEqual(g["scene_mean_s"], 4.0)      # 12s over 3 shots
+        self.assertEqual(g["scene_beats"], 1)
+
+    def test_the_ratio_is_what_makes_a_flat_episode_visible(self):
+        """Two textures that have collapsed into one read as ratio ~1.0;
+        a real gear change reads high. This is the number to watch."""
+        flat = schemas.gear_change({"beats": [
+            beat("BT01", dur=8.0, take_id="vo_CH1-S1_r1_t1",
+                 covers=[cover(dur=4.0), cover(dur=4.0)]),
+            beat("BT02", dur=8.0, covers=[cover()])]})
+        self.assertAlmostEqual(flat["ratio"], 1.0)
+
+    def test_our_own_cuts_have_no_vo_half_at_all(self):
+        """Measured 2026-08-27: every existing edit plan predates the
+        VO-led format and contains zero `vo_` beats, so the ratio is
+        undefined rather than bad. Pinned so the day that changes is
+        visible in a diff rather than in a shrug."""
+        g = schemas.gear_change({"beats": [beat("BT01", dur=10.0)]})
+        self.assertEqual(g["vo_beats"], 0)
+        self.assertEqual(g["ratio"], 0.0)
+        self.assertGreater(g["scene_mean_s"], 0)
