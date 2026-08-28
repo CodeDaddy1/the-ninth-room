@@ -45,6 +45,12 @@ HISTORY_PATH = PROJECT_ROOT / "work" / "_jobs.log"
 # `declined` is terminal too — a job that refused is a measurement.
 TERMINAL_STATES = ("done", "failed", "declined")
 
+# What the PREVIOUS run was holding when it died, filled by _restore at
+# import. A plain list, populated before any thread starts, so a reader
+# needs no lock and causes no side effect — `jobs()` would have reaped
+# chains just to answer the question.
+INTERRUPTED_AT_BOOT: "list" = []
+
 _LOCK = threading.Lock()
 # Two lanes, one worker each (2026-08-24). Measured: 173 minutes of the
 # tracked job life was spent QUEUEING against 342 running — 34% — and the
@@ -131,6 +137,7 @@ def _restore():
             r["state"] = "failed"
             r["error"] = "engine restarted mid-job"
             r["ended_ts"] = int(time.time())
+            INTERRUPTED_AT_BOOT.append(r)
             changed = True
         _jobs[r["id"]] = r
         _order.append(r["id"])

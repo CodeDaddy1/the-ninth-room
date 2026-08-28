@@ -6085,7 +6085,24 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 self._send(404, {"error": "not found"})
 
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    log("[editroom] http://127.0.0.1:%d  (Ctrl-C to stop)" % port)
+    # STAMPED, and it says what the last run left behind.
+    #
+    # The log had 72 boot lines reading exactly the same thing and no
+    # timestamps, so "engine restarted mid-job" was undiagnosable after
+    # the fact: two of the three in the frozen baseline could be pinned to
+    # a manual restart only by correlating against commit times, and the
+    # third (2026-08-27 19:47) never was. launchd has KeepAlive true, so
+    # the process always comes back and a death leaves no other trace.
+    import datetime as _dt
+    from . import jobs as _jobs
+    log("[editroom] boot %s  pid %d  http://127.0.0.1:%d  (Ctrl-C to stop)"
+        % (_dt.datetime.now().isoformat(timespec="seconds"), os.getpid(),
+           port))
+    if _jobs.INTERRUPTED_AT_BOOT:
+        log("[editroom] the previous run died holding %d job(s): %s"
+            % (len(_jobs.INTERRUPTED_AT_BOOT),
+               ", ".join("%s/%s" % (j.get("kind"), j.get("slug"))
+                         for j in _jobs.INTERRUPTED_AT_BOOT[:6])))
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
