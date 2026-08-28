@@ -40,14 +40,37 @@ class TheErrorItself(unittest.TestCase):
         # not smuggle anything into it
         self.assertEqual(str(coded), "no speech takes found in catalog")
 
-    def test_the_three_coded_raises_are_reachable_and_named(self):
-        """A code nobody raises is a door that never opens. These are the
-        exact sites the Footage desk explains."""
+    def test_every_coded_raise_the_desk_explains_is_reachable(self):
+        """A code nobody raises is a door that never opens.
+
+        These are the exact sites the Studio has words for; the mirror of
+        this list lives in `src/lib/job-failure.test.ts` as
+        EXPLAINED_CODES, and the two must not drift.
+
+        `proxy_linked` joined on 2026-08-27 — a master render refuses
+        while Resolve is editing against 1080p previews. It is raised from
+        `resolve_api`, which is why this reads three files now.
+        """
         root = Path(__file__).resolve().parent.parent / "pipeline"
-        src = (root / "ingest.py").read_text() + (root / "takes.py").read_text()
-        for code in ("no_speech", "no_media", "bad_file"):
+        src = ((root / "ingest.py").read_text()
+               + (root / "takes.py").read_text()
+               + (root / "resolve_api.py").read_text())
+        for code in ("no_speech", "no_media", "bad_file", "proxy_linked"):
             self.assertIn('code="%s"' % code, src,
                           "%s is claimed by the desk but never raised" % code)
+
+    def test_the_proxy_refusal_is_on_the_RENDER_path(self):
+        """The guard is only a guard if the thing it guards calls it.
+
+        Deliberately NOT on conform: conform mutates the timeline, it does
+        not bake pixels, and blocking it would block the exact hand-editing
+        loop previews exist to enable.
+        """
+        root = Path(__file__).resolve().parent.parent / "pipeline"
+        deliver_src = (root / "deliver.py").read_text()
+        self.assertIn("preflight_no_proxies", deliver_src)
+        self.assertNotIn("preflight_no_proxies",
+                         (root / "conform.py").read_text())
 
 
 class OntoTheJobRow(unittest.TestCase):

@@ -259,6 +259,10 @@ def render_master(slug: str, log=print, set_pct=lambda p: None) -> str:
     resolve_api.ensure_bridge()
     if resolve_api.rendering_in_progress():
         raise RuntimeError("Resolve is already rendering — wait for it")
+    # Never build a master out of preview media. See
+    # resolve_api.preflight_no_proxies — the check is upstream because a
+    # proxy-sourced master measures identically to a real one.
+    resolve_api.preflight_no_proxies("render the master")
     set_pct(3)
     out = resolve_api.send("deliver-start", """
 local pm = resolve:GetProjectManager()
@@ -277,22 +281,41 @@ if tl == nil or tl:GetName() ~= '%(tl)s' then return 'ERR|timeline %(tl)s not fo
 -- MarkIn/MarkOut into this project (P5 review F6). Belt and braces: set
 -- SelectAllFrames AND an explicit full-timeline range, and refuse to
 -- queue if Resolve rejects the settings.
+--
+-- FormatWidth/FormatHeight are the 2026-08-27 addition, and they are the
+-- difference between a 4K master and a 1080p one. This call used to set
+-- format, codec, target and range and NOTHING about size, so the output
+-- resolution came from whichever of the 24 render presets happened to be
+-- selected in Resolve's UI. Measured: 4K source, 3840x2160 timeline, and
+-- three masters on disk at 1920x1080 with a fourth at 4K — the signature
+-- of a dropdown changing between runs. Pin it to the timeline's own
+-- resolution and the preset stops mattering.
+local rw = tonumber(tl:GetSetting('timelineResolutionWidth'))
+             or tonumber(proj:GetSetting('timelineResolutionWidth'))
+local rh = tonumber(tl:GetSetting('timelineResolutionHeight'))
+             or tonumber(proj:GetSetting('timelineResolutionHeight'))
+if rw == nil or rh == nil or rw < 2 or rh < 2 then
+  return 'ERR|could not read the timeline resolution to pin the render'
+end
 local ok = proj:SetRenderSettings({ SelectAllFrames = true,
   MarkIn = tl:GetStartFrame(), MarkOut = tl:GetEndFrame() - 1,
+  FormatWidth = rw, FormatHeight = rh,
   TargetDir = '%(dir)s', CustomName = '%(tmp)s' })
 if ok == false then return 'ERR|SetRenderSettings rejected' end
 local job = proj:AddRenderJob()
 if job == nil then return 'ERR|AddRenderJob failed' end
 local started = proj:StartRendering(job)
 if started == false then return 'ERR|StartRendering refused' end
-return 'JOB|' .. job
+return 'JOB|' .. job .. '|' .. rw .. 'x' .. rh
 """ % {"proj": proj_name, "tl": tl_name, "dir": str(out_dir),
        "tmp": tmp_name},
         timeout=180)
     if out.startswith("ERR|"):
         raise RuntimeError(out[4:])
-    job = out.split("|")[1]
-    log("[deliver] render job %s started" % job)
+    parts = out.split("|")
+    job = parts[1]
+    pinned = parts[2] if len(parts) > 2 else "?"
+    log("[deliver] render job %s started at %s" % (job, pinned))
     deadline = time.time() + 3 * 3600
     nil_polls = 0
     while True:
@@ -335,5 +358,46 @@ return tostring(s.JobStatus) .. '|' .. tostring(s.CompletionPercentage or 0)
         raise RuntimeError("render finished but no file matched %s*" % tmp_name)
     final = str(out_dir / os.path.basename(hits[0])[len("_tmp."):])
     os.replace(hits[0], final)
+    # MEASURE the master before calling it one.
+    #
+    # This path never checked its own output. `render.qc_probe` compares
+    # against the canvas and raises, but it lives on the older
+    # `render_current` route, and the Export desk goes through here — so
+    # 1080p masters from a 4K timeline shipped with nothing objecting
+    # (2026-08-27). A master that does not match its timeline is not a
+    # master, so this raises rather than warning; the file is kept, named
+    # in the error, so the failure can be looked at rather than guessed at.
+    _assert_master_matches_timeline(slug, final, pinned, log=log)
     log("[deliver] %s" % os.path.basename(final))
     return os.path.basename(final)
+
+
+def _assert_master_matches_timeline(slug: str, path: str, pinned: str,
+                                    log=print) -> None:
+    """The rendered file must be the size the timeline asked for.
+
+    `pinned` is what Resolve reported it was told, straight from the
+    SetRenderSettings call — so a mismatch distinguishes "we asked for the
+    wrong thing" from "we asked correctly and Resolve did something else".
+    """
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "json", path],
+        capture_output=True, text=True)
+    try:
+        st = json.loads(proc.stdout)["streams"][0]
+        got = (int(st["width"]), int(st["height"]))
+    except Exception:
+        raise RuntimeError("could not measure the master %s"
+                           % os.path.basename(path))
+    try:
+        want = tuple(int(x) for x in pinned.split("x"))
+    except Exception:
+        log("[deliver] render size unreported — measured %dx%d" % got)
+        return
+    if got != want:
+        raise RuntimeError(
+            "master is %dx%d but the timeline asked for %dx%d — the file is "
+            "at %s. Check the render preset in Resolve."
+            % (got[0], got[1], want[0], want[1], os.path.basename(path)))
+    log("[deliver] master measured %dx%d — matches the timeline" % got)

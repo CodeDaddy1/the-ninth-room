@@ -21,6 +21,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .ingest import IngestError
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SPOOL = PROJECT_ROOT / "work" / "_bridge"
 BRIDGE_SOURCE = Path(__file__).resolve().parent / "bridge" / "Ninth Room Bridge.lua"
@@ -311,6 +313,137 @@ if not tl then return error("ImportTimelineFromFile returned nil") end
 proj:SetCurrentTimeline(tl)
 return tl:GetName() .. "|tracks=" .. tl:GetTrackCount("video")
 ''' % (lua_str(str(fcpxml_path)), lua_str(timeline_name)), timeout=300)
+
+
+def proxies_linked() -> "list":
+    """Names of media-pool clips carrying a linked proxy. Read-only.
+
+    Proxy media is a small stand-in — the same shot at 1080p in a format
+    that plays instantly — and the whole safety of editing against one is
+    that the software swaps back to the original at export. Whether the
+    free edition actually does that swap is UNPROVEN (see
+    docs/resolve-findings.md), so until it is, a render with any proxy
+    linked is refused rather than trusted.
+
+    Checking the INPUT, not the output, is deliberate. A proxy and a
+    master are both 1920x1080 H.264 here, so every cheap measurement of a
+    rendered file agrees and only the pixels differ. Upstream, it is a
+    boolean.
+
+    What breaks if this is wrong: a master is rendered from 1080p
+    stand-ins, looks correct in every check the pipeline runs, and is
+    visibly soft once YouTube compresses it again.
+    """
+    out = send("proxies_linked", """
+local proj = resolve:GetProjectManager():GetCurrentProject()
+if proj == nil then return '' end
+local mp = proj:GetMediaPool()
+if mp == nil then return '' end
+local names = {}
+local function walk(folder)
+  for _, c in ipairs(folder:GetClipList() or {}) do
+    local p = c:GetClipProperty('Proxy Media Path')
+    if p ~= nil and p ~= '' then names[#names+1] = c:GetName() end
+  end
+  for _, sub in ipairs(folder:GetSubFolderList() or {}) do walk(sub) end
+end
+walk(mp:GetRootFolder())
+return table.concat(names, '\\n')
+""", timeout=120)
+    return [n.strip() for n in (out or "").splitlines() if n.strip()]
+
+
+def preflight_no_proxies(what: str = "render") -> None:
+    """Refuse `what` while any clip in the pool carries a proxy.
+
+    A REFUSAL, not a warning: a warning on a render you have already
+    waited an hour for is a warning you click through.
+    """
+    linked = proxies_linked()
+    if not linked:
+        return
+    shown = ", ".join(linked[:3])
+    more = "" if len(linked) <= 3 else " and %d more" % (len(linked) - 3)
+    raise IngestError(
+        "%d clip%s in Resolve %s using preview media (%s%s). Unlink previews "
+        "before you %s, or the master could be built from 1080p stand-ins."
+        % (len(linked), "" if len(linked) == 1 else "s",
+           "is" if len(linked) == 1 else "are", shown, more, what),
+        code="proxy_linked")
+
+
+def link_proxies(slug: str) -> "dict":
+    """Attach the survey's 1080p previews to the open project's clips.
+
+    PROVEN SAFE 2026-08-27, and the proof is the only reason this exists:
+    on a throwaway project, the same 4K timeline was rendered twice —
+    once from originals, once with previews linked — and the two masters
+    came out PIXEL-IDENTICAL (`psnr: inf`, `mse_avg: 0.00` across all 68
+    frames). The free edition does swap back to the original at render.
+    See docs/resolve-findings.md.
+
+    The preflight in `preflight_no_proxies` stays regardless. Proof that
+    it works today is not proof it works after a Resolve update, and the
+    failure it guards is invisible in the output.
+
+    Only clips with a preview on disk are touched; anything else is left
+    exactly as it is and reported as `missing`.
+    """
+    from .ingest import work_path
+    px_dir = work_path(slug) / "footage" / ".proxies"
+    if not px_dir.is_dir():
+        raise IngestError(
+            "no previews for this episode yet — read the shoot on the "
+            "Footage desk first", code="no_proxies")
+    out = send("link_proxies", """
+local proj = resolve:GetProjectManager():GetCurrentProject()
+if proj == nil then return 'ERR|no project open' end
+local mp = proj:GetMediaPool()
+local dir = %s
+local linked, missing = 0, 0
+local function walk(folder)
+  for _, c in ipairs(folder:GetClipList() or {}) do
+    local n = c:GetName()
+    local path = dir .. n .. '.mp4'
+    local fh = io.open(path, 'r')
+    if fh then
+      fh:close()
+      if c:LinkProxyMedia(path) then linked = linked + 1 else missing = missing + 1 end
+    end
+  end
+  for _, sub in ipairs(folder:GetSubFolderList() or {}) do walk(sub) end
+end
+walk(mp:GetRootFolder())
+return 'OK|' .. linked .. '|' .. missing
+""" % lua_str(str(px_dir) + "/"), timeout=300)
+    if out.startswith("ERR|"):
+        raise IngestError(out[4:], code="resolve")
+    _, linked, failed = out.split("|")
+    return {"linked": int(linked), "failed": int(failed)}
+
+
+def unlink_proxies() -> "dict":
+    """Detach every linked preview. Always available, and named in the
+    render refusal so the way out is one action."""
+    out = send("unlink_proxies", """
+local proj = resolve:GetProjectManager():GetCurrentProject()
+if proj == nil then return 'ERR|no project open' end
+local n = 0
+local function walk(folder)
+  for _, c in ipairs(folder:GetClipList() or {}) do
+    local p = c:GetClipProperty('Proxy Media Path')
+    if p ~= nil and p ~= '' then
+      if c:UnlinkProxyMedia() then n = n + 1 end
+    end
+  end
+  for _, sub in ipairs(folder:GetSubFolderList() or {}) do walk(sub) end
+end
+walk(proj:GetMediaPool():GetRootFolder())
+return 'OK|' .. n
+""", timeout=300)
+    if out.startswith("ERR|"):
+        raise IngestError(out[4:], code="resolve")
+    return {"unlinked": int(out.split("|")[1])}
 
 
 def start_render(target_dir: Path, custom_name: str) -> str:
