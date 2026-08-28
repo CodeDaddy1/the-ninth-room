@@ -37,11 +37,18 @@ Inferred from docstrings and runner bodies on 2026-08-28. **Verifying each
 row is the first task of step 1, not an assumption to build on.** Nothing
 in the engine currently records this, which is why the table exists at all.
 
+**One row is already wrong.** `assemble` was marked non-retryable "imports
+into Resolve". It does not: `produce.build_timeline` is documented as
+"everything up to (but not including) Resolve", and the import lives in
+Phase 7 `produce()`. Caught on 2026-08-28 by needing to re-run it after a
+real failure. Read this as evidence for how much of the table is guesswork,
+not as a table with one correction applied.
+
 | kind | session? | retryable | why |
 |---|---|---|---|
 | survey | — | yes | re-derives from footage |
 | ingest | — | yes | derived outputs overwrite |
-| assemble | — | **no** | imports into Resolve |
+| assemble | — | **yes** | verified 2026-08-28 — `build_timeline` is "everything up to (but not including) Resolve"; the import is Phase 7 `produce()` |
 | reproxy | — | yes | previews overwrite per beat |
 | fixer | hand-rolled | **no** | mutates a built cut |
 | story | `_dispatch_json` | yes | overwrites `stories.json` |
