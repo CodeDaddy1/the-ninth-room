@@ -385,13 +385,24 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
         _req(errors, ch, "title", str, where)
 
     used_groups: "dict[str, str]" = {}
+    # Beats were the ONE id space here without a uniqueness check
+    # (chapters, takes, broll, cards and overlays all had one), and
+    # ten artifacts key on a beat id — review verdicts, captions,
+    # cards, sfx cues, conform ops, trash, proxies. A duplicate does
+    # not orphan anything; it silently re-points the second beat's
+    # history at the first. Added 2026-08-28.
+    beat_ids = set()
     killed = {k.get("take_id") for k in plan.get("kill_list", [])}
     for i, b in enumerate(plan["beats"]):
         where = "beats[%d]" % i
         if not isinstance(b, dict):
             errors.append(where + ": not an object")
             continue
-        _req(errors, b, "id", str, where)
+        if _req(errors, b, "id", str, where):
+            if b["id"] in beat_ids:
+                errors.append("%s: duplicate beat id '%s'"
+                              % (where, b["id"]))
+            beat_ids.add(b["id"])
         if _req(errors, b, "purpose", str, where) and b["purpose"] not in BEAT_PURPOSES:
             errors.append("%s: purpose '%s' not in %s" % (where, b["purpose"], BEAT_PURPOSES))
         if _req(errors, b, "take_id", str, where):
