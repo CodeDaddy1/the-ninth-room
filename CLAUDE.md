@@ -277,3 +277,27 @@ exactly this. Which card, how often, and how they fail:
    here — brief it into Claude Design and re-implement what comes back.
 7. **Platform-native** (`workflows/platform-specs.md`): safe zones, lengths,
    burned-in captions for mute-first viewing.
+
+## Agent skills
+
+Config for the `mattpocock-skills` engineering skills. Written by
+`/setup-matt-pocock-skills` on 2026-08-28; edit these files directly rather
+than re-running it.
+
+### Issue tracker
+
+Issues live as **GitHub issues** on `CodeDaddy1/the-ninth-room`, driven by the
+`gh` CLI. External PRs are **not** a triage surface. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name:
+`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
+See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+**Single-context**: one `CONTEXT.md` at the repo root plus `docs/adr/`.
+Neither exists yet — `/domain-modeling` creates them lazily as terms and
+decisions resolve. See `docs/agents/domain.md`.
