@@ -28,6 +28,19 @@ JOBS_PATH = PROJECT_ROOT / "work" / "_jobs.json"
 LOG_DIR = PROJECT_ROOT / "work" / "_jobs"
 KEEP = 50
 
+# `_jobs.json` is a RING BUFFER of the last KEEP rows — the Studio's tray
+# only ever wants the recent window. That means the engine kept no job
+# history at all: every fiftieth run destroyed the evidence of the previous
+# fifty. The 2026-08-28 failure analysis had to be frozen by hand into
+# docs/baselines/ because writing it up would have overwritten it, and the
+# ledger rotated once mid-session even so.
+#
+# So terminal jobs are ALSO appended here, one JSON object per line, and
+# nothing prunes it. Append-only: the hot window stays exactly as it was.
+HISTORY_PATH = PROJECT_ROOT / "work" / "_jobs.log"
+# `declined` is terminal too — a job that refused is a measurement.
+TERMINAL_STATES = ("done", "failed", "declined")
+
 _LOCK = threading.Lock()
 # Two lanes, one worker each (2026-08-24). Measured: 173 minutes of the
 # tracked job life was spent QUEUEING against 342 running — 34% — and the
@@ -128,6 +141,22 @@ def _restore():
     _ = changed
 
 
+def _append_history(job):
+    """One line per job that reached a terminal state, forever.
+
+    Diagnostic only, and deliberately best-effort: a job must never fail
+    because its history line could not be written. Called from inside
+    _LOCK, on the transition INTO a terminal state, so a job appears here
+    exactly once however many times it is updated afterwards.
+    """
+    try:
+        HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with HISTORY_PATH.open("a") as fh:
+            fh.write(json.dumps(job, sort_keys=True) + "\n")
+    except OSError:
+        pass
+
+
 def _update(jid, **fields):
     with _LOCK:
         job = _jobs.get(jid)
@@ -136,7 +165,10 @@ def _update(jid, **fields):
             # here climbed out through log() and killed the worker thread
             # (2026-08-25); a vanished job simply has nothing to update.
             return
+        was = job.get("state")
         job.update(fields)
+        if job.get("state") in TERMINAL_STATES and was not in TERMINAL_STATES:
+            _append_history(job)
         _persist()
 
 
