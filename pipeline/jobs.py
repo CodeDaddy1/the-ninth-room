@@ -37,6 +37,10 @@ KEEP = 50
 #
 # So terminal jobs are ALSO appended here, one JSON object per line, and
 # nothing prunes it. Append-only: the hot window stays exactly as it was.
+# Seven sites launched this by absolute path; five of them were whole
+# copies of _dispatch that had drifted only in their dash. One name now,
+# so a moved binary is one edit and not a hunt (2026-08-28).
+CLAUDE_BIN = "~/.local/bin/claude"
 HISTORY_PATH = PROJECT_ROOT / "work" / "_jobs.log"
 # `declined` is terminal too — a job that refused is a measurement.
 TERMINAL_STATES = ("done", "failed", "declined")
@@ -391,7 +395,6 @@ def _run_fixer(slug, log, set_pct):
     Runs in its own process, so the engine's file locks do not cover it:
     the desk should not place sounds/b-roll on the flagged beats while it
     works, same as during a manual fixer round."""
-    import subprocess
     review_path = work_path(slug) / "review.json"
     def flagged():
         if not review_path.exists():
@@ -403,17 +406,7 @@ def _run_fixer(slug, log, set_pct):
         raise RuntimeError("no flagged beats — nothing to send")
     log("[fixer] dispatching %d flagged beat(s): %s"
         % (len(before), " ".join(before)))
-    set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p",
-         FIXER_PROMPT % {"slug": slug},
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "fixer")
-    if rc != 0:
-        raise RuntimeError("fixer session exited %d — see the log" % rc)
+    _dispatch(FIXER_PROMPT % {"slug": slug}, log, set_pct, "fixer")
     after = flagged()
     fixed = [b for b in before if b not in after]
     log("[fixer] done: %d fixed -> re-review, %d still flagged"
@@ -524,7 +517,6 @@ def _run_story(slug, log, set_pct):
     same agent Caleb used to prompt by hand, now the desk's Pitch button.
     Same pattern as the fixer: the proof of work is the artifact changing,
     not the exit code."""
-    import subprocess
     # The lane guard lives HERE as well as in start(). start() is only the
     # queue's front door: a chain follower, a retry, or a direct call goes
     # straight to the runner and would have dispatched a real session for
@@ -738,7 +730,6 @@ def _run_research(slug, log, set_pct):
     and VO scripts read it, which is what lets them range wider than what
     was said on camera. Same dispatch-and-verify shape as the scout."""
     import json
-    import subprocess
     work = work_path(slug)
     brief_p = work / "story_brief.json"
     # A visit names a place; a script-led episode names a topic. Either is
@@ -758,17 +749,8 @@ def _run_research(slug, log, set_pct):
     out_p = work / "research.json"
     before = out_p.stat().st_mtime if out_p.exists() else None
     log("[research] dispatching the researcher for %s" % location)
-    set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p",
-         RESEARCH_PROMPT % {"slug": slug, "location": location},
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "research")
-    if rc != 0:
-        raise RuntimeError("research session exited %d -- see the log" % rc)
+    _dispatch(RESEARCH_PROMPT % {"slug": slug, "location": location},
+              log, set_pct, "research")
     after = out_p.stat().st_mtime if out_p.exists() else None
     if after is None or after == before:
         raise RuntimeError("session finished but research.json did not "
@@ -992,7 +974,6 @@ def _run_graphics(slug, log, set_pct):
     VALIDATES against the edit plan, because a card homed to a missing
     beat is composited into no proxy and reviews as nothing."""
     import json
-    import subprocess
     from . import schemas
     work = work_path(slug)
     plan_path = work / "edit_plan.json"
@@ -1028,7 +1009,6 @@ def _run_editplan(slug, log, set_pct):
     Same dispatch-and-verify shape as _run_story: the proof of work is
     edit_plan.json changing, not the exit code."""
     import json
-    import subprocess
     work = work_path(slug)
     # WHICH APPROVAL GATES THE CUT DEPENDS ON THE LANE.
     #
@@ -1102,20 +1082,10 @@ def _run_scout(slug, log, set_pct):
     """The Ideas desk's Scout button (UX overhaul, 2026-08-23). Channel-
     level: `slug` is the _scout workspace, not a project. Proof of work is
     ideas.json changing, same as every other dispatched agent."""
-    import subprocess
     ideas_path = work_path("_scout") / "ideas.json"
     before = ideas_path.stat().st_mtime if ideas_path.exists() else None
     log("[scout] dispatching the idea scout")
-    set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p", SCOUT_PROMPT,
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "scout")
-    if rc != 0:
-        raise RuntimeError("scout session exited %d -- see the log" % rc)
+    _dispatch(SCOUT_PROMPT, log, set_pct, "scout")
     after = ideas_path.stat().st_mtime if ideas_path.exists() else None
     if after is None or after == before:
         raise RuntimeError("session finished but ideas.json did not "
@@ -1176,23 +1146,12 @@ PUBLISH_PROMPT = (
 def _run_publish(slug, log, set_pct):
     """Upload-day package as a job (P9, 2026-08-24). Dispatch-and-verify:
     the proof is publish.md existing with all three sections."""
-    import subprocess
     work = work_path(slug)
     if not ((work / "edit_plan.json").exists()
             or (work / "script.json").exists()):
         raise RuntimeError("nothing to publish yet -- build the cut first")
     log("[publish] dispatching the publish writer")
-    set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p",
-         PUBLISH_PROMPT % {"slug": slug},
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "publish")
-    if rc != 0:
-        raise RuntimeError("publish session exited %d -- see the log" % rc)
+    _dispatch(PUBLISH_PROMPT % {"slug": slug}, log, set_pct, "publish")
     md_path = work / "publish.md"
     if not md_path.exists():
         raise RuntimeError("session finished but publish.md was not "
@@ -1267,7 +1226,7 @@ def _dispatch(prompt, log, set_pct, what):
     import subprocess
     set_pct(5)
     proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p", prompt,
+        [CLAUDE_BIN, "-p", prompt,
          "--dangerously-skip-permissions"],
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
@@ -1487,7 +1446,7 @@ def _dispatch_json(prompt, log, set_pct, what):
     import subprocess
     set_pct(5)
     proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p", prompt,
+        [CLAUDE_BIN, "-p", prompt,
          "--output-format", "stream-json", "--verbose",
          "--dangerously-skip-permissions"],
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
@@ -1840,7 +1799,6 @@ def _run_sourcing(slug, log, set_pct, arg=None):
     agent that judges what is missing is not allowed to also decide what
     gets downloaded.
     """
-    import subprocess
     work = work_path(slug)
     script = _read_json(work / "script.json")
     if script is None:
@@ -1907,16 +1865,7 @@ def _run_sourcing(slug, log, set_pct, arg=None):
               else _sourcing_prompt(slug))
     log("[sourcing] dispatching the asset sourcer to %s"
         % ("fetch approved rounds" if fetch else "propose gaps"))
-    set_pct(5)
-    proc = subprocess.Popen(
-        ["~/.local/bin/claude", "-p", prompt,
-         "--dangerously-skip-permissions"],
-        cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
-    set_pct(15)
-    rc = _drain_with_heartbeat(proc, log, set_pct, "sourcing")
-    if rc != 0:
-        raise RuntimeError("sourcing session exited %d — see the log" % rc)
+    _dispatch(prompt, log, set_pct, "sourcing")
     after = rq.stat().st_mtime if rq.exists() else None
     if after is None or after == before:
         # A NO-OP IS NOT AUTOMATICALLY A FAILURE HERE, and this is the one
