@@ -114,3 +114,21 @@ rebuild passed every test and were obvious on sight.
 - **Surfacing `recut_suggested`** (`editroom.py:2849`, computed and consumed
   by nothing). It belongs to P10 — a re-cut suggestion you cannot act on is
   worse than none.
+
+---
+
+## Done so far (2026-08-28)
+
+Committed on `job-contract`, 917 engine tests green:
+
+| | |
+|---|---|
+| beat ids | duplicate check `validate_edit_plan` never had |
+| job history | append-only `work/_jobs.log`; the ring buffer was destroying its own evidence |
+| dispatch | five hand-rolled `claude` launches collapsed onto `_dispatch`; `CLAUDE_BIN`; ratcheted |
+| boot | timestamped, with pid, naming what the last run was holding |
+| kind | stored on the take, 1,628 backfilled; revived **five** dead rules |
+| picture beats | a beat may carry a spine instead of a take; b-roll can carry its own sound |
+
+**Not started:** the predicate registry itself — steps 0 and 1 above. The
+prerequisite (consolidate dispatch) is done, so step 1 is unblocked.

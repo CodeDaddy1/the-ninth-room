@@ -111,11 +111,11 @@ end, pointed at oligarchy's real `T01` (`vo_CH1-S1_r1_t1.mp4`): before, two
 notes — "covers the landing" and "95% covered"; after, none. The same beat
 pointed at a filmed take still gets both.
 
-**Not fixed here, and still blocking `golf-testing`:** its beats carry
-`take_id: null`, which `validate_edit_plan` rejects outright — so "a beat
-may have no take" is *forbidden by the schema*, not merely unimplemented.
-Its own `edit_plan.blocked.json` names two further blockers: five unrecorded
-VO sections (clears when Caleb records them), and six natural-sound sections
-whose audio a b-roll cover cannot carry, because covers are emitted as
-picture-only `<video>` elements. The second is a real engine feature, not a
-validation fix.
+**Found here, fixed separately:** "a beat may have no take" turned out to be
+*forbidden by the schema* rather than unimplemented — `validate_edit_plan`
+required `take_id` to be a str, and `golf-testing` carries `take_id: null`
+on all eleven beats. That, and the natural-sound gap beside it, are settled
+in `decisions-picture-beats.md`.
+
+What no code change clears: `golf-testing`'s five narrated sections are
+unrecorded. That project is being deleted; the shapes it exposed are not.
