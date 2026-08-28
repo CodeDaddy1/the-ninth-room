@@ -53,9 +53,16 @@ _Avoid_: type, flag, prefix, voiceover
 ### The cut
 
 **Beat**:
-One unit of the cut. A beat carries at most one take — **a beat may have no
-take**, in which case it is a `picture` beat and is pure coverage.
+One unit of the cut. A beat carries either a take (speech) or a spine
+(picture) — **a beat may have no take**, in which case it is a `picture`
+beat.
 _Avoid_: shot, slot, entry
+
+**Spine**:
+The clip a picture beat is built from, with its source window and whether
+its own audio plays. Natural sound is opted into; a spine is silent unless
+the plan says otherwise, for the same reason a cover is.
+_Avoid_: source, base, background
 
 **Chapter**:
 A named span of the cut that beats belong to. Chapter ids are unique and

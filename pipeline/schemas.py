@@ -388,6 +388,45 @@ def gear_change(plan: "dict[str, Any]",
             "vo_beats": vo_beats, "scene_beats": scene_beats}
 
 
+# A beat whose picture is a CLIP rather than a take. Caleb, 2026-08-28: a
+# beat may have no take at all — either a stretch of pure picture with no
+# line under it, or b-roll carried by its own sound, which is the spine of
+# a whole direction when nobody is narrating (six of golf-testing's eleven
+# sections were exactly that, and no cut could express them).
+#
+# `audio` must be opted INTO. A cover is emitted as a picture-only <video>
+# precisely because b-roll audio leaking over narration is a known hazard
+# (timeline.py's docstring: "museum crowd noise!"), so silence stays the
+# default and natural sound is a decision the plan states out loud.
+def _validate_spine(errors: "list[str]", spine: "Any", clip_by_id: "dict",
+                    where: str) -> None:
+    if not isinstance(spine, dict):
+        errors.append("%s: 'spine' should be dict, got %s"
+                      % (where, type(spine).__name__))
+        return
+    cid = spine.get("clip_id")
+    clip = clip_by_id.get(cid)
+    if clip is None:
+        errors.append("%s: spine names unknown clip '%s'" % (where, cid))
+    try:
+        s = float(spine.get("src_s", 0.0))
+        e = float(spine.get("src_e", 0.0))
+    except (TypeError, ValueError):
+        errors.append("%s: spine src_s/src_e must be numbers" % where)
+        return
+    if e <= s:
+        errors.append("%s: spine src_e (%.2f) must be after src_s (%.2f)"
+                      % (where, e, s))
+    elif clip is not None:
+        dur = float(clip.get("duration") or 0.0)
+        if dur and e > dur + 0.001:
+            errors.append("%s: spine runs to %.2fs but clip '%s' is %.2fs"
+                          % (where, e, cid, dur))
+    if "audio" in spine and not isinstance(spine["audio"], bool):
+        errors.append("%s: spine 'audio' should be bool, got %s"
+                      % (where, type(spine["audio"]).__name__))
+
+
 def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
                        broll: "dict[str, Any]") -> "list[str]":
     """edit_plan.json — the story-designer's output, cross-checked against
@@ -405,6 +444,7 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
         for tid in g["take_ids"]:
             group_of[tid] = g["id"]
     broll_ids = {c["id"] for c in broll.get("clips", [])}
+    clip_by_id = {c["id"]: c for c in broll.get("clips", [])}
 
     _req(errors, plan, "slug", str, "plan")
     if _req(errors, plan, "format", str, "plan") and plan["format"] not in FORMATS:
@@ -451,7 +491,12 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
             beat_ids.add(b["id"])
         if _req(errors, b, "purpose", str, where) and b["purpose"] not in BEAT_PURPOSES:
             errors.append("%s: purpose '%s' not in %s" % (where, b["purpose"], BEAT_PURPOSES))
-        if _req(errors, b, "take_id", str, where):
+        # A beat has a TAKE (speech) or a SPINE (picture). Requiring
+        # take_id unconditionally is what made "a beat may have no take"
+        # forbidden rather than merely unimplemented (2026-08-28).
+        if b.get("spine") is not None and not b.get("take_id"):
+            _validate_spine(errors, b["spine"], clip_by_id, where)
+        elif _req(errors, b, "take_id", str, where):
             tid = b["take_id"]
             t = take_by_id.get(tid)
             if t is None:

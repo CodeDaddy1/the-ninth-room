@@ -241,17 +241,35 @@ def plan_beats(slug: str) -> "dict":
     beats_out = []
     record = 0.0
     for b in plan["beats"]:
-        take = take_by_id[b["take_id"]]
-        f = file_by_name[take["file"]]
-        trim = b.get("trim") or {"s": take["s"], "e": take["e"]}
-        snap_s, snap_e = snap_to_words(f, trim["s"], trim["e"])
-        span_s = max(0.0, snap_s - HEAD_PAD_SEC)
-        span_e = min(f["duration"], snap_e + TAIL_PAD_SEC)
-        segments = cut_dead_space(span_s, span_e, f.get("silence", []),
-                                  hard_cuts=b.get("cuts"),
-                                  words=file_words(f),
-                                  audio_path=f.get("path"),
-                                  trough_cache=trough_cache)
+        # A beat carries a TAKE (speech) or a SPINE (a clip as the picture).
+        # Word snapping, head/tail padding and dead-space cutting are all
+        # SPEECH operations — there are no words to snap to on a picture
+        # beat, and trimming its silence would delete the shot. So a spine
+        # is taken exactly as the plan states it (2026-08-28).
+        spine = b.get("spine") if not b.get("take_id") else None
+        if spine is not None:
+            take = None
+            clip = broll_by_id[spine["clip_id"]]
+            f = file_by_name[clip["file"]]
+            src_s = max(0.0, float(spine.get("src_s", 0.0)))
+            src_e = min(float(f["duration"]), float(spine["src_e"]))
+            segments = [(src_s, src_e)] if src_e > src_s else []
+            if not segments:
+                raise IngestError(
+                    "beat %s: spine window %.2f-%.2f is empty against %s"
+                    % (b["id"], src_s, src_e, clip["file"]))
+        else:
+            take = take_by_id[b["take_id"]]
+            f = file_by_name[take["file"]]
+            trim = b.get("trim") or {"s": take["s"], "e": take["e"]}
+            snap_s, snap_e = snap_to_words(f, trim["s"], trim["e"])
+            span_s = max(0.0, snap_s - HEAD_PAD_SEC)
+            span_e = min(f["duration"], snap_e + TAIL_PAD_SEC)
+            segments = cut_dead_space(span_s, span_e, f.get("silence", []),
+                                      hard_cuts=b.get("cuts"),
+                                      words=file_words(f),
+                                      audio_path=f.get("path"),
+                                      trough_cache=trough_cache)
 
         transition = b.get("transition_in", "cut")
         if transition == "dissolve" and beats_out:
@@ -330,11 +348,17 @@ def plan_beats(slug: str) -> "dict":
                               "record_s": at, "duration": dur, "src_s": src_off})
 
         beats_out.append({
-            "id": b["id"], "purpose": b["purpose"], "take_id": b["take_id"],
+            "id": b["id"], "purpose": b["purpose"],
+            "take_id": b.get("take_id"),
             # resolved HERE, where the take is already in hand, so readers
-            # of the map never touch a filename (2026-08-28)
+            # of the map never touch a filename (2026-08-28). take_kind(None)
+            # is `picture`, which is exactly what a spine beat is.
             "kind": schemas.take_kind(take),
-            "file": take["file"], "transition_in": transition,
+            # Natural sound is opted INTO. A cover is picture-only because
+            # b-roll audio leaking over narration is a known hazard; the
+            # same caution applies when the clip is the spine.
+            "natural_sound": bool((spine or {}).get("audio", False)),
+            "file": f["name"], "transition_in": transition,
             "record_s": grid.snap(beat_rec_start), "record_e": record,
             "segments": seg_out, "broll": broll_out,
         })
@@ -554,10 +578,25 @@ def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
             if id(seg) in audio_trim:
                 audio_attrs = ' audioStart="%s" audioDuration="%s"' % (
                     grid.rt(seg["src_s"]), grid.rt(audio_trim[id(seg)]))
-            spine_parts.append(
-                '<asset-clip ref="%s" name=%s offset="%s" start="%s" duration="%s"%s format="r1">%s</asset-clip>'
-                % (aid, quoteattr("%s_%s" % (beat["id"], j)), grid.rt(seg["record_s"]),
-                   grid.rt(seg["src_s"]), grid.rt(dur), audio_attrs, body))
+            # A picture beat that has NOT opted into natural sound is
+            # emitted the way a cover is — <video> carries no audio,
+            # whatever the asset declares. <asset-clip> would play the
+            # clip's own sound under the cut, which is the exact leak the
+            # cover rule exists to prevent (2026-08-28).
+            silent_picture = (beat.get("kind") == "picture"
+                              and not beat.get("natural_sound"))
+            if silent_picture:
+                spine_parts.append(
+                    '<video ref="%s" name=%s offset="%s" start="%s" '
+                    'duration="%s">%s</video>'
+                    % (aid, quoteattr("%s_%s" % (beat["id"], j)),
+                       grid.rt(seg["record_s"]), grid.rt(seg["src_s"]),
+                       grid.rt(dur), body))
+            else:
+                spine_parts.append(
+                    '<asset-clip ref="%s" name=%s offset="%s" start="%s" duration="%s"%s format="r1">%s</asset-clip>'
+                    % (aid, quoteattr("%s_%s" % (beat["id"], j)), grid.rt(seg["record_s"]),
+                       grid.rt(seg["src_s"]), grid.rt(dur), audio_attrs, body))
 
     frame = grid.frame
     fcpxml = (

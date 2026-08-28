@@ -73,6 +73,10 @@ def snap(slug: str, log=print) -> int:
         cuts = b.get("cuts")
         if not cuts:
             continue
+        # A picture beat has no take and no words: there is no speech to
+        # snap a cut to, and indexing takes[None] would raise (2026-08-28).
+        if not b.get("take_id"):
+            continue
         path = cat[takes[b["take_id"]]["file"]]["path"]
         trim = b.get("trim") or {}
         for c in cuts:
