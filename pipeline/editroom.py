@@ -3174,6 +3174,26 @@ def _uniquify(d: Path, name: str) -> str:
     return "%s-%d%s" % (stem, n, ext)
 
 
+def _err_body(e: "IngestError") -> "dict":
+    """A refusal on the wire, with its stable code when it has one.
+
+    `IngestError` has carried `code` since the P3 error band, and BOTH
+    request handlers threw it away — so a code only ever reached the
+    Studio through the JOB record, and a synchronous refusal arrived as
+    prose. That left every desk matching on the message, which is the
+    one thing `job-failure.ts` forbids: a reworded error turns a fix
+    door into a dead end. Found and closed 2026-08-27.
+
+    What breaks if this is wrong: the desk falls back to message
+    matching and the fix door silently stops appearing.
+    """
+    body = {"error": str(e)}
+    code = getattr(e, "code", None)
+    if isinstance(code, str) and code:
+        body["error_code"] = code
+    return body
+
+
 def _trash_dest(trash: Path, name: str) -> Path:
     d = trash / name
     if d.exists():  # same name trashed twice — keep both
@@ -3548,12 +3568,14 @@ def _delete_footage(slug: str, name: str, force: bool = False,
     if uses["beats"]:
         raise IngestError(
             "%s carries the take %s is built on — re-cut that beat first"
-            % (name, ", ".join(b["beat_id"] for b in uses["beats"])))
+            % (name, ", ".join(b["beat_id"] for b in uses["beats"])),
+            code="take_in_cut")
     if uses["covers"] and not force:
         raise IngestError(
             "%s is in the cut: %s. Delete it and those covers go too."
             % (name, "; ".join("%s covers %s" % (c["clip_id"], c["beat_id"])
-                               for c in uses["covers"])))
+                               for c in uses["covers"])),
+            code="in_the_cut")
     detached = []
     for c in uses["covers"]:
         # detach FIRST: it trashes the cover before its proxy rebuild, so
@@ -3583,11 +3605,75 @@ def _delete_footage(slug: str, name: str, force: bool = False,
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
 
-def _clear_footage(slug: str) -> "dict":
-    """Everything out — into .trash, recoverable like single removals."""
+def _clear_footage(slug: str, force: bool = False, log=print) -> "dict":
+    """Everything out — into .trash, recoverable like single removals.
+
+    GUARDED like `_delete_footage`, and for the same reason (2026-08-27).
+    This verb used to walk the directory knowing nothing about the cut:
+    ONE clip was protected by `_footage_uses` and all 368 were not, so the
+    blunt instrument could do exactly what the precise one refuses — bin
+    the take a beat is built on, which single delete declines even under
+    force.
+
+    `Remove all` means "start this project over", so force IS allowed to
+    take the cut with it. It cannot do that a beat at a time:
+    `_beat_remove` refuses the last beat ("a cut needs at least one
+    clip"), so emptying the shelf would always deadlock on it. The whole
+    plan is moved aside instead, into the same .trash the footage goes to.
+
+    Order matters: covers detach and the plan moves BEFORE any media does.
+    An interrupted clear then leaves a project with no cut, which is the
+    state the user asked for — never a cut pointing at binned files.
+
+    What breaks if this is wrong: `validate_edit_plan` checks take and clip
+    ids against takes.json and broll.json, NOT against the disk, so a plan
+    left behind still passes validation and the failure surfaces hours
+    later as an ffmpeg error at assemble — the exact lag the single-delete
+    guard was built to close.
+    """
     fdir = work_path(slug) / "footage"
     if not fdir.is_dir():
-        return {"removed": 0, "reingest": False}
+        return {"removed": 0, "reingest": False, "detached": [], "cut_cleared": False}
+
+    names = [p.name for p in fdir.iterdir()
+             if p.is_file() and not p.name.startswith((".", "_tmp"))]
+    covers, beats = [], []
+    for n in names:
+        uses = _footage_uses(slug, n)
+        covers.extend(uses["covers"])
+        beats.extend(uses["beats"])
+
+    if (covers or beats) and not force:
+        parts = []
+        if beats:
+            parts.append("%d clip%s carr%s a take the cut is built on (%s)"
+                         % (len(beats), "" if len(beats) == 1 else "s",
+                            "ies" if len(beats) == 1 else "y",
+                            ", ".join(sorted({b["beat_id"] for b in beats})[:3])))
+        if covers:
+            parts.append("%d cover%s placed from this footage"
+                         % (len(covers), "" if len(covers) == 1 else "s"))
+        raise IngestError(
+            "the cut is using this footage — %s. Removing everything clears "
+            "the cut too." % " and ".join(parts),
+            code="in_the_cut")
+
+    detached = []
+    cut_cleared = False
+    if covers or beats:
+        # Detach first, for the same reason single delete does: each cover
+        # lands in the clip trash as an undo before its media disappears.
+        for c in covers:
+            _broll_detach(slug, c["beat_id"], c["clip_id"], c["at"], log=log)
+            detached.append(c)
+        trash = fdir / ".trash"
+        trash.mkdir(exist_ok=True)
+        with _EDITPLAN_LOCK:
+            ep = work_path(slug) / "edit_plan.json"
+            if ep.exists():
+                os.replace(ep, _trash_dest(trash, "edit_plan.json"))
+                cut_cleared = True
+
     trash = fdir / ".trash"
     trash.mkdir(exist_ok=True)
     moved = 0
@@ -3606,7 +3692,7 @@ def _clear_footage(slug: str) -> "dict":
         shutil.rmtree(thumbs)
     # nothing is left to attribute — see the note in `_delete_footage`
     facts.clear_sources(slug)
-    return {"removed": moved,
+    return {"removed": moved, "detached": detached, "cut_cleared": cut_cleared,
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
 
@@ -5129,7 +5215,7 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             try:
                 self._get()
             except IngestError as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, _err_body(e))
             except Exception as e:
                 self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
 
@@ -5417,7 +5503,7 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
             try:
                 self._post()
             except IngestError as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, _err_body(e))
             except Exception as e:  # a bake crash must reach the UI, not die
                 self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
 
@@ -5766,7 +5852,9 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                                  result["removed"]))
                 self._send(200, dict(result, ok=True))
             elif self.path == "/api/footage/clear":
-                result = _clear_footage(self._slug_b(body))
+                result = _clear_footage(self._slug_b(body),
+                                        force=bool(body.get("force")),
+                                        log=log)
                 log("[footage] %s cleared (%d files to .trash)"
                     % (body.get("slug"), result["removed"]))
                 self._send(200, dict(result, ok=True))
