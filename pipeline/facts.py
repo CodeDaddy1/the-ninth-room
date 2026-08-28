@@ -64,6 +64,8 @@ def work_path(slug: str) -> Path:
 # concurrent `record_source` calls kept 2 labels and raised 9 times.
 _SOURCES_LOCK = threading.Lock()
 _VERSION_LOCK = threading.Lock()
+_VERDICT_LOCK = threading.Lock()
+_SESSION_LOCK = threading.Lock()
 
 
 def _write_atomic(path: Path, data) -> None:
@@ -332,3 +334,198 @@ def timeline_facts(slug: str, tl: "dict | None" = None,
     return {"version": timeline_version(slug),
             "clips": len(beats or []),
             "duration": round(dur, 1) if dur else None}
+
+
+# --- triage verdicts ------------------------------------------------------
+#
+# What Caleb thought of each clip, in a SIDECAR — never in the catalog.
+#
+# Ingest rebuilds `catalog.json` from scratch on every run, so anything
+# hand-authored inside it is destroyed by the next analysis. That is why
+# sources, b-roll tags, promotions and take verdicts all live beside it,
+# and footage verdicts are no different: a rating survives a re-ingest
+# because ingest never writes this file.
+#
+# What breaks if this is wrong: a triage pass over 148 clips is silently
+# undone by the analysis it was meant to shape.
+
+STAR_MAX = 5
+REJECTED = "rejected"
+
+
+def _verdicts_path(slug: str) -> Path:
+    return work_path(slug) / "footage_verdicts.json"
+
+
+def read_verdicts(slug: str) -> "dict":
+    """filename -> {"stars": int, "rejected": bool}. Absent or unreadable
+    both mean the same thing to a caller: nothing has been triaged."""
+    p = _verdicts_path(slug)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text())
+    except (ValueError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    files = data.get("files")
+    return files if isinstance(files, dict) else {}
+
+
+def read_rejected(slug: str) -> "set":
+    """Just the names ingest must skip."""
+    return {n for n, v in read_verdicts(slug).items()
+            if isinstance(v, dict) and v.get("rejected")}
+
+
+def set_verdict(slug: str, name: str, stars=None, rejected=None) -> "dict":
+    """Rate or reject one clip. Returns the clip's whole verdict.
+
+    Locked and atomic for the same measured reason `record_source` is: a
+    keyboard triage pass fires these faster than a browser folder-drop
+    fires uploads, and a read-modify-write without a lock loses most of
+    them. `stars=0` clears the rating; passing neither argument is a
+    no-op that still returns the current state.
+    """
+    name = os.path.basename(name or "")
+    if not name:
+        raise ValueError("no clip named")
+    with _VERDICT_LOCK:
+        files = read_verdicts(slug)
+        cur = files.get(name)
+        cur = dict(cur) if isinstance(cur, dict) else {}
+        if stars is not None:
+            try:
+                n = int(stars)
+            except (TypeError, ValueError):
+                n = 0
+            cur["stars"] = max(0, min(STAR_MAX, n))
+            # Rating a clip un-rejects it: they are one judgment, and a
+            # 4-star reject is a state nothing downstream could act on.
+            if cur["stars"]:
+                cur["rejected"] = False
+        if rejected is not None:
+            cur["rejected"] = bool(rejected)
+            if cur["rejected"]:
+                cur["stars"] = 0
+        if not cur.get("stars") and not cur.get("rejected"):
+            files.pop(name, None)   # back to untriaged; do not store a blank
+        else:
+            files[name] = cur
+        _write_atomic(_verdicts_path(slug), {"files": files})
+        # ONE shape, always. Returning {} for a cleared clip and a dict for
+        # a set one makes every caller re-derive the default, and the desk
+        # would have to guess whether a missing key means 0 or unknown.
+        return {"stars": int(cur.get("stars") or 0),
+                "rejected": bool(cur.get("rejected"))}
+
+
+def forget_verdicts(slug: str, names) -> None:
+    """Drop verdicts for files that are gone.
+
+    Same hazard `forget_source` closes: `_uniquify` only guards names
+    CURRENTLY present, so re-dropping a card gives the same filename back
+    — and it would inherit the rejection of a clip it never was.
+    """
+    if isinstance(names, str):
+        names = [names]
+    names = [os.path.basename(n) for n in (names or []) if n]
+    if not names:
+        return
+    with _VERDICT_LOCK:
+        files = read_verdicts(slug)
+        if not any(n in files for n in names):
+            return
+        for n in names:
+            files.pop(n, None)
+        _write_atomic(_verdicts_path(slug), {"files": files})
+
+
+def clear_verdicts(slug: str) -> None:
+    """The shelf is empty, so there is nothing left to have an opinion about."""
+    with _VERDICT_LOCK:
+        try:
+            _verdicts_path(slug).unlink()
+        except OSError:
+            pass
+
+
+# --- session labels -------------------------------------------------------
+#
+# What Caleb called each stretch of the visit.
+#
+# Stored PER CLIP, like the card labels above, and for a sharper reason: a
+# session is a cluster of capture times, and a cluster is not a stable
+# thing to key a name to. Drop one more clip into the middle of a shoot
+# and every boundary can move, so a name keyed to "session 3" would drift
+# onto footage it was never about. Keyed to the clips, the name stays
+# where it was put, and two stretches given the SAME name merge — which
+# is the whole of the merge feature (2026-08-27).
+
+
+def _sessions_path(slug: str) -> Path:
+    return work_path(slug) / "footage_sessions.json"
+
+
+def read_session_labels(slug: str) -> "dict":
+    """filename -> session label. Absent or unreadable both mean unnamed."""
+    p = _sessions_path(slug)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text())
+    except (ValueError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    files = data.get("files")
+    return files if isinstance(files, dict) else {}
+
+
+def name_session(slug: str, names, label: "str | None") -> "dict":
+    """Name a stretch of the visit — every clip in it at once.
+
+    An empty label CLEARS, rather than writing a blank: an absent entry
+    already means "still a proposal", and storing the empty string would
+    make an unnamed session look deliberately named to every reader.
+    """
+    if isinstance(names, str):
+        names = [names]
+    names = [os.path.basename(n) for n in (names or []) if n]
+    if not names:
+        raise ValueError("no clips given")
+    text = (label or "").strip()[:120]
+    with _SESSION_LOCK:
+        files = read_session_labels(slug)
+        for n in names:
+            if text:
+                files[n] = text
+            else:
+                files.pop(n, None)
+        _write_atomic(_sessions_path(slug), {"files": files})
+        return files
+
+
+def forget_session_labels(slug: str, names) -> None:
+    """Drop labels for files that are gone — see `forget_verdicts`."""
+    if isinstance(names, str):
+        names = [names]
+    names = [os.path.basename(n) for n in (names or []) if n]
+    if not names:
+        return
+    with _SESSION_LOCK:
+        files = read_session_labels(slug)
+        if not any(n in files for n in names):
+            return
+        for n in names:
+            files.pop(n, None)
+        _write_atomic(_sessions_path(slug), {"files": files})
+
+
+def clear_session_labels(slug: str) -> None:
+    with _SESSION_LOCK:
+        try:
+            _sessions_path(slug).unlink()
+        except OSError:
+            pass

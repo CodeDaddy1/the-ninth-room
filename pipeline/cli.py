@@ -12,6 +12,17 @@ import argparse
 import sys
 
 
+def cmd_survey(args) -> int:
+    from . import survey
+    from .ingest import IngestError
+    try:
+        survey.survey(args.slug, force=getattr(args, "force", False))
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_ingest(args) -> int:
     from . import ingest
     try:
@@ -275,6 +286,13 @@ def cmd_bridge(args) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="pipeline")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("survey",
+                       help="pass 1: probe + posters + previews, no transcription")
+    p.add_argument("slug")
+    p.add_argument("--force", action="store_true",
+                   help="re-do every file instead of reusing unchanged ones")
+    p.set_defaults(fn=cmd_survey)
 
     p = sub.add_parser("ingest", help="probe + transcribe work/<slug>/footage/")
     p.add_argument("slug")

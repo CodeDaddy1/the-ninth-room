@@ -23,7 +23,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .ingest import analysis_dir, IngestError
+from .ingest import analysis_dir, IngestError, _write_atomic
 
 # Silence this long ends a take. Longer than a breath (~0.6s), shorter than
 # the deliberate "reset pause" people take between retakes.
@@ -351,6 +351,9 @@ def analyze(slug: str, log=print) -> Path:
     if errors:
         raise IngestError("takes.json failed validation:\n  " + "\n  ".join(errors))
     path = out / "takes.json"
-    path.write_text(json.dumps(data, indent=2))
+    # Atomic: a half-written takes.json is a parse error for every reader,
+    # and this is written at the end of a long job that can be killed
+    # (2026-08-27). Same rule as the catalog and the sidecars.
+    _write_atomic(path, data)
     log("[takes] wrote %s (%d takes, %d groups)" % (path, len(takes), len(groups)))
     return path

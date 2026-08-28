@@ -22,7 +22,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .ingest import work_path, analysis_dir, IngestError, VIDEO_EXT, PROJECT_ROOT
+from .ingest import (work_path, analysis_dir, IngestError, VIDEO_EXT,
+                     AUDIO_EXT, PROJECT_ROOT)
 from . import facts
 
 PORT = 8765
@@ -2424,6 +2425,12 @@ _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 # said yes, ingest said "no media files")
 _VIDEO_UP = VIDEO_EXT
 _IMAGE_UP = (".jpg", ".jpeg", ".png", ".heic", ".webp")
+# What the Footage desk LISTS. Ingest has always analysed audio as well as
+# video (VIDEO_EXT + AUDIO_EXT), but the desk filtered to video only — so a
+# .wav dropped into footage/ was transcribed, cut from, and appeared on no
+# screen anywhere in the Studio (audit, 2026-08-27). It is real footage the
+# moment ingest reads it, so it is listed.
+_UPLOADABLE_MEDIA = VIDEO_EXT + AUDIO_EXT
 
 
 def _valid_slug(slug: str) -> bool:
@@ -2652,6 +2659,18 @@ def _project_row(slug: str) -> "dict":
     footage = ([p.name for p in sorted(fdir.iterdir())
                 if p.suffix.lower() in _VIDEO_UP and not p.name.startswith((".", "_tmp"))]
                if fdir.is_dir() else [])
+    # A REJECTED clip is not outstanding work.
+    #
+    # This counted every file on the shelf against the catalog, and ingest
+    # now deliberately skips what triage threw away — so two rejected
+    # clips read as "2 files added since the analysis", the footer offered
+    # "Analyze again" forever, and running it changed nothing because the
+    # analysis was already complete (browser check, 2026-08-27). The desk
+    # and its footer must not be able to disagree about whether there is
+    # work left.
+    rejected = facts.read_rejected(slug)
+    if rejected:
+        footage = [n for n in footage if n not in rejected]
     ingested = (out / "catalog.json").exists() and (out / "takes.json").exists()
     # How many of the files ON DISK the analysis covers. `ingested` is a
     # latch — true forever once a catalog exists — so a clip dropped in
@@ -3076,6 +3095,18 @@ def _link_footage(slug: str, folder: str, log=print) -> "dict":
     facts.record_source(slug, linked, src.name)
     log("[link] %s: linked %d, skipped %d already present"
         % (slug, len(linked), len(skipped)))
+
+    # A linked card is footage that ARRIVED, so it earns the same first
+    # pass a drop does. This never armed anything: point a new project at
+    # a 368-file volume and the desk sat there until someone found the
+    # button (audit, 2026-08-27). Best-effort — a link that worked must
+    # not fail because the queue refused.
+    if linked:
+        try:
+            from . import jobs as jobs_mod
+            jobs_mod.note_upload(slug)
+        except Exception:
+            pass
     return {"linked": len(linked), "skipped": len(skipped),
             "names": linked[:20]}
 
@@ -3399,62 +3430,85 @@ def _search_all(q: str, limit: int = 40) -> "list":
 
 
 def _footage_state(slug: str) -> "dict":
-    """Inventory of what's been dropped in: per-clip thumbnail, duration,
-    size — thumbnails and probes cached in footage/.thumbs keyed by
-    (size, mtime) so the panel stays instant with a card full of 4K."""
+    """Inventory of what's been dropped in: per-clip poster, duration, size.
+
+    A READ, and only a read, since 2026-08-27.
+
+    This used to shell `ffprobe` AND `ffmpeg` per uncached file while the
+    browser waited, then write JPEGs and a meta.json — a GET that created
+    directories and spawned subprocesses. It is most of why the desk felt
+    slow on a fresh card, and it meant the cheap visual work was hidden
+    inside a page load while the expensive work got the progress bar.
+
+    The `survey` job owns that work now and records it in
+    `analysis/survey.json`. Here we read three sources and never write:
+
+      survey.json   dimensions, duration, poster, preview  (new projects)
+      .thumbs/      posters an older project already has    (fallback)
+      the directory the FILES, which are always the truth
+
+    The directory stays authoritative for what EXISTS: a survey lists what
+    it saw when it ran, and a file dropped since must still appear — with
+    no poster — rather than wait for a job to become visible. That is what
+    makes the tiles fill in progressively instead of arriving all at once.
+    """
     fdir = work_path(slug) / "footage"
     items = []
     # which card each file arrived on — a sidecar, so an unlabelled file is
     # simply `unsorted` rather than an ingest failure (see pipeline/facts.py)
     src_labels = facts.read_sources(slug)
+    from . import survey as survey_mod
+    surveyed = {e["name"]: e for e in ((survey_mod.read_survey(slug) or {})
+                                       .get("files") or [])
+                if isinstance(e, dict) and e.get("name")}
     if fdir.is_dir():
         thumbs = fdir / ".thumbs"
-        thumbs.mkdir(exist_ok=True)
+        # the legacy cache: read if present, never created, never written
         meta_path = thumbs / "meta.json"
-        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-        changed = False
+        meta = {}
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text())
+            except ValueError:
+                meta = {}
         for p in sorted(fdir.iterdir()):
             if not p.is_file() or p.name.startswith((".", "_tmp")) \
-                    or p.suffix.lower() not in _VIDEO_UP:
+                    or p.suffix.lower() not in _UPLOADABLE_MEDIA:
                 continue
             st = p.stat()
-            key = [st.st_size, int(st.st_mtime)]
-            m = meta.get(p.name)
-            if not m or m[:2] != key:
-                pr = subprocess.run(
-                    ["ffprobe", "-v", "error", "-select_streams", "v:0",
-                     "-show_entries", "stream=width,height:format=duration",
-                     "-of", "json", str(p)], capture_output=True, text=True)
-                try:
-                    d = json.loads(pr.stdout)
-                    dur = float(d["format"]["duration"])
-                    w0 = d["streams"][0]["width"]
-                    h0 = d["streams"][0]["height"]
-                except Exception:
-                    dur, w0, h0 = 0.0, 0, 0
-                m = key + [round(dur, 1), w0, h0]
-                meta[p.name] = m
-                changed = True
+            sv = surveyed.get(p.name)
+            fresh = bool(sv and sv.get("size") == st.st_size
+                         and sv.get("mtime") == int(st.st_mtime))
             th = thumbs / (p.name + ".jpg")
-            if not th.exists() or th.stat().st_mtime < st.st_mtime:
-                at = min(1.0, max(m[2] / 2.0, 0.0))
-                subprocess.run(
-                    ["ffmpeg", "-y", "-loglevel", "error", "-ss", "%.2f" % at,
-                     "-i", str(p), "-frames:v", "1", "-vf", "scale=320:-2",
-                     str(th)], capture_output=True)
+            if fresh:
+                dur = round(float(sv.get("duration") or 0.0), 1)
+                w0, h0 = int(sv.get("width") or 0), int(sv.get("height") or 0)
+                thumb = sv.get("thumb") if sv.get("thumb") and Path(sv["thumb"]).exists() else None
+                proxy = sv.get("proxy") if sv.get("proxy") and Path(sv["proxy"]).exists() else None
+                created = sv.get("created_at")
+                screened = bool(sv.get("screened_out"))
+            else:
+                # not surveyed (or changed since): fall back to whatever the
+                # old cache holds, and otherwise say nothing rather than
+                # spawn ffprobe on a request the user is waiting on
+                m = meta.get(p.name)
+                ok = isinstance(m, list) and len(m) >= 5 and m[:2] == [st.st_size, int(st.st_mtime)]
+                dur, w0, h0 = (m[2], m[3], m[4]) if ok else (0.0, 0, 0)
+                thumb = str(th) if th.exists() else None
+                proxy, created, screened = None, None, False
             still_src, src_size = None, None
             if p.stem.endswith("_still"):
                 for s in (fdir / "stills").glob(p.stem[:-6] + ".*"):
                     still_src, src_size = s.name, s.stat().st_size
                     break
             items.append({"name": p.name, "size": st.st_size,
-                          "dur": m[2], "w": m[3], "h": m[4],
+                          "dur": dur, "w": w0, "h": h0,
                           "still": p.stem.endswith("_still"),
                           "still_src": still_src, "src_size": src_size,
                           "source": src_labels.get(p.name) or facts.UNSORTED,
-                          "thumb": str(th) if th.exists() else None})
-        if changed:
-            _write_json(meta_path, meta)
+                          "thumb": thumb, "proxy": proxy,
+                          "created_at": created, "screened_out": screened,
+                          "surveyed": fresh})
     # How much of what is ON DISK the analysis actually covers.
     #
     # `ingested` is only "a catalog exists", and it stays true forever once
@@ -3484,8 +3538,23 @@ def _footage_state(slug: str) -> "dict":
             # interrupted recording, and the only useful thing the desk
             # can say about it is which one to replace.
             skipped = [it["name"] for it in items if it["name"] in set_aside]
+    # How much of what is on disk the SURVEY covers — the same set
+    # intersection `analyzed` does, one pass earlier. This is what lets the
+    # desk say "42 of 148 read" while previews are still being made, and
+    # what the footer's forward move reads to decide between survey and
+    # analyze.
+    surveyed = sum(1 for it in items if it["surveyed"])
+    previewed = sum(1 for it in items if it.get("proxy"))
     return {"slug": slug, "files": items, "ingested": ingested,
             "analyzed": analyzed, "skipped": skipped,
+            "surveyed": surveyed, "previewed": previewed,
+            "verdicts": facts.read_verdicts(slug),
+            "session_labels": facts.read_session_labels(slug),
+            # the allowlist, so the desk can name what it accepts without
+            # keeping its own copy (it kept one, and it had drifted)
+            "formats": {"video": [e[1:] for e in VIDEO_EXT],
+                        "image": [e[1:] for e in _IMAGE_UP],
+                        "audio": [e[1:] for e in AUDIO_EXT]},
             # SOURCES panel (artboard 23) and the live copy readout. The
             # progress has always been written by ingest and only ever
             # reached /api/projects — the desk watching the copy happen
@@ -3601,6 +3670,11 @@ def _delete_footage(slug: str, name: str, force: bool = False,
     # then attributes the new file to a card it never came from (review,
     # 2026-08-26).
     facts.forget_source(slug, removed)
+    # the opinion goes with the clip, for the same reason the label does:
+    # a re-dropped card gives the same filename back and would otherwise
+    # inherit a rejection belonging to a clip it never was
+    facts.forget_verdicts(slug, removed)
+    facts.forget_session_labels(slug, removed)
     return {"removed": removed, "detached": detached,
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
@@ -3616,10 +3690,10 @@ def _clear_footage(slug: str, force: bool = False, log=print) -> "dict":
     force.
 
     `Remove all` means "start this project over", so force IS allowed to
-    take the cut with it. It cannot do that a beat at a time:
-    `_beat_remove` refuses the last beat ("a cut needs at least one
-    clip"), so emptying the shelf would always deadlock on it. The whole
-    plan is moved aside instead, into the same .trash the footage goes to.
+    take the cut with it. It cannot do that a beat at a time: `_beat_remove`
+    refuses the last beat ("a cut needs at least one clip"), so emptying the
+    shelf would always deadlock on it. The whole plan is moved aside
+    instead, into the same .trash the footage goes to.
 
     Order matters: covers detach and the plan moves BEFORE any media does.
     An interrupted clear then leaves a project with no cut, which is the
@@ -3692,6 +3766,8 @@ def _clear_footage(slug: str, force: bool = False, log=print) -> "dict":
         shutil.rmtree(thumbs)
     # nothing is left to attribute — see the note in `_delete_footage`
     facts.clear_sources(slug)
+    facts.clear_verdicts(slug)
+    facts.clear_session_labels(slug)
     return {"removed": moved, "detached": detached, "cut_cleared": cut_cleared,
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
@@ -5411,6 +5487,27 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                         return
                     self._send(404, {"error": "not found"})
                     return
+                # /media/<slug>/footage/.proxies/<name> — the 1080p
+                # previews the survey bakes (2026-08-27). Six parts, like
+                # the assets thumbs above, so it cannot ride the five-part
+                # branch below.
+                #
+                # Through the MEDIA route, not `/pyfile`: that one is
+                # guarded to images AND does not speak Range, so a preview
+                # served there 404s, and would not have been seekable even
+                # if it did not. `_send_video` is what makes scrubbing
+                # work, which is the entire reason previews exist.
+                if (len(parts) == 6 and parts[3] == "footage"
+                        and parts[4] == ".proxies" and _valid_slug(parts[2])):
+                    px = (work_path(parts[2]) / "footage" / ".proxies" /
+                          os.path.basename(urllib.parse.unquote(parts[5]))).resolve()
+                    root = (work_path(parts[2]) / "footage" / ".proxies").resolve()
+                    if (str(px).startswith(str(root) + os.sep)
+                            and px.is_file() and px.suffix.lower() == ".mp4"):
+                        self._send_video(px)
+                        return
+                    self._send(404, {"error": "not found"})
+                    return
                 # /media/<slug>/poster.jpg — the episode poster, which
                 # `_poster` writes BESIDE the work files rather than in a
                 # subdirectory. The project row has advertised it since the
@@ -5851,6 +5948,32 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 log("[footage] %s removed %s" % (body.get("slug"),
                                                  result["removed"]))
                 self._send(200, dict(result, ok=True))
+            elif self.path == "/api/resolve/proxies":
+                from . import resolve_api as ra_mod
+                rslug = self._slug_b(body)
+                ra_mod.ensure_bridge()
+                if body.get("link"):
+                    out = ra_mod.link_proxies(rslug)
+                else:
+                    out = ra_mod.unlink_proxies()
+                out["linked_now"] = ra_mod.proxies_linked()
+                self._send(200, dict(out, ok=True))
+            elif self.path == "/api/footage/verdict":
+                vslug = self._slug_b(body)
+                out = facts.set_verdict(vslug, body.get("name", ""),
+                                        stars=body.get("stars"),
+                                        rejected=body.get("rejected"))
+                self._send(200, {"ok": True, "name": body.get("name", ""),
+                                 "verdict": out})
+            elif self.path == "/api/footage/session":
+                sslug = self._slug_b(body)
+                out = facts.name_session(sslug, body.get("names") or [],
+                                         body.get("label"))
+                self._send(200, {"ok": True, "labels": out})
+            elif self.path == "/api/footage/survey":
+                from . import jobs as jobs_mod
+                self._send(200, dict(
+                    jobs_mod.start("survey", self._slug_b(body)), ok=True))
             elif self.path == "/api/footage/clear":
                 result = _clear_footage(self._slug_b(body),
                                         force=bool(body.get("force")),

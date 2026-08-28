@@ -50,8 +50,11 @@ SESSION_KINDS = {
     "retro", "diagnose",
 }
 LOCAL_KINDS = {
-    "ingest", "assemble", "reproxy", "render", "rendercards", "qcgate",
-    "snapcuts",
+    # survey is ffmpeg on this machine like the rest of them: it decodes
+    # and re-encodes every clip, so it serialises with the heavy work
+    # rather than racing an assemble for the same cores
+    "survey", "ingest", "assemble", "reproxy", "render", "rendercards",
+    "qcgate", "snapcuts",
 }
 
 
@@ -202,6 +205,45 @@ def _mmss(seconds) -> str:
     if n <= 0:
         return ""
     return "%d:%02d" % (n // 60, n % 60)
+
+
+def _run_survey(slug, log, set_pct):
+    """Pass 1: see the shoot. Probe, screen, poster, preview — no whisper.
+
+    Two phases with very different costs, so the job's percentage is
+    split to match what is actually happening: posters are the first
+    fifth, previews the rest. A bar that spends 80% of its life in its
+    first 20% is the hardcoded ladder this replaced.
+    """
+    from . import ingest as ingest_mod, survey as survey_mod
+    note = getattr(log, "note", lambda _t: None)
+
+    def on_progress(f):
+        stage = str(f.get("stage") or "")
+        try:
+            done = int(f.get("done") or 0)
+            total = int(f.get("total") or 0)
+        except (TypeError, ValueError):
+            return
+        if total <= 0:
+            return
+        frac = max(0.0, min(1.0, float(f.get("pct") or 0)))
+        cur = str(f.get("current") or "")
+        if stage == "survey":
+            set_pct(2 + int(18 * frac))
+            note("reading %d of %d · %s" % (min(done + 1, total), total, cur))
+        elif stage == "previews":
+            set_pct(20 + int(79 * frac))
+            eta = _mmss(f.get("eta_s"))
+            note(" · ".join(x for x in (
+                "previews %d of %d" % (min(done + 1, total), total),
+                cur, "%s left" % eta if eta else "") if x))
+
+    with ingest_mod.observing(slug, on_progress):
+        set_pct(2)
+        log("[job] survey: probe + posters + previews")
+        survey_mod.survey(slug)
+    set_pct(100)
 
 
 def _run_ingest(slug, log, set_pct):
@@ -1283,10 +1325,25 @@ def _run_qcgate(slug, log, set_pct):
         rows.append({"id": "qc_duration", "label": "Master length matches "
                      "the cut", "ok": ok,
                      "detail": "%.1fs vs %.1fs planned" % (dur, want)})
+    # Against the TIMELINE's canvas, not a 1920 floor.
+    #
+    # `width >= 1920` passes a 1080p master rendered from a 4K timeline —
+    # which is exactly what was happening, because the render never pinned
+    # its output size and took whatever preset was selected in Resolve
+    # (2026-08-27). A floor answers "is this big enough for YouTube"; the
+    # question worth asking is "is this what we cut".
+    want = None
+    if tl_p.exists():
+        try:
+            from .timeline import CANVAS
+            want = CANVAS[json.loads(tl_p.read_text())["orientation"]]
+        except (ValueError, KeyError, ImportError):
+            want = None
+    got = (int(vstream.get("width", 0) or 0), int(vstream.get("height", 0) or 0))
     rows.append({"id": "qc_resolution", "label": "Resolution",
-                 "ok": int(vstream.get("width", 0)) >= 1920,
-                 "detail": "%sx%s" % (vstream.get("width"),
-                                      vstream.get("height"))})
+                 "ok": (got == tuple(want)) if want else got[0] >= 1920,
+                 "detail": ("%dx%d" % got) if not want or got == tuple(want)
+                 else "%dx%d — the cut is %dx%d" % (got[0], got[1], want[0], want[1])})
     set_pct(40)
     # loudness: broadcast-ish window for YouTube (-16 +/- 3 LUFS)
     loud = subprocess.run(
@@ -1892,6 +1949,9 @@ def _run_sourcing(slug, log, set_pct, arg=None):
 
 
 KINDS = {
+    # Pass 1 and pass 2. Survey is cheap and safe to re-run; ingest is the
+    # expensive half and now skips what survey set aside.
+    "survey": ("Read the shoot — previews you can watch", _run_survey),
     "ingest": ("Analyze footage — transcripts, takes, b-roll", _run_ingest),
     "assemble": ("Assemble — timeline + review previews", _run_assemble),
     "reproxy": ("Rebuild previews", _run_reproxy),
@@ -1953,25 +2013,37 @@ CHAIN = {
 
 
 AUTOINGEST_DELAY = 20.0     # seconds of upload silence = the batch settled
+# What a settled drop starts on its own.
+#
+# `ingest` until 2026-08-27, which meant a dropped card was TRANSCRIBED
+# before anyone had looked at a frame of it — the desk could not show the
+# footage until the expensive stage it should have informed was already
+# paid for. Pass 1 is what a drop earns automatically; pass 2 is a human
+# gate, because the point of triage is that it happens in between.
+AUTOINGEST_KIND = "survey"
 _UPLOAD_TS: "dict" = {}     # slug -> epoch of that slug's newest upload
 
 
 def autoingest_decision(stamp: float, latest: float,
-                        slug_jobs: "list") -> str:
+                        slug_jobs: "list", kind: str = AUTOINGEST_KIND) -> str:
     """Pure verdict for one debounce timer firing: 'start', 'rearm', or
     'skip'. Extracted so the race rules are testable without threads.
 
     - a NEWER upload superseded this timer -> skip (its own timer runs);
-    - an ingest already queued/running -> rearm (it may miss this batch's
-      newest file, so check again later rather than double-queue);
-    - an ingest that STARTED after the batch's last upload has already
-      analyzed it (the teleprompter fires one explicitly) -> skip;
+    - a run of `kind` already queued/running -> rearm (it may miss this
+      batch's newest file, so check again later rather than double-queue);
+    - a run that STARTED after the batch's last upload has already covered
+      it (the teleprompter fires one explicitly) -> skip;
     - otherwise -> start.
+
+    `kind` is a parameter because what a drop should trigger CHANGED: it
+    used to fire the analysis, which transcribed every clip before anyone
+    had looked at one. See AUTOINGEST_KIND.
     """
     if latest > stamp:
         return "skip"
     for j in slug_jobs:
-        if j.get("kind") != "ingest":
+        if j.get("kind") != kind:
             continue
         if j.get("state") in ("queued", "running"):
             return "rearm"
@@ -1983,10 +2055,10 @@ def autoingest_decision(stamp: float, latest: float,
 
 def _autoingest_fire(slug: str, stamp: float) -> None:
     verdict = autoingest_decision(stamp, _UPLOAD_TS.get(slug, stamp),
-                                  jobs(slug))
+                                  jobs(slug), AUTOINGEST_KIND)
     if verdict == "start":
         try:
-            start("ingest", slug)
+            start(AUTOINGEST_KIND, slug)
         except JobError:
             pass
     elif verdict == "rearm":

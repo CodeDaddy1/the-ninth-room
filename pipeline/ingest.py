@@ -128,6 +128,40 @@ def write_progress(slug: str, **fields) -> None:
             pass
 
 
+def facts_rejected(slug: str) -> "set":
+    """Names rejected at triage. Empty when nothing has been triaged.
+
+    Read through a late import: `facts` resolves work_path through THIS
+    module, so importing it at module scope would close the circle.
+    A missing or unreadable sidecar means "nothing rejected" — triage
+    data must never be able to stop an analysis from running.
+    """
+    try:
+        from . import facts
+        return facts.read_rejected(slug)
+    except Exception:
+        return set()
+
+
+def _write_atomic(path: Path, data) -> None:
+    """tmp + replace, with a tmp name nobody else can be using.
+
+    A fixed `.tmp` sibling is worse than no atomicity once two writers
+    exist — one's replace moves the file out from under the other. The
+    same rule `facts._write_atomic` and `editroom._write_json` carry.
+    """
+    tmp = path.with_suffix(".%d.%d.tmp" % (os.getpid(), threading.get_ident()))
+    try:
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def analysis_dir(slug: str) -> Path:
     d = work_path(slug) / "analysis"
     d.mkdir(parents=True, exist_ok=True)
@@ -162,6 +196,16 @@ def probe_file(path: Path) -> "dict":
         "duration": float(fmt.get("duration") or 0.0),
         "has_audio": a is not None,
     }
+    # WHEN it was shot. `-show_format` has always been requested and every
+    # tag it returns was thrown away, so shot order could only ever be
+    # guessed from filenames — which breaks the moment two cameras are
+    # rolling, because each numbers its own card from 0001 (2026-08-27).
+    # Cameras write it as UTC ISO-8601; a container that carries none
+    # simply has no `created_at`, and the desk omits the fact rather than
+    # inventing one (non-negotiable 7).
+    created = (fmt.get("tags") or {}).get("creation_time")
+    if isinstance(created, str) and created.strip():
+        entry["created_at"] = created.strip()
     if v:
         num, _, den = (v.get("avg_frame_rate") or "0/1").partition("/")
         try:
@@ -249,6 +293,28 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
                    and not p.name.startswith("_tmp."))
     if not files:
         raise IngestError("no media files in %s" % footage, code="no_media")
+
+    # PASS 2 respects the triage pass 1 enabled.
+    #
+    # A rejected clip is not transcribed, not sheeted and not catalogued:
+    # that is the entire point of splitting the passes. Whisper is the
+    # expensive stage, and spending it on footage Caleb has already looked
+    # at and thrown away was the inversion this work exists to fix
+    # (2026-08-27). Rejection lives in a sidecar, so a re-ingest cannot
+    # silently undo it — the same reason take verdicts do.
+    #
+    # A project with no verdicts (and every project made before this) is
+    # unaffected: the set is empty and every file goes through.
+    rejected = facts_rejected(slug)
+    if rejected:
+        before = len(files)
+        files = [p for p in files if p.name not in rejected]
+        log("[ingest] %d of %d clips rejected at triage — not transcribed"
+            % (before - len(files), before))
+        if not files:
+            raise IngestError(
+                "every clip is rejected — nothing left to analyze",
+                code="all_rejected")
 
     out = analysis_dir(slug)
     entries = []
@@ -343,10 +409,23 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
             # recovery) never repeats whisper work it already did.
             words_file = entry["name"] + ".words.json"
             words_path = out / words_file
+            words = None
             if words_path.exists():
-                words = json.loads(words_path.read_text())
-            else:
-                words = None
+                try:
+                    words = json.loads(words_path.read_text())
+                except ValueError:
+                    # A crash mid-write leaves a truncated .words.json,
+                    # and this used to read it unguarded — so EVERY later
+                    # ingest of that project raised JSONDecodeError until
+                    # someone deleted the file by hand. A corrupt cache is
+                    # a cache miss, not a failure (2026-08-27).
+                    log("         cached transcript unreadable — re-transcribing")
+                    try:
+                        words_path.unlink()
+                    except OSError:
+                        pass
+                    words = None
+            if words is None:
                 if use_api:
                     from . import whisper_api
                     try:
@@ -393,7 +472,11 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
     if errors:
         raise IngestError("catalog failed validation:\n  " + "\n  ".join(errors))
     catalog_path = out / "catalog.json"
-    catalog_path.write_text(json.dumps(catalog, indent=2))
+    # Atomic, like every other multi-writer file in this engine. A plain
+    # write_text leaves a HALF catalog if the process dies mid-write, and
+    # `_catalog_read` degrades that to "nothing analyzed" — which is the
+    # right failure but not one worth having (2026-08-27).
+    _write_atomic(catalog_path, catalog)
     log("[ingest] wrote %s (%d files)" % (catalog_path, len(entries)))
     log("[ingest] %s" % screen_mod.tally(entries))
     return catalog_path

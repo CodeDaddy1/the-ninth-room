@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from .ingest import analysis_dir, IngestError
+from .ingest import analysis_dir, IngestError, _write_atomic
 
 import threading
 
@@ -301,7 +301,10 @@ def catalog_broll(slug: str, log=print) -> Path:
     if errors:
         raise IngestError("broll.json failed validation:\n  " + "\n  ".join(errors))
     path = out / "broll.json"
-    path.write_text(json.dumps(data, indent=2))
+    # Atomic: a half-written broll.json is a parse error for every reader,
+    # and this is written at the end of a long job that can be killed
+    # (2026-08-27). Same rule as the catalog and the sidecars.
+    _write_atomic(path, data)
     write_progress(slug, stage="done", done=len(todo), total=len(todo),
                    pct=1.0, eta_s=0)
     log("[broll] wrote %s (%d clips)" % (path, len(clips)))

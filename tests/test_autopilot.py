@@ -110,34 +110,48 @@ class TheNotifier(unittest.TestCase):
 
 
 class AutoIngestDecision(unittest.TestCase):
+    """The race rules, and WHICH pass a settled drop starts.
+
+    Until 2026-08-27 a drop fired `ingest`, so a dropped card was
+    transcribed before anyone had looked at a frame of it. Pass 1 is what
+    a drop earns automatically now; pass 2 is a human gate, because the
+    whole point of triage is that it happens in between. The rules below
+    are unchanged — only the kind they watch for moved.
+    """
+
+    KIND = jobs.AUTOINGEST_KIND
+
+    def test_a_drop_starts_PASS_ONE_not_the_analysis(self):
+        self.assertEqual(jobs.AUTOINGEST_KIND, "survey")
+
     def test_a_newer_upload_supersedes_this_timer(self):
         self.assertEqual(
             jobs.autoingest_decision(100.0, 105.0, []), "skip")
 
-    def test_the_settled_batch_starts_analysis(self):
+    def test_the_settled_batch_starts_pass_one(self):
         self.assertEqual(
             jobs.autoingest_decision(100.0, 100.0, []), "start")
 
-    def test_a_running_ingest_means_check_again_later(self):
-        running = [{"kind": "ingest", "state": "running"}]
+    def test_a_running_survey_means_check_again_later(self):
+        running = [{"kind": self.KIND, "state": "running"}]
         self.assertEqual(
             jobs.autoingest_decision(100.0, 100.0, running), "rearm")
 
-    def test_an_ingest_that_started_after_the_batch_covers_it(self):
-        done = [{"kind": "ingest", "state": "done", "started_ts": 101}]
+    def test_a_survey_that_started_after_the_batch_covers_it(self):
+        done = [{"kind": self.KIND, "state": "done", "started_ts": 101}]
         self.assertEqual(
             jobs.autoingest_decision(100.0, 100.0, done), "skip")
 
-    def test_a_stale_earlier_ingest_does_not_cover_a_new_batch(self):
-        done = [{"kind": "ingest", "state": "done", "started_ts": 90}]
+    def test_a_stale_earlier_survey_does_not_cover_a_new_batch(self):
+        done = [{"kind": self.KIND, "state": "done", "started_ts": 90}]
         self.assertEqual(
             jobs.autoingest_decision(100.0, 100.0, done), "start")
 
-    def test_a_same_second_covering_ingest_still_counts(self):
-        """Review F4: started_ts is a float now — an ingest starting at
+    def test_a_same_second_covering_run_still_counts(self):
+        """Review F4: started_ts is a float now — a run starting at
         100.95 covers an upload stamped 100.8, where int truncation to
         100 used to fire a spurious duplicate run."""
-        done = [{"kind": "ingest", "state": "done", "started_ts": 100.95}]
+        done = [{"kind": self.KIND, "state": "done", "started_ts": 100.95}]
         self.assertEqual(
             jobs.autoingest_decision(100.8, 100.8, done), "skip")
 
@@ -145,6 +159,18 @@ class AutoIngestDecision(unittest.TestCase):
         others = [{"kind": "assemble", "state": "running"}]
         self.assertEqual(
             jobs.autoingest_decision(100.0, 100.0, others), "start")
+
+    def test_a_RUNNING_ANALYSIS_does_not_hold_up_pass_one(self):
+        """The two passes are different work. An ingest chewing through
+        whisper must not stop a freshly dropped card being read."""
+        running = [{"kind": "ingest", "state": "running"}]
+        self.assertEqual(
+            jobs.autoingest_decision(100.0, 100.0, running), "start")
+
+    def test_the_kind_is_a_parameter_so_the_rules_are_reusable(self):
+        running = [{"kind": "ingest", "state": "running"}]
+        self.assertEqual(
+            jobs.autoingest_decision(100.0, 100.0, running, "ingest"), "rearm")
 
 
 class SnapcutsGuard(unittest.TestCase):
