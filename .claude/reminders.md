@@ -484,3 +484,107 @@ console settings, recordings, decisions). Check items off when done.
   finding on CH1.S3: no stock clip it found has a legible designer name on the
   temple arm, so "Chanel. Prada. Armani. Versace." has no picture that proves
   it yet. Only you can approve the candidates and spend the money.
+
+- [ ] **`golf-testing`'s approved direction S2 cannot be cut by the engine —
+  two blockers, and only one of them is yours.** (added 2026-08-27, from the
+  edit-plan run.) You approved S2, "The Person Holding the Phone", whose own
+  pitch says "this is the only direction where the b-roll audio IS the
+  script". That is the problem: **a b-roll cover is emitted as an FCPXML
+  `<video>` element on lane 1 — picture, never audio** (`pipeline/timeline.py`
+  :533, and :20 says suppressing b-roll audio is deliberate; `broll.py`'s
+  `promote()` says "It plays SILENT"). So "Nice, babe.", "No way." and "See
+  you next time." — the three lines the whole direction rests on — are
+  inaudible in any cut this engine can build today. **Only you can decide**
+  which way out: (a) re-approve a direction that does not need b-roll audio,
+  (b) commission the engine change (b-roll audio on the timeline, or the
+  wordless-run beat `.claude/agents/story-designer.md` already names as "a
+  separate, larger piece of work"), or (c) shoot the lines as real takes.
+  The second blocker is ordinary and yours too: the short is 24.4% VO and
+  **none of it is recorded**, so there are no `vo_*` takes to anchor its
+  beats to (`analysis/takes.json` holds exactly one take, T01, 3.32s — the
+  entire project has 3.32 seconds of audio this engine can put on a
+  timeline). The finished design, validated clean on everything except the
+  missing material, is in `work/golf-testing/edit_plan.blocked.json`;
+  `edit_plan.json` was deliberately NOT written, because its existence flips
+  the Studio to "the cut is written" and the assemble job would hard-fail.
+
+- [ ] **Decide whether `golf-testing` should be rebuilt vertical, and who is
+  holding the phone.** (added 2026-08-27, same run.) Two things the story
+  side cannot answer. First, ingest baked six of the eleven clips
+  (IMG_6283, IMG_6323, IMG_6419, IMG_6429, IMG_6587, IMG_6603 — all natively
+  720x1280) into 3840x2160 blurred-ground companions and pointed
+  `catalog.json` at them, so a 9:16 short assembled through the catalog as it
+  stands picks up letterboxed landscape for most of its shots. `survey.json`
+  still holds the true native sizes. Second, the off-camera voices are
+  **unattributed** — the pipeline cannot tell you whether it is one person
+  across the year — so no VO line in the design names or genders them, and
+  the line "they start rolling before I am ready" assumes you are the golfer,
+  which the brief does not say. Confirm both before any VO is recorded.
+
+- [ ] **`golf-testing`: the locked script asserts four things the footage does
+  not contain — and two of them are yours to settle before a word is
+  recorded.** (added 2026-08-27, from the second edit-plan run, which read the
+  approved `script.json` rather than the pitch.) I checked every claim on real
+  frames, not on the nine-frame contact sheets. **CH1.S7 and CH1.S8 are built
+  on "the frame he has already walked out of, held on empty winter grass" —
+  that frame does not exist.** In `IMG_6419` he is still at address at 6.4s,
+  does not begin leaving until ~11.4s, and at 12.1s his shoulder and the club
+  are still in shot; the nearest empty frame is the last ~0.23s. No clip in
+  the library holds an empty frame for two seconds. S8 also comes up 1.7s
+  short because of it. **CH1.S4 says "One winter." over `IMG_5639`, which is
+  deep summer** — full green canopy, between two bare-tree winter beats. Both
+  need either a new line or a new picture, and the script is locked, so only
+  you can reopen it. Two smaller ones I absorbed into the design and you
+  should know about: S10's "about ten seconds after the strike" is really
+  ~7.2s (strike ~3.9s, "No way." at 11.14s) — honest numbers, so nothing may
+  ever say ten; and S3 and S6 both say "from the top", where a window from
+  0.0s contains no swing at all, so both trims moved later by their own
+  duration. The full section-by-section design is in
+  `work/golf-testing/edit_plan.blocked.json`, which now carries four blockers
+  rather than two, and supersedes the 24.4%-VO figure in the entry above (the
+  approved script is 27.8% VO across 46.1s).
+
+- [ ] **The coverage gate can never pass a voice-over-led cut — decide
+  whether to commission the one-line fix.** (added 2026-08-27, found while
+  dry-running `golf-testing`'s design.) `schemas.coverage_notes`,
+  `schemas.gear_change` and `captions.vo_beats_of` all decide "is this a VO
+  beat" with `beat["take_id"].startswith("vo_")`, but `takes.py:312` names
+  every take `T01`, `T02`, … — **so no take id can ever start with `vo_`, and
+  the VO exemption is unreachable.** `validate_edit_plan:479` gets it right by
+  testing the take's FILE instead, which is where the prefix actually lives;
+  the two have drifted apart despite `captions.py`'s docstring promising they
+  cannot. Measured, not reasoned: a dry run of the `golf-testing` design
+  returns `validate_edit_plan` VALID and `coverage_notes` with ten entries —
+  "covers the landing" and "100% covered" on each of its five VO beats, the
+  exact two rules a VO beat is supposed to be exempt from. `jobs.py:1611`
+  fails the coverage job on any entry, so **every VO-led episode is blocked at
+  that gate, not just this short.** It also means `gear_change` will report
+  "no VO beats" on a cut that is all VO, and in landscape the caption pass
+  will treat VO beats as ordinary ones. I did not touch it — changing a
+  validator every project runs through is your call, not a side effect of
+  writing one edit plan.
+
+## Resolve proxy linking — SETTLED, nothing owed (2026-08-27)
+
+**Closed the same day. No action needed; kept as the record.**
+
+Tested on a throwaway project, `CC_hmns_SemiFinal` never opened. The same
+4K timeline rendered twice — once from originals, once with previews
+linked — came out **pixel-identical** (`psnr: inf`, `mse_avg: 0.00`, all
+68 frames). Resolve's free edition does swap back to the original at
+render, so proxy editing is safe.
+
+Shipped: `POST /api/resolve/proxies` links or unlinks; a master render
+refuses while any preview is attached (`preflight_no_proxies`, code
+`proxy_linked`) and names the way out. The guard stays even though the
+swap-back works — a Resolve update could change it, and the failure is
+invisible in the output.
+
+Test project deleted, previews unlinked, your project reopened and
+verified: 237 clips, 0 proxies, 0 leftover PROXYTEST_* projects.
+
+**One thing worth knowing:** your masters had been rendering at 1920x1080
+from 4K source, because the render never pinned its output size and took
+whichever of 24 presets was selected in Resolve's UI. Fixed — the render
+now pins to the timeline's own resolution and measures the result. Full
+write-up in `docs/resolve-findings.md`.

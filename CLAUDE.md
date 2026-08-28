@@ -49,12 +49,19 @@ ProRes 4444 alpha clips** with ffmpeg before they reach the timeline.
 ## The Studio (canonical UI) and the Edit Room (legacy)
 
 **The Ninth Room Studio** (`~/Projects/the-ninth-room-studio`, Next.js) is
-the canonical UI over this pipeline: channel landing page at `/`, and the
-desks — Ideas, Planner, Overlays, Captions, Review — at `/studio` (local,
-`STUDIO=1`). It talks to this repo's engine over HTTP and reads/writes the
-same JSON artifacts the agents use. Read that repo's CLAUDE.md before
-changing any `/api/*` shape here — the Studio's `src/lib/engine.ts` mirrors
-them.
+the canonical UI over this pipeline, at `/studio` (local only, `STUDIO=1`,
+or every route 404s). It talks to this repo's engine over HTTP and
+reads/writes the same JSON artifacts the agents use. Read that repo's
+CLAUDE.md before changing any `/api/*` shape here — the Studio's
+`src/lib/engine.ts` mirrors them.
+
+The desks are twelve surfaces, grouped Production / Tools / Channel, and
+`src/lib/surfaces.ts` is the one list — do not enumerate them here, a
+second copy is how a rail comes to advertise a door a page then bounces.
+Two corrections to what this section used to say (2026-08-27): the
+**channel landing page was deleted** (2026-08-25 — `/` now redirects to
+`/studio`, and the channel's web presence is YouTube), and the desk the
+rail calls **"Shoot plan"** is named Planner only in this file.
 
 The Planner desk writes `work/<slug>/plan.json` (pre-shoot: chapters, shot
 lists, card ideas, ninth-room candidates, derived checklist). The engine
@@ -76,17 +83,29 @@ guess.
 |---|---|
 | `GET /api/health` | `{ok, resolve, disk}` — slug-free, answers about the MACHINE. `resolve` is **three-valued**: `null` means the `pgrep` probe itself failed, which is not "not running", and the Studio offers to launch Resolve off this field |
 | `POST /api/resolve/launch` | wraps `resolve_api.launch_resolve()` |
+| `POST /api/footage/survey` | starts pass 1 — probe, poster, 1080p preview, no whisper. Cheap and safe to re-run: unchanged files are reused |
+| `POST /api/footage/verdict` | `{slug, name, stars?, rejected?}` — triage. A rejected clip is skipped by pass 2 entirely |
+| `POST /api/footage/session` | `{slug, names, label}` — names a stretch of the visit. Empty label clears; the same label on two stretches MERGES them |
+| `POST /api/footage/clear` | everything to `.trash`, and **guarded like the single delete** — refuses `in_the_cut`, `force` takes the plan with it |
 | `POST /api/ingest/retry` | re-probes ONLY `catalog.json["skipped"]`, no transcription. Recovered files leave the skip list and an ingest job is queued; files that fail again are named back |
 | `POST /api/beat/move` | `{slug, beat_ids, chapter_id}` — re-parents beats. Does NOT re-order, reset a verdict, or re-assemble |
 | `POST /api/beat/remove` | `{slug, beat_ids}` — beats to `trash.json` (kind `beat`) carrying their INDEX, so a restore cannot silently re-order the episode. Pre-refuses the hook and the only payoff IN WORDS, because `validate_edit_plan`'s strings reach someone who ticked four rows |
 | `POST /api/project/origin` | flips scripted/documentary. It was written once by `_new_project` and never again |
 
-**Sources are a sidecar.** `work/<slug>/footage_sources.json` maps filename
-→ card label, written by `/api/upload?source=` and by `_link_footage` (the
-linked folder IS the card). Deliberately NOT a catalog field: ingest owns
-the catalog, and threading provenance through it means a migration on
-every project and a new way for ingest to fail. Absent, partial or
-hand-edited all degrade to `unsorted`.
+**Footage ingest is TWO passes as of 2026-08-27** — `survey` then
+`ingest`. A drop auto-starts pass 1 only (`jobs.AUTOINGEST_KIND`); a
+rejected clip is never transcribed. **`docs/footage-ingest.md` is the
+contract** — read it before touching `survey.py`, `ingest.py`, or
+anything under `work/<slug>/footage/`, including the deletion law.
+
+**Sidecars, not catalog fields.** `footage_sources.json` (filename → card
+label), `footage_verdicts.json` (stars / rejected) and
+`footage_sessions.json` (session label) all sit BESIDE the catalog,
+because ingest rebuilds `catalog.json` from scratch and anything
+hand-authored inside it is destroyed by the next run. Threading any of
+them through the catalog means a migration on every project and a new way
+for ingest to fail. Absent, partial or hand-edited all degrade safely —
+an unlabelled file reads `unsorted`, an unrated one reads untriaged.
 
 **`timeline_version.json` counts SUCCESSFUL conforms only** — the number
 names what Resolve is holding, so a conform that executed nothing leaves

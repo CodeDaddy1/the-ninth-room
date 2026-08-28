@@ -118,3 +118,105 @@ track; adding `mediaType = 2` does the same for AUDIO onto an audio track
 `Timeline:DeleteClips({item})` removes a timeline item. recordFrame is
 relative to frame 0 — offset by `Timeline:GetStartFrame()` when the
 timeline starts at 01:00:00:00.
+
+---
+
+## Proxy media — the API EXISTS in the free edition (2026-08-27)
+
+Probed through the bridge against **DaVinci Resolve 21.0.4.5, free
+edition**, on the live `CC_hmns_SemiFinal` project. This document was
+previously silent on proxies, so a proxy workflow was designed around the
+assumption that it might not be reachable at all.
+
+**Verified present, as callable functions on `MediaPoolItem`:**
+
+| Call | Type reported |
+|---|---|
+| `MediaPoolItem:LinkProxyMedia(path)` | `function` |
+| `MediaPoolItem:UnlinkProxyMedia()` | `function` |
+| `MediaPoolItem:ReplaceClip(path)` | `function` |
+
+`GetClipProperty("Proxy Media Path")` reads back empty on every clip, and
+the project-level `ProxyMode` / `ProxyMediaPath` / `ProxyQuality` settings
+all read back empty through `GetSetting` — so the per-clip link, not a
+project setting, is the route that appears to exist here.
+
+**RESOLVED 2026-08-27 — the swap-back works. Proxies are safe.**
+
+Tested on a throwaway project (`PROXYTEST_*`, created and deleted;
+`CC_hmns_SemiFinal` never opened). Three clips — two 4K HEVC DJI, one
+1080p stock — on a 3840x2160 timeline, ~3 seconds, rendered TWICE:
+
+| Render | Media | Result |
+|---|---|---|
+| A | originals | 3840x2160, 15,683,357 b/s, 5,679,380 bytes |
+| B | **previews linked** | 3840x2160, 15,683,357 b/s, 5,679,380 bytes |
+
+`ffmpeg psnr` over the pair: **`mse_avg: 0.00`, `psnr: inf` on all 68
+frames.** The two masters are pixel-identical. The free edition swaps
+back to the original at render even with a proxy attached, which is the
+entire safety of proxy editing and the only thing that was in doubt.
+
+Also confirmed along the way:
+
+- `LinkProxyMedia(path)` returns **true** and the path reads back through
+  `GetClipProperty("Proxy Media Path")` — it is a real implementation,
+  not a stub.
+- `UnlinkProxyMedia()` clears it; the property reads back empty.
+- The timeline object appears in `GetClipList()` alongside the media and
+  correctly refuses to be linked — walk the pool expecting that.
+
+**The preflight stays anyway.** `resolve_api.preflight_no_proxies` refuses
+a master render while any clip carries a proxy, and
+`deliver.render_master` calls it. Proof that the swap-back works today is
+not proof it survives a Resolve update, and the failure it guards for —
+a master silently built from 1080p stand-ins — is invisible in the
+output: a proxy-sourced master would have the right dimensions, the right
+duration and the right loudness. Re-run the two-render comparison above if
+Resolve is upgraded, and delete the guard only if you want to find out the
+hard way.
+
+---
+
+### The original read-only probe, kept for the record
+
+**What was NOT verified at the time, and why it stopped there.** Calling
+`LinkProxyMedia` mutates Caleb's Resolve project, and `.claude/commands/
+fixloop.md` puts "anything touching his footage, his Resolve project, a
+destructive delete" in the Needs-Caleb bucket. The probe above is
+read-only by design. Three things remain unproven:
+
+1. that `LinkProxyMedia` **succeeds** rather than merely existing (a
+   returned `false` is as likely as a `true` on a free-edition stub);
+2. that a linked proxy is actually **used for playback**;
+3. **the one that matters** — that a master render still comes from the
+   ORIGINAL. A proxy-linked pool that silently renders the master from
+   1080p H.264 is a soft deliverable that looks fine until it is on
+   YouTube.
+
+*(All three were demonstrated on 2026-08-27 — see above. Linking ships
+behind `POST /api/resolve/proxies`, an explicit action, never part of
+build, colour, conform or render.)*
+
+---
+
+## Render resolution must be PINNED (2026-08-27)
+
+Found while planning the proxy work, and unrelated to it.
+
+`deliver.render_master` set format, codec, target and frame range and
+**nothing about size**, so the master's resolution came from whichever of
+the 24 render presets happened to be selected in Resolve's UI. Measured at
+the time: 4K source, a 3840x2160 timeline, and three masters on disk at
+**1920x1080** with a fourth at 4K — a dropdown changing between runs.
+Nothing objected: the only resolution check on the live path asked
+`width >= 1920`.
+
+`SetRenderSettings` now carries `FormatWidth`/`FormatHeight` read from the
+timeline itself, and the rendered file is measured against what was
+pinned before it is called a master. Verified by a real render: 4K in, 4K
+out, with the UI preset no longer able to decide.
+
+**Do not remove the pin to "use the project's settings".** That sentence
+was in `render_master`'s docstring and it read like a design decision.
+
