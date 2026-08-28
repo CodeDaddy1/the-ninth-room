@@ -54,8 +54,11 @@ def vo_beats_of(tl_map: "dict") -> "frozenset":
     """Beat ids carried by a voice-over recording. One definition, used
     by every caller — a `vo_` take id is the same marker the coverage
     bar exempts from its ratio and landing rules."""
+    # The map carries `kind`, resolved from the TAKE when it was built.
+    # This used to test `take_id.startswith("vo_")` and could never be
+    # true — ids are T01, T02; the prefix lives on the file (2026-08-28).
     return frozenset(b["id"] for b in (tl_map or {}).get("beats", [])
-                     if str(b.get("take_id", "")).startswith("vo_"))
+                     if b.get("kind") == "vo")
 
 
 import difflib

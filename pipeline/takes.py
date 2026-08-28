@@ -28,6 +28,34 @@ from .ingest import analysis_dir, IngestError, _write_atomic
 # Silence this long ends a take. Longer than a breath (~0.6s), shorter than
 # the deliberate "reset pause" people take between retakes.
 TAKE_SPLIT_GAP_SEC = 1.4
+
+# THE ONE PLACE A PREFIX IS READ (2026-08-28).
+#
+# What a take IS was re-derived from its filename at four sites, and two of
+# them tested `take_id.startswith("vo_")` — which can never be true, because
+# ids are minted "T%02d" below and the prefix lives on `file`. The coverage
+# gate therefore claimed "100% covered" on every VO beat, the exact rule a
+# VO beat is exempt from, and jobs.py failed the job on any entry: VO-led
+# episodes were blocked at a gate whose exemption was unreachable.
+#
+# So kind is derived ONCE, here, where the file is in hand, and stored on
+# the take. `vo` is a teleprompter recording whose picture must never ship;
+# `desk` is a real-camera performance where the face IS the shot and none of
+# the vo exemptions apply. Everything else is speech filmed on the day.
+# See docs/decisions-beat-and-take-kind.md.
+TAKE_KIND_PREFIXES = (("vo_", "vo"), ("desk_", "desk"))
+DEFAULT_TAKE_KIND = "oncamera"
+# For callers that must match FILES on disk rather than takes — the only
+# legitimate reason left to care about a prefix.
+RECORDED_GLOBS = tuple("%s*" % p for p, _ in TAKE_KIND_PREFIXES)
+
+
+def kind_of_file(name: str) -> str:
+    """What a speech file is, from its name. The only prefix read anywhere."""
+    for prefix, kind in TAKE_KIND_PREFIXES:
+        if str(name or "").startswith(prefix):
+            return kind
+    return DEFAULT_TAKE_KIND
 # Takes whose normalized transcripts match at least this much are retakes of
 # the same content.
 GROUP_SIMILARITY = 0.55
@@ -311,6 +339,7 @@ def analyze(slug: str, log=print) -> Path:
             m.update({
                 "id": "T%02d" % (len(takes) + 1),
                 "file": f["name"],
+                "kind": kind_of_file(f["name"]),
                 "s": s,
                 "e": e,
             })

@@ -194,7 +194,43 @@ def why_kind(why: "Any") -> "str | None":
     return word if word in COVER_WHYS else None
 
 
-def coverage_notes(plan: "dict[str, Any]") -> "list[str]":
+# A beat's kind is its TAKE's kind — never re-derived from a filename. A
+# beat with no take is `picture`: pure coverage with no line under it, which
+# is a real shape (Caleb, 2026-08-28). VO may also be recorded in post, so
+# this must be read at the point of use rather than frozen into the plan —
+# a beat becomes `vo` the moment its recording lands and it points at one.
+BEAT_KIND_PICTURE = "picture"
+
+
+def _take_index(takes: "dict | None") -> "dict":
+    """{id: take} from a takes.json payload, or {} when not supplied."""
+    if not takes:
+        return {}
+    rows = takes.get("takes", takes) if isinstance(takes, dict) else takes
+    return {r["id"]: r for r in rows if isinstance(r, dict) and "id" in r}
+
+
+def take_kind(take: "dict | None") -> str:
+    """A take's kind, tolerating takes.json written before the field."""
+    if not take:
+        return BEAT_KIND_PICTURE
+    kind = take.get("kind")
+    if kind:
+        return kind
+    from .takes import kind_of_file          # the one prefix reader
+    return kind_of_file(take.get("file"))
+
+
+def beat_kind(beat: "dict", take_by_id: "dict | None") -> str:
+    """What this beat IS. `picture` when it carries no take."""
+    tid = (beat or {}).get("take_id")
+    if not tid or not take_by_id:
+        return BEAT_KIND_PICTURE
+    return take_kind(take_by_id.get(tid))
+
+
+def coverage_notes(plan: "dict[str, Any]",
+                   takes: "dict | None" = None) -> "list[str]":
     """The b-roll craft rules, checked mechanically (2026-08-24 — the
     crooise cut put five 1.1s postcards over the hook). ADVISORY, not part
     of validate_edit_plan: existing plans must not brick surgery writes.
@@ -218,7 +254,11 @@ def coverage_notes(plan: "dict[str, Any]") -> "list[str]":
             continue
         trim = b.get("trim") or {}
         dur = float(trim.get("e", 0)) - float(trim.get("s", 0))
-        is_vo = str(b.get("take_id", "")).startswith("vo_")
+        # WAS `take_id.startswith("vo_")`, which no take id can satisfy —
+        # ids are minted T01, T02 and the prefix lives on `file`. The
+        # exemption was unreachable, so every VO beat was told it "covers
+        # the landing" and jobs.py failed the job on it (2026-08-28).
+        is_vo = beat_kind(b, _take_index(takes)) == "vo"
         if b.get("peak") and covers:
             notes.append("%s: a peak beat is covered — the face delivers"
                          % b["id"])
@@ -269,7 +309,8 @@ GEAR_VO_REF_S = 1.8        # their VO mean shot, for reference only
 GEAR_SCENE_REF_S = 4.0     # their scene mean shot, for reference only
 
 
-def gear_change(plan: "dict[str, Any]") -> "dict":
+def gear_change(plan: "dict[str, Any]",
+                takes: "dict | None" = None) -> "dict":
     """Mean shot length on VO beats vs scene beats (2026-08-27).
 
     S5 says "a chapter that is one texture end to end is a flat chapter"
@@ -307,6 +348,7 @@ def gear_change(plan: "dict[str, Any]") -> "dict":
     than bad. Set a threshold from the first cut that actually has a VO
     half; until then this reports and gates nothing.
     """
+    _idx = _take_index(takes)
     vo_s = vo_n = scene_s = scene_n = 0.0
     vo_beats = scene_beats = 0
     for b in plan.get("beats", []) or []:
@@ -320,7 +362,11 @@ def gear_change(plan: "dict[str, Any]") -> "dict":
         if dur <= 0:
             continue
         covers = [c for c in (b.get("broll") or []) if isinstance(c, dict)]
-        if str(b.get("take_id", "")).startswith("vo_"):
+        # Same dead branch as the coverage exemption: no take id can
+        # start with `vo_`. The counts above were right only because every
+        # project measured is genuinely all-oncamera — they could never
+        # have changed once a VO-led cut existed (2026-08-28).
+        if beat_kind(b, _idx) == "vo":
             vo_beats += 1
             for c in covers:
                 try:
@@ -487,7 +533,7 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
     # b-roll, and enough of it to cover what the beat keeps.
     for b in plan["beats"]:
         t = take_by_id.get(b.get("take_id"))
-        if not t or not str(t.get("file", "")).startswith("vo_"):
+        if take_kind(t) != "vo":
             continue
         where = "beat %s" % b.get("id")
         if not b.get("broll"):

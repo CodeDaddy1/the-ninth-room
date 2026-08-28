@@ -2854,8 +2854,9 @@ def _project_row(slug: str) -> "dict":
             # desk takes postdate the plan exactly the way vo takes do —
             # a cut written before Caleb performed a line cannot contain it
             fdir = work / "footage"
+            from .takes import RECORDED_GLOBS
             vo_ts = max((f.stat().st_mtime
-                         for pat in ("vo_*", "desk_*")
+                         for pat in RECORDED_GLOBS
                          for f in fdir.glob(pat)), default=0)
             recut = vo_ts > plan_ts
         except OSError:

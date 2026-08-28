@@ -44,6 +44,10 @@ as a teleprompter recording, and its picture is hard-blocked — a vo line
 owes a visual. `desk` is a real-camera performance where the face is the
 shot, so it inherits none of the vo exemptions. `picture` is a beat with no
 speech under it at all.
+
+A take's kind is derived once at ingest and stored. A beat's kind is read
+from whatever it points at **now**, never frozen into the plan — VO may be
+recorded in post, so a beat becomes `vo` the moment its recording lands.
 _Avoid_: type, flag, prefix, voiceover
 
 ### The cut

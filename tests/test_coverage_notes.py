@@ -33,9 +33,17 @@ def cover(clip="B001", at=1.0, dur=2.5, why="illustrate: the thing"):
     return c
 
 
+def takes_where(**id_to_file):
+    """A takes.json payload. Kind is derived from the FILE, which is where
+    the prefix actually lives."""
+    from pipeline.takes import kind_of_file
+    return {"takes": [{"id": i, "file": f, "kind": kind_of_file(f)}
+                      for i, f in id_to_file.items()]}
+
+
 class CoverageNotes(unittest.TestCase):
-    def notes(self, *beats):
-        return schemas.coverage_notes({"beats": list(beats)})
+    def notes(self, *beats, takes=None):
+        return schemas.coverage_notes({"beats": list(beats)}, takes)
 
     def test_a_clean_cover_passes_silently(self):
         self.assertEqual(self.notes(beat(covers=[cover()])), [])
@@ -71,10 +79,37 @@ class CoverageNotes(unittest.TestCase):
         self.assertTrue(any("no why" in x for x in out))
 
     def test_vo_beats_are_exempt_from_ratio_and_landing(self):
-        b = beat(dur=10.0, covers=[cover(at=0.0, dur=9.5)],
-                 take_id="vo_CH1-S2_t1")
-        b["take_id"] = "vo_CH1-S2_t1"
-        self.assertEqual(self.notes(b), [])
+        """A VO beat is a teleprompter recording whose picture must never
+        ship, so it owes near-total coverage and the landing rule cannot
+        apply. Exemption comes from the TAKE's kind."""
+        b = beat(dur=10.0, covers=[cover(at=0.0, dur=9.5)], take_id="T01")
+        self.assertEqual(
+            self.notes(b, takes=takes_where(T01="vo_CH1-S2_r1_t1.mp4")), [])
+
+    def test_the_exemption_needs_the_takes_to_be_reachable(self):
+        """THE REGRESSION. For a year this rule tested
+        `take_id.startswith("vo_")` and no take id can start with `vo_` —
+        they are minted T01, T02 (takes.py:312) and the prefix is on the
+        file. So the exemption never fired: every VO beat was told it
+        "covers the landing" and jobs.py:1611 failed the coverage job on
+        any entry, blocking VO-led episodes at a gate whose exemption was
+        unreachable. Measured on golf-testing: ten notes, all of them on
+        its five VO beats (2026-08-28)."""
+        b = beat(dur=10.0, covers=[cover(at=0.0, dur=9.5)], take_id="T01")
+        self.assertNotEqual(self.notes(b), [],
+                            "without takes there is no kind, so no exemption")
+
+    def test_a_desk_beat_is_not_exempt(self):
+        """The face IS the shot, so the landing still belongs to it."""
+        b = beat(dur=10.0, covers=[cover(at=0.0, dur=9.5)], take_id="T01")
+        out = self.notes(b, takes=takes_where(T01="desk_CH1-S2_r1_t1.mp4"))
+        self.assertNotEqual(out, [])
+
+    def test_a_beat_with_no_take_is_not_exempt(self):
+        """`picture` is pure coverage; it is not voice-over."""
+        b = beat(dur=10.0, covers=[cover(at=0.0, dur=9.5)])
+        b.pop("take_id", None)
+        self.assertNotEqual(self.notes(b, takes=takes_where()), [])
 
 
 if __name__ == "__main__":
@@ -169,8 +204,9 @@ class GearChange(unittest.TestCase):
         """On a VO beat the b-roll IS the picture — the teleprompter take
         can never ship, so the covers are the shots."""
         g = schemas.gear_change({"beats": [
-            beat("BT01", dur=12.0, take_id="vo_CH1-S1_r1_t1",
-                 covers=[cover(dur=2.0), cover(dur=2.0), cover(dur=2.0)])]})
+            beat("BT01", dur=12.0, take_id="T01",
+                 covers=[cover(dur=2.0), cover(dur=2.0), cover(dur=2.0)])]},
+            takes_where(T01="vo_CH1-S1_r1_t1.mp4"))
         self.assertEqual(g["vo_mean_s"], 2.0)
         self.assertEqual(g["vo_beats"], 1)
         self.assertEqual(g["scene_beats"], 0)
@@ -185,16 +221,36 @@ class GearChange(unittest.TestCase):
         """Two textures that have collapsed into one read as ratio ~1.0;
         a real gear change reads high. This is the number to watch."""
         flat = schemas.gear_change({"beats": [
-            beat("BT01", dur=8.0, take_id="vo_CH1-S1_r1_t1",
+            beat("BT01", dur=8.0, take_id="T01",
                  covers=[cover(dur=4.0), cover(dur=4.0)]),
-            beat("BT02", dur=8.0, covers=[cover()])]})
+            beat("BT02", dur=8.0, take_id="T02", covers=[cover()])]},
+            takes_where(T01="vo_CH1-S1_r1_t1.mp4", T02="IMG_1.mov"))
         self.assertAlmostEqual(flat["ratio"], 1.0)
+
+    def test_a_vo_beat_without_takes_is_invisible_to_the_ratio(self):
+        """The fifth dead site, found 2026-08-28 while ratcheting the
+        other four. gear_change tested `take_id.startswith("vo_")` too,
+        so a fully VO-led cut would have reported "no VO beats" and the
+        ratio would have stayed undefined forever."""
+        plan = {"beats": [beat("BT01", dur=8.0, take_id="T01",
+                               covers=[cover(dur=4.0)])]}
+        self.assertEqual(schemas.gear_change(plan)["vo_beats"], 0)
+        self.assertEqual(
+            schemas.gear_change(
+                plan, takes_where(T01="vo_CH1-S1_r1_t1.mp4"))["vo_beats"], 1)
 
     def test_our_own_cuts_have_no_vo_half_at_all(self):
         """Measured 2026-08-27: every existing edit plan predates the
         VO-led format and contains zero `vo_` beats, so the ratio is
         undefined rather than bad. Pinned so the day that changes is
-        visible in a diff rather than in a shrug."""
+        visible in a diff rather than in a shrug.
+
+        Re-checked 2026-08-28 and the conclusion survives, but note how it
+        was reached: the detector it was measured with was dead, so it
+        would have said "zero" whatever the cuts contained. It was right
+        by luck — every take in every project is `oncamera` except
+        oligarchy's two, and oligarchy has no plan. The measurement is
+        only trustworthy from here."""
         g = schemas.gear_change({"beats": [beat("BT01", dur=10.0)]})
         self.assertEqual(g["vo_beats"], 0)
         self.assertEqual(g["ratio"], 0.0)

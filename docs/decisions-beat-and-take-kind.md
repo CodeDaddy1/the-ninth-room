@@ -18,6 +18,7 @@ They do not agree.
 | `captions.vo_beats_of` (`captions.py:58`) | `take_id.startswith("vo_")` | **no** — dead branch |
 | `validate_edit_plan` (`schemas.py:479`) | the take's `file` startswith `vo_` | yes |
 | coverage exemption (`schemas.py:221`) | `take_id.startswith("vo_")` | **no** — dead branch |
+| `gear_change` (`schemas.py:363`) | `take_id.startswith("vo_")` | **no** — dead branch |
 | `recut_suggested` (`editroom.py:2858`) | files matching `vo_*`, `desk_*` | yes |
 
 Take ids are minted `"T%02d" % (len(takes) + 1)` (`takes.py:312`) — `T01`,
@@ -55,8 +56,8 @@ load-bearing data structure.
 - **A beat's kind is its take's kind, or `picture` when it has no take.** A
   beat may legitimately have no take (Caleb, 2026-08-28) — a stretch of pure
   picture with no line under it is a real shape, not an edge case.
-- **Nothing sniffs a prefix at read time again.** All four sites above read
-  the field.
+- **Nothing sniffs a prefix at read time again.** All five sites above read
+  the field, enforced by a ratchet (`tests/test_kind_has_one_home.py`).
 
 ## What this reverses
 
@@ -88,3 +89,33 @@ It was also wrong for an unknown number of episodes.
 - The unreachable branches become reachable. Expect VO-led episodes to
   behave differently at the coverage gate for the first time — that is the
   fix, but it is also the first time those rules will have actually run.
+
+## What the implementation found (2026-08-28)
+
+**There were five sites, not four.** `gear_change` (`schemas.py:363`) was
+dead the same way. Its docstring reasons from the broken measurement — "0 VO
+beats … every cut we have ever made runs ONE texture end to end" — and
+declines to set a threshold because of it. That conclusion happens to be
+true (every take in every project is `oncamera` except oligarchy's two, and
+oligarchy has no plan), but it could never have changed.
+
+**The tests were dead with the code.** Three asserted the exemption worked
+using `take_id="vo_CH1-S1_r1_t1"` — an id that cannot exist, since
+`takes.py:312` mints them `T01`, `T02`. The test and the unreachable branch
+agreed with each other, which is why a year of green suites never surfaced
+it. That is the failure mode to watch for elsewhere: a fixture proving a
+rule with data the system never produces.
+
+**Verified against real takes**, not fixtures. A VO beat covered 95% end to
+end, pointed at oligarchy's real `T01` (`vo_CH1-S1_r1_t1.mp4`): before, two
+notes — "covers the landing" and "95% covered"; after, none. The same beat
+pointed at a filmed take still gets both.
+
+**Not fixed here, and still blocking `golf-testing`:** its beats carry
+`take_id: null`, which `validate_edit_plan` rejects outright — so "a beat
+may have no take" is *forbidden by the schema*, not merely unimplemented.
+Its own `edit_plan.blocked.json` names two further blockers: five unrecorded
+VO sections (clears when Caleb records them), and six natural-sound sections
+whose audio a b-roll cover cannot carry, because covers are emitted as
+picture-only `<video>` elements. The second is a real engine feature, not a
+validation fix.

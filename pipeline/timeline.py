@@ -331,6 +331,9 @@ def plan_beats(slug: str) -> "dict":
 
         beats_out.append({
             "id": b["id"], "purpose": b["purpose"], "take_id": b["take_id"],
+            # resolved HERE, where the take is already in hand, so readers
+            # of the map never touch a filename (2026-08-28)
+            "kind": schemas.take_kind(take),
             "file": take["file"], "transition_in": transition,
             "record_s": grid.snap(beat_rec_start), "record_e": record,
             "segments": seg_out, "broll": broll_out,

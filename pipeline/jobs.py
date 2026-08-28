@@ -1621,7 +1621,7 @@ def _run_coverage(slug, log, set_pct):
     errs = schemas.validate_edit_plan(plan, takes, broll)
     if errs:
         raise RuntimeError("the pass broke the plan: %s" % errs[0])
-    notes = schemas.coverage_notes(plan)
+    notes = schemas.coverage_notes(plan, takes)
     if notes:
         raise RuntimeError("the pass left craft violations: %s (+%d more)"
                            % (notes[0], len(notes) - 1))
@@ -1636,7 +1636,7 @@ def _run_coverage(slug, log, set_pct):
     # S5's gear change, reported and NOT gated (2026-08-27). coverage_notes
     # is required empty by this job, so a threshold in there would fail a
     # real cut on a number nobody has calibrated. Watch it first.
-    g = schemas.gear_change(plan)
+    g = schemas.gear_change(plan, takes)
     if g["vo_beats"]:
         log("[coverage] gear change: VO %.1fs mean shot vs scene %.1fs "
             "(ratio %.2f) -- Yes Theory ran 1.8 / 4.0, ratio 2.22"

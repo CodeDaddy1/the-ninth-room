@@ -112,8 +112,26 @@ class CaptionsFollowTheVoice(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(set(a), {"BT01", "BT03"})
 
-    def test_vo_beats_of_reads_the_same_marker_the_coverage_bar_uses(self):
-        tl = {"beats": [{"id": "BT01", "take_id": "T14"},
-                        {"id": "BT02", "take_id": "vo_ch1_t1"},
-                        {"id": "BT03"}]}
+    def test_vo_beats_of_reads_the_kind_the_map_resolved(self):
+        """The map carries `kind`, resolved from the take when it was
+        built. A beat with no take is `picture` and is not VO."""
+        tl = {"beats": [{"id": "BT01", "take_id": "T14", "kind": "oncamera"},
+                        {"id": "BT02", "take_id": "T15", "kind": "vo"},
+                        {"id": "BT03", "kind": "picture"},
+                        {"id": "BT04", "take_id": "T16", "kind": "desk"}]}
         self.assertEqual(captions.vo_beats_of(tl), frozenset(["BT02"]))
+
+    def test_a_take_id_that_looks_like_a_prefix_is_not_vo(self):
+        """The regression this replaces. For a year this read
+        `take_id.startswith("vo_")`, which no real id can satisfy —
+        takes.py:312 mints them T01, T02 and the prefix lives on the
+        FILE. The old test passed because it invented an id that cannot
+        exist, so the test and the dead branch agreed with each other
+        (2026-08-28)."""
+        tl = {"beats": [{"id": "BT01", "take_id": "vo_ch1_t1"}]}
+        self.assertEqual(captions.vo_beats_of(tl), frozenset())
+
+    def test_a_desk_beat_is_not_vo(self):
+        """His face is the shot; none of the vo exemptions apply."""
+        tl = {"beats": [{"id": "BT01", "take_id": "T1", "kind": "desk"}]}
+        self.assertEqual(captions.vo_beats_of(tl), frozenset())
