@@ -76,6 +76,7 @@ work/<slug>/
   footage_sources.json        filename -> card label      [sidecar]
   footage_verdicts.json       filename -> stars/rejected  [sidecar]
   footage_sessions.json       filename -> session label   [sidecar]
+  footage_trims.json          filename -> {in, out}       [sidecar]
   ingest_progress.json        live heartbeat
 ```
 
@@ -105,8 +106,8 @@ recordings were refused client-side by a server that accepts them.
 
 Ingest **rebuilds `catalog.json` from scratch** on every run. Anything
 written into it by hand is destroyed by the next analysis. That is why
-card labels, b-roll tags, promotions, take verdicts, footage verdicts and
-session labels all live beside it.
+card labels, b-roll tags, promotions, take verdicts, footage verdicts,
+session labels and footage trims all live beside it.
 
 Every sidecar is written under a lock, atomically (`facts._write_atomic`).
 This is not theoretical: 12 concurrent `record_source` calls once kept 2
@@ -116,6 +117,40 @@ Session labels are keyed **per clip**, not per session, for a sharper
 reason: a session is a run of capture times, so dropping one more clip
 into the middle of a shoot can move every boundary. A name keyed to
 "session 3" would drift onto footage it was never about.
+
+### Trims — the usable range inside a clip
+
+`footage_trims.json` is `{"files": {"<basename>": {"in": s, "out": s}}}`,
+in **file-absolute seconds** — the same clock a take's `s`/`e` and a
+cover's `src_s` are in, so nothing downstream converts. **An absent entry
+means the whole clip is usable**, and every reader goes through
+`facts.trim_of(trims, name, duration)` so the untrimmed path is the same
+code path rather than a branch each caller re-implements. `trim_of` is
+total: junk, a non-numeric bound, an `out` past the real duration or an
+`in` past the `out` all degrade to a sane window, never an exception and
+never an empty one.
+
+`POST /api/footage/trim` `{slug, name, in, out}` writes it, `in: null,
+out: null` clears it, and the reply is `{ok, name, trim: {in, out}|null}`.
+`GET /api/footage` carries the whole map as `trims`, beside `verdicts`
+and `session_labels`. The minimum range is **`facts.MIN_TRIM_S` = 0.5s**,
+the same floor the Review desk's beat trim uses (`trim-sheet.ts`
+`MIN_CLIP_S`) — two trim surfaces disagreeing about the smallest legal
+range is how one desk offers a drag the other rejects. A refusal is an
+`IngestError` with a code (`trim_too_short`, `bad_trim`, `no_clip`), so
+the desk gets a 400 it can explain.
+
+**A trim never drops or renumbers a take.** Take ids are positional
+(`"T%02d" % (len(takes) + 1)`, `takes.py`) and `edit_plan.json`
+references them by name, so removing one re-points every later beat at
+different footage — the b-roll id bug of 2026-08-25, again. A take
+outside the window is **marked**; a take straddling the edge is
+**clamped in place**, keeping its id and its position.
+
+A trim also **drops the clip's contact sheet**
+(`analysis/sheets/<name>.sheet.jpg`). Sheets are cached by existence
+alone and sampled across the clip's whole span, so a stale one keeps
+offering frames from the seconds that were just cut away.
 
 ---
 
@@ -163,10 +198,10 @@ Footage deletion is the only irreversible action in the Studio.
    delete leaves an undo entry rather than a plan pointing at a binned file.
 5. `os.replace` into `footage/.trash/`. For a symlink this moves the LINK,
    never the library original. A `*_still.mp4` takes its source photo along.
-6. `facts.forget_source` / `forget_verdicts` / `forget_session_labels` —
-   `_uniquify` only guards names currently present, so re-dropping the same
-   card gives the same filename back, and it must not inherit the label,
-   rating or rejection of a clip it never was.
+6. `facts.forget_source` / `forget_verdicts` / `forget_session_labels` /
+   `forget_trims` — `_uniquify` only guards names currently present, so
+   re-dropping the same card gives the same filename back, and it must not
+   inherit the label, rating, rejection or trim of a clip it never was.
 
 **`_clear_footage(slug, force)`** obeys the same law. It did not until
 2026-08-27: it walked the directory knowing nothing about the cut, so ONE
@@ -229,6 +264,7 @@ and descriptions; `catalog.json` and `takes.json` do not, which is why
 | `test_footage_delete_guard.py` | the deletion law above, single and bulk |
 | `test_survey.py` | pass 1: resumability, one bad clip, posters BEFORE previews, and that the poster seeks into the clip |
 | `test_footage_verdicts.py` | triage, and that pass 2 honours it |
+| `test_footage_trim.py` | the usable range: the 0.5s floor and its code, that clearing pops rather than stores a blank, that `trim_of` never raises and never returns an empty window, and that a delete takes the trim with it |
 | `test_ingest_durability.py` | atomic writes, and the truncated-cache recovery |
 
 Two of these pin something invisible to ordinary assertions. The poster

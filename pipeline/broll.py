@@ -41,6 +41,11 @@ TILE_W, TILE_H = 480, 270  # 16:9 tiles; portrait sources letterbox inside
 # has no id yet, and the filename is the one name that survives both
 # rebuilds. Absent, unreadable and half-written all mean "nothing manual
 # here", which is the same bargain read_sources makes.
+#
+# The Footage desk's TRIMS are the same bargain again, in `facts`'
+# `footage_trims.json` — read here through `takes.trim_window` and carried
+# onto each clip as `trim`. They are not stored in this file only because
+# the Footage desk writes them before a clip is ever catalogued as b-roll.
 
 _MANUAL_LOCK = threading.Lock()
 
@@ -159,16 +164,33 @@ def _prefer_proxy(src: Path) -> Path:
     return real
 
 
-def contact_sheet(src: Path, duration: float, dest: Path, tmp_dir: Path) -> None:
-    """Grab GRID*GRID evenly spaced frames and paste them into one jpg."""
+def contact_sheet(src: Path, duration: float, dest: Path, tmp_dir: Path,
+                  in_s: float = 0.0, out_s: "float | None" = None) -> None:
+    """Grab GRID*GRID evenly spaced frames and paste them into one jpg.
+
+    Sampled across the clip's USABLE window when Caleb has trimmed it on
+    the Footage desk (2026-08-28). The agents choose and tag shots by
+    reading these sheets, so a sheet spread over the whole file offers nine
+    frames of which several are from the walk-up the trim exists to
+    exclude — and a shot chosen there cannot be cut. Defaults sample the
+    whole file, which is what an untrimmed clip is.
+    """
     src = _prefer_proxy(src)
     n = GRID * GRID
+    lo = max(0.0, float(in_s))
+    hi = float(duration if out_s is None else out_s)
+    if not (lo < hi < float("inf")):
+        # a window we cannot sample is not a window; show the whole clip.
+        # `not (...)` rather than `>=` so an unbounded or NaN edge lands
+        # here too, instead of asking ffmpeg to seek to infinity.
+        lo, hi = 0.0, float(duration)
+    span = hi - lo
     tmp_dir.mkdir(parents=True, exist_ok=True)
     frames = []
     for i in range(n):
         # Sample the middle of each of n equal slices: avoids the black/blurry
         # first frame and the tail ramp.
-        t = duration * (i + 0.5) / n
+        t = lo + span * (i + 0.5) / n
         frame = tmp_dir / ("f%02d.jpg" % i)
         proc = subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-ss", "%.3f" % t,
@@ -212,6 +234,13 @@ def catalog_broll(slug: str, log=print) -> Path:
     # would take its B-id with it, and covers reference ids by name.
     manual = read_manual(slug)
     promoted = set(manual["promoted"])
+    # The Footage desk's trims ride a SIDECAR for the same reason the tags
+    # and promotions above do, and NOT the merge-from-previous mechanism
+    # `description` uses: a trim is Caleb's, so it must survive a rebuild
+    # that has never seen it, not merely survive being copied forward from
+    # the last broll.json. Read through takes.py's one door.
+    from .takes import file_trims, trim_window
+    trims = file_trims(slug)
     todo = [f for f in catalog["files"]
             if f.get("kind") == "video" and not f.get("screened_out")
             and (f.get("class") == "broll" or f.get("name") in promoted)]
@@ -259,10 +288,22 @@ def catalog_broll(slug: str, log=print) -> Path:
         else:
             next_n += 1
             cid = "B%03d" % next_n
+        t_in, t_out = trim_window(trims, f["name"], f["duration"])
+        # Recorded only when the window is real and leaves something: a
+        # junk sidecar entry must not be able to fail validation and stop
+        # the analysis (ingest.py:131-143). Absent means the whole clip is
+        # usable, which is what most clips are.
+        trim = ({"in": round(t_in, 3), "out": round(t_out, 3)}
+                if f["name"] in trims and t_in < t_out < float("inf") else None)
         sheet_name = f["name"] + ".sheet.jpg"
         sheet_path = sheets_dir / sheet_name
-        if not sheet_path.exists():  # cached across reruns, like transcriptions
-            contact_sheet(Path(f["path"]), f["duration"], sheet_path, tmp_dir)
+        # cached across reruns, like transcriptions. A trim written on the
+        # desk drops the stale sheet at that moment (editroom
+        # `_set_footage_trim`), so what lands here is sampled across the
+        # window that is current.
+        if not sheet_path.exists():
+            contact_sheet(Path(f["path"]), f["duration"], sheet_path, tmp_dir,
+                          in_s=t_in, out_s=t_out)
         clips.append({
             "id": cid,
             "file": f["name"],
@@ -287,7 +328,19 @@ def catalog_broll(slug: str, log=print) -> Path:
             "promoted": f["name"] in promoted,
             "from_class": f.get("class"),
         })
-        log("[broll] %s %s %.1fs -> %s" % (cid, f["name"], f["duration"], sheet_name))
+        if trim:
+            # BESIDE `duration`, never instead of it. `duration` stays the
+            # length of the media on disk, because it is the source-time
+            # bound `_clamp_cover` and `_validate_spine` measure every
+            # `src_s` against, and every plan ever built states its covers
+            # in that clock. Redefining it would silently reinterpret all
+            # of them. The trim is additive: which part of that clock is
+            # usable.
+            clips[-1]["trim"] = trim
+        log("[broll] %s %s %.1fs%s -> %s"
+            % (cid, f["name"], f["duration"],
+               (" trim %.1f-%.1fs" % (trim["in"], trim["out"])) if trim else "",
+               sheet_name))
 
     if tmp_dir.exists():
         try:

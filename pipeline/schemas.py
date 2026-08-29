@@ -11,6 +11,7 @@ FCPXML writer).
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -128,7 +129,48 @@ def validate_broll(data: "dict[str, Any]") -> "list[str]":
         _req(errors, c, "file", str, where)
         _req(errors, c, "duration", (int, float), where)  # type: ignore[arg-type]
         _req(errors, c, "sheet", str, where)
+        # `trim` is the Footage desk's usable window, carried beside
+        # `duration` and ABSENT for a clip nobody trimmed — which is most
+        # of them. Checked only when present, so every catalog written
+        # before the field existed validates unchanged.
+        if "trim" in c:
+            _validate_trim(errors, c["trim"], where)
     return errors
+
+
+def _validate_trim(errors: "list[str]", trim: "Any", where: str) -> None:
+    """A clip's usable window: `{"in": float, "out": float}`, out after in.
+
+    Both bounds are FILE-ABSOLUTE seconds — the same clock as a take's s/e
+    and a cover's src_s — so a reader never has to know whether a number
+    was measured before or after the trim.
+    """
+    if not isinstance(trim, dict):
+        errors.append("%s: 'trim' should be dict, got %s"
+                      % (where, type(trim).__name__))
+        return
+    for key in ("in", "out"):
+        if not isinstance(trim.get(key), (int, float)) or isinstance(trim.get(key), bool):
+            errors.append("%s: trim '%s' should be a number, got %s"
+                          % (where, key, type(trim.get(key)).__name__))
+            return
+        # NaN and infinity are floats and would pass every test below:
+        # both comparisons against NaN are False, so a NaN window reads as
+        # valid and then makes every later `outside the trim` comparison
+        # False too — the spine check silently degrades to the plain
+        # duration bound and the trim stops meaning anything without
+        # anyone being told (2026-08-28).
+        if not math.isfinite(float(trim[key])):
+            errors.append("%s: trim '%s' is %s — a window needs two real "
+                          "seconds" % (where, key, trim[key]))
+            return
+    if float(trim["out"]) <= float(trim["in"]):
+        errors.append("%s: trim out (%.2f) is not after in (%.2f) — a window "
+                      "with nothing in it is not a trim, it is a deletion"
+                      % (where, float(trim["out"]), float(trim["in"])))
+    if float(trim["in"]) < 0:
+        errors.append("%s: trim in (%.2f) is before the start of the file"
+                      % (where, float(trim["in"])))
 
 
 BEAT_PURPOSES = ("hook", "stakes", "build", "payoff", "button",
@@ -419,7 +461,28 @@ def _validate_spine(errors: "list[str]", spine: "Any", clip_by_id: "dict",
                       % (where, e, s))
     elif clip is not None:
         dur = float(clip.get("duration") or 0.0)
-        if dur and e > dur + 0.001:
+        # A trimmed clip is only usable INSIDE its window. `duration` still
+        # names the whole file on disk — every src_s ever written is in
+        # that clock (broll.py) — so the window is the tighter bound, not a
+        # replacement one, and a clip with no trim is checked exactly as it
+        # was before the field existed.
+        lo = hi = None
+        trim = clip.get("trim")
+        if isinstance(trim, dict):
+            try:
+                lo, hi = float(trim["in"]), float(trim["out"])
+            except (KeyError, TypeError, ValueError):
+                lo = hi = None
+        outside_trim = (lo is not None and hi > lo
+                        and (s < lo - 0.001 or e > hi + 0.001))
+        if outside_trim:
+            errors.append("%s: spine runs %.2f-%.2fs but clip '%s' is trimmed "
+                          "to %.2f-%.2fs — move the window inside the trim, or "
+                          "widen the trim on the Footage desk"
+                          % (where, s, e, cid, lo, hi))
+        # Still checked when the trim passed: a hand-edited window can
+        # claim more than the file holds, and the file is the truth.
+        if not outside_trim and dur and e > dur + 0.001:
             errors.append("%s: spine runs to %.2fs but clip '%s' is %.2fs"
                           % (where, e, cid, dur))
     if "audio" in spine and not isinstance(spine["audio"], bool):

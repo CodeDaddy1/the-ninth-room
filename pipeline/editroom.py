@@ -347,6 +347,7 @@ def _stamp_takes(slug: str) -> "int":
     tk_path = work_path(slug) / "analysis" / "takes.json"
     if not tk_path.exists():
         return 0
+    from . import takes as takes_mod
     doc = json.loads(tk_path.read_text())
     verdicts = _read_take_verdicts(slug)
     n = 0
@@ -355,6 +356,16 @@ def _stamp_takes(slug: str) -> "int":
         if v and v.get("verdict") == "kill":
             t["screened_out"] = True
             t["screen_reason"] = v.get("reason") or "screened out"
+            n += 1
+        elif t.get("screen_reason") == takes_mod.TRIM_SCREEN_REASON:
+            # NOT OURS TO CLEAR (2026-08-28). This function re-applies
+            # Caleb's screening store, and the `else` below exists to
+            # drop a mark whose verdict he has since undone. A footage
+            # trim writes the same field from `takes.analyze`, which
+            # runs one call earlier in the same job — so the else was
+            # erasing every trim mark the moment it was made, and the
+            # whole feature meant nothing after an ingest. A mark this
+            # store did not write is a mark it may not take back.
             n += 1
         else:
             t.pop("screened_out", None)
@@ -579,7 +590,8 @@ def _broll_catalog(slug: str) -> "list":
 
 
 def _clamp_cover(beat_len: float, clip_dur: float, at: float,
-                 duration: float, src_s: float) -> "tuple":
+                 duration: float, src_s: float,
+                 trim: "tuple | None" = None) -> "tuple":
     """PURE. Where a cover may legally sit, given the beat and the clip.
 
     Extracted so attach and adjust cannot drift (2026-08-25). They were
@@ -588,13 +600,33 @@ def _clamp_cover(beat_len: float, clip_dur: float, at: float,
     would disagree about the edges — and the edges are where a cover
     runs off the end of its source and renders black.
 
-    Order matters: `at` is bounded by the beat, `src_s` by the clip, and
-    only then is `duration` bounded by BOTH what remains of the clip
-    after src_s and what remains of the beat after at.
+    Order matters: `at` is bounded by the beat, `src_s` by the CLIP'S
+    USABLE WINDOW, and only then is `duration` bounded by BOTH what
+    remains of that window after src_s and what remains of the beat after
+    at.
+
+    `trim` is that window — `(in_s, out_s)` from `facts.trim_of`, in the
+    same file-absolute seconds `src_s` already speaks (2026-08-28). Absent
+    means the whole clip, and the untrimmed path is then literally
+    `(0, clip_dur)` — the same two lines, not a second branch. Without
+    this a cover placed from a trimmed clip could start in the fumbled
+    tail Caleb had just cut away, which is the one thing the trim was
+    dragged to prevent.
+
+    A window that does not fit inside the file, or is too small to hold
+    the 0.2s minimum cover, is discarded in favour of the whole clip: the
+    file on disk is the truth, and an unusable window must not make the
+    clip unplaceable.
     """
+    lo, hi = 0.0, float(clip_dur)
+    if trim:
+        lo = max(0.0, min(float(trim[0]), float(clip_dur)))
+        hi = max(lo, min(float(trim[1]), float(clip_dur)))
+        if hi - lo < 0.2:
+            lo, hi = 0.0, float(clip_dur)
     at = max(0.0, min(float(at), beat_len - 0.2))
-    src_s = max(0.0, min(float(src_s), clip_dur - 0.2))
-    duration = max(0.2, min(float(duration), clip_dur - src_s, beat_len - at))
+    src_s = max(lo, min(float(src_s), hi - 0.2))
+    duration = max(0.2, min(float(duration), hi - src_s, beat_len - at))
     return round(at, 3), round(duration, 3), round(src_s, 3)
 
 
@@ -653,7 +685,9 @@ def _broll_adjust(slug: str, beat_id: str, clip_id: str,
             beat_len, clip["duration"],
             cur.get("at", 0) if at is None else at,
             cur.get("duration", 0) if duration is None else duration,
-            cur.get("src_s", 0) if src_s is None else src_s)
+            cur.get("src_s", 0) if src_s is None else src_s,
+            trim=facts.trim_of(facts.read_trims(slug), clip["file"],
+                               clip["duration"]))
         cur.update({"at": new_at, "duration": new_dur, "src_s": new_src})
         tmp = ep_path.with_suffix(".ep.tmp")
         tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
@@ -707,8 +741,10 @@ def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
             raise IngestError("beat '%s' not in the timeline" % beat_id)
         beat = beats[beat_id]
         beat_len = beat["record_e"] - beat["record_s"]
-        at, duration, src_s = _clamp_cover(beat_len, clip["duration"],
-                                           at, duration, src_s)
+        at, duration, src_s = _clamp_cover(
+            beat_len, clip["duration"], at, duration, src_s,
+            trim=facts.trim_of(facts.read_trims(slug), clip["file"],
+                               clip["duration"]))
         entry_plan = {"clip_id": clip_id, "at": at,
                       "duration": duration, "src_s": src_s}
         entry_map = {"clip_id": clip_id, "file": clip["file"],
@@ -3551,6 +3587,11 @@ def _footage_state(slug: str) -> "dict":
             "surveyed": surveyed, "previewed": previewed,
             "verdicts": facts.read_verdicts(slug),
             "session_labels": facts.read_session_labels(slug),
+            # the usable range inside each trimmed clip, in the same
+            # file-absolute seconds the tile's own duration is in. Only
+            # trimmed clips appear: an absent entry means the whole clip,
+            # so the desk draws a full-width scrubber without asking.
+            "trims": facts.read_trims(slug),
             # the allowlist, so the desk can name what it accepts without
             # keeping its own copy (it kept one, and it had drifted)
             "formats": {"video": [e[1:] for e in VIDEO_EXT],
@@ -3562,6 +3603,34 @@ def _footage_state(slug: str) -> "dict":
             # had to make do with the job queue's 2/60/75/80/100 ladder.
             "sources": facts.group_sources(items, src_labels, skipped),
             "progress": facts.live_progress(slug)}
+
+
+def _set_footage_trim(slug: str, name: str, in_s=None, out_s=None,
+                      log=print) -> "dict":
+    """Record the usable range inside one clip, and drop its stale sheet.
+
+    2026-08-28. `facts.set_trim` owns the sidecar and the refusals; the
+    only thing this adds is the CACHE INVALIDATION, which cannot live in
+    facts.py because facts.py knows nothing about the analysis directory.
+
+    Contact sheets are cached by existence alone (`if not
+    sheet_path.exists()`, broll.py:264-265) and are sampled evenly across
+    the clip's whole span. So a sheet built before a trim keeps showing
+    frames from the walk-up that was just cut away, and would keep showing
+    them through every future re-analysis — the coverage editor then picks
+    covers off a strip of frames the cut is no longer allowed to use.
+    Deleting it makes the next b-roll pass rebuild it; a missing sheet is
+    the normal state for most clips and must not be an error.
+    """
+    out = facts.set_trim(slug, name, in_s, out_s)
+    sheet = work_path(slug) / "analysis" / "sheets" / (out["name"] + ".sheet.jpg")
+    try:
+        sheet.unlink()
+        log("[footage] %s trimmed — dropped the contact sheet for %s"
+            % (slug, out["name"]))
+    except OSError:
+        pass    # never built, or already gone; both are ordinary
+    return out
 
 
 def _footage_uses(slug: str, name: str) -> "dict":
@@ -3676,6 +3745,10 @@ def _delete_footage(slug: str, name: str, force: bool = False,
     # inherit a rejection belonging to a clip it never was
     facts.forget_verdicts(slug, removed)
     facts.forget_session_labels(slug, removed)
+    # and the trim, for the sharper version of the same hazard: a
+    # re-dropped card gives the same filename back, and it would inherit a
+    # window dragged against footage it never was — see facts.forget_trims
+    facts.forget_trims(slug, removed)
     return {"removed": removed, "detached": detached,
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
@@ -3769,6 +3842,7 @@ def _clear_footage(slug: str, force: bool = False, log=print) -> "dict":
     facts.clear_sources(slug)
     facts.clear_verdicts(slug)
     facts.clear_session_labels(slug)
+    facts.clear_trims(slug)
     return {"removed": moved, "detached": detached, "cut_cleared": cut_cleared,
             "reingest": (work_path(slug) / "analysis" / "catalog.json").exists()}
 
@@ -5966,6 +6040,16 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                         rejected=body.get("rejected"))
                 self._send(200, {"ok": True, "name": body.get("name", ""),
                                  "verdict": out})
+            elif self.path == "/api/footage/trim":
+                # the scrubber's in/out, in file-absolute seconds. Both
+                # null clears the trim and the whole clip is usable again.
+                # A refusal is an IngestError, so it lands as a 400 with a
+                # code the desk can act on rather than a 500.
+                out = _set_footage_trim(self._slug_b(body),
+                                        body.get("name", ""),
+                                        body.get("in"), body.get("out"),
+                                        log=log)
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/footage/session":
                 sslug = self._slug_b(body)
                 out = facts.name_session(sslug, body.get("names") or [],

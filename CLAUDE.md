@@ -126,6 +126,23 @@ mechanical stages (ingest, assemble, re-proxy, conform, master render) run
 as engine JOBS from the Studio's buttons. The agents run in the Claude
 session for the creative stages and read what the desks write:
 
+> **The engine is long-running, so editing `pipeline/` changes nothing
+> until it restarts.** launchd keeps it alive
+> (`~/Library/LaunchAgents/com.ninthroom.engine.plist`, `KeepAlive`), so a
+> process that started this morning is still serving this morning's code
+> however many times the tests pass. Restart it with
+> `launchctl kickstart -k gui/$(id -u)/com.ninthroom.engine`, and check
+> `work/_jobs.json` for a `running` or `queued` job first — a restart
+> mid-ingest loses the run.
+>
+> **What breaks if you forget:** a new `/api/*` route 404s, the Studio
+> surfaces it as a plain save failure, and retrying cannot help because
+> the route genuinely is not there. Measured 2026-08-28: a clip-trim
+> route shipped green on 1103 tests and could not save, because the
+> engine had been up for five hours and forty-six minutes. This is what
+> the standing "load the desk in a browser before reporting done" rule
+> exists to catch — a green suite cannot see a stale process.
+
 - **Story loop**: the Story desk's Pitch button (or "pitch stories for
   <slug>" in a session) → story-designer writes `stories.json` (3
   directions) → Caleb approves/redirects on the Story desk

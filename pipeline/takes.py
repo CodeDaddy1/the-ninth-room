@@ -29,6 +29,21 @@ from .ingest import analysis_dir, IngestError, _write_atomic
 # the deliberate "reset pause" people take between retakes.
 TAKE_SPLIT_GAP_SEC = 1.4
 
+# Why a screened-out take was screened out, when a footage trim is what
+# put it outside. ONE place, because two things read it and they are in
+# different modules: `analyze` writes it, and `editroom._stamp_takes`
+# must know not to erase it.
+#
+# What breaks if this is wrong: `_stamp_takes` runs immediately after
+# `analyze` in `_run_ingest` (jobs.py:335-344) and clears `screened_out`
+# on every take that carries no `kill` verdict. It is re-applying Caleb's
+# screening store, which does not know about trims — so a mark it does
+# not recognise is a mark it destroys, and every trim silently stops
+# meaning anything the moment the analysis it was meant to shape runs.
+# Measured on a real project 2026-08-28: the mark survived `analyze` and
+# was gone one call later.
+TRIM_SCREEN_REASON = "outside the clip's trim"
+
 # THE ONE PLACE A PREFIX IS READ (2026-08-28).
 #
 # What a take IS was re-derived from its filename at four sites, and two of
@@ -67,6 +82,74 @@ RESTART_PATTERNS = (
     "let me try that again", "try that again", "take two", "scratch that",
     "hold on", "one more time", "from the top",
 )
+
+
+# --- the Footage desk's trims, reached through ONE door -------------------
+#
+# Caleb scrubs a clip to its usable range while ranking footage — a bad
+# walk-up, a fumbled tail — and `facts` owns that record
+# (`work/<slug>/footage_trims.json`, `read_trims` / `trim_of`). These two
+# wrappers are the only place the pipeline stages touch it, so takes,
+# b-roll and the timeline cannot drift into three different opinions about
+# what "usable" means.
+#
+# LATE import, swallowing everything, for the reason ingest.py:131-143
+# states about triage verdicts: a sidecar that is absent, unreadable or
+# half-written must never be able to stop an analysis from running. "No
+# trims" is what an untrimmed shoot IS, so it is an honest fallback rather
+# than a guess.
+#
+# What breaks if this is wrong: a take is marked unusable because a JSON
+# file failed to parse, and 375 takes read as outside a trim nobody set.
+
+def file_trims(slug: str) -> "dict":
+    """`{basename: {"in", "out"}}`, or `{}` when nothing has been trimmed."""
+    try:
+        from . import facts
+        return facts.read_trims(slug) or {}
+    except Exception:
+        return {}
+
+
+def trim_window(trims: "dict", name: str, duration) -> "tuple":
+    """One file's usable window `(in, out)`, in file-absolute seconds.
+
+    The arithmetic is `facts.trim_of` — this adds only the swallow and the
+    unknown-length case. `trim_of` answers `(0.0, 0.0)` for a file whose
+    length nothing has probed, and an empty window here would put every
+    take on that file outside the trim; an unbounded one enforces nothing,
+    which is the truth when we do not know how long the file is.
+    """
+    try:
+        d = float(duration)
+    except (TypeError, ValueError):
+        d = 0.0
+    try:
+        from . import facts
+        lo, hi = facts.trim_of(trims, name, d)
+    except Exception:
+        lo, hi = 0.0, d
+    if hi <= lo:
+        return 0.0, float("inf")
+    return float(lo), float(hi)
+
+
+def _word_in(w: "dict", t_in: float, t_out: float) -> bool:
+    """Does this word still play inside `[t_in, t_out]`?
+
+    A word with real length has to OVERLAP the window. A zero-length one
+    is a POINT and has to be contained by it — and that second clause is
+    not a nicety. Whisper stamps clusters of words at 0.000-0.000 on a
+    clip's first frame, and measured on HMNS (2026-08-28) four takes of
+    375 open with one: T90 begins "5" 0.000-0.000, T205 begins with five
+    of them in a row. A plain overlap test drops every one, so an
+    UNTRIMMED episode would silently lose those words from its
+    transcripts, its word counts and its `complete` flag — the trim
+    feature paying for itself with a bug in footage nobody trimmed.
+    """
+    if w["e"] <= w["s"]:
+        return t_in <= w["s"] <= t_out
+    return w["e"] > t_in and w["s"] < t_out
 
 
 def _norm_tokens(text: str) -> "list[str]":
@@ -306,7 +389,15 @@ def take_thumb(path: str, s: float, e: float, dest: Path) -> bool:
 
 
 def analyze(slug: str, log=print) -> Path:
-    """Read catalog.json, write analysis/takes.json."""
+    """Read catalog.json, write analysis/takes.json.
+
+    Respects the Footage desk's trims (2026-08-28) without ever changing
+    which take is which: every run in the word stream becomes a take, in
+    catalog order, whatever the trim says. One outside the usable window is
+    emitted `screened_out`; one that straddles the edge keeps only the
+    words that still play and is clamped to the window. See the comment in
+    the loop for why removing either would be a silent re-point.
+    """
     out = analysis_dir(slug)
     catalog_path = out / "catalog.json"
     if not catalog_path.exists():
@@ -315,14 +406,52 @@ def analyze(slug: str, log=print) -> Path:
     from .ingest import write_progress
     write_progress(slug, stage="takes", done=0, total=1, pct=None, eta_s=None)
 
+    trims = file_trims(slug)
     takes: "list[dict]" = []
     for f in catalog["files"]:
         if f.get("class") != "speech":
             continue
         words = json.loads((out / f["words_file"]).read_text())
+        # This file's usable range.
+        t_in, t_out = trim_window(trims, f["name"], f.get("duration"))
+        if f["name"] not in trims:
+            # Nothing was trimmed here, so the window must bound NOTHING.
+            # `trim_window` answers `(0, duration)`, and `duration` is the
+            # container's length from ffprobe while the words come from
+            # whisper decoding the audio — the two disagree by a frame or
+            # more, and whisper also stamps a trailing word past the end.
+            # Measured 2026-08-28: enforcing `duration` as a window bound
+            # on an UNTRIMMED file truncates the take that straddles the
+            # end (a word lost from its transcript, its n_words and its
+            # `complete`) and marks a wholly-past-the-end take
+            # "outside the clip's trim" — naming a trim that does not
+            # exist, and `schemas` then refuses that take in a plan. An
+            # unbounded window is the truth: no trim, no bound.
+            t_in, t_out = 0.0, float("inf")
         for run in segment_takes(words):
-            s = round(run[0]["s"], 3)
-            e = round(run[-1]["e"], 3)
+            # A TRIM MAY NEVER COST A TAKE ITS PLACE. Ids are positional —
+            # "T%02d" % (len(takes) + 1), assigned in catalog order — and
+            # edit_plan.json references them BY NAME, so dropping one here
+            # renumbers every later take and silently re-points built beats
+            # at different footage. That is the exact hazard the b-roll id
+            # merge exists to prevent (broll.py:218-245). So a run outside
+            # the window is MARKED, and one that straddles the boundary is
+            # CLAMPED in place: same id, same position, either way.
+            kept = [w for w in run if _word_in(w, t_in, t_out)]
+            outside = not kept
+            # An outside take still describes real footage, so it keeps the
+            # run's own words and bounds — it is excluded, not rewritten.
+            src = run if outside else kept
+            s = round(src[0]["s"], 3)
+            e = round(src[-1]["e"], 3)
+            # Clipped means the window actually moved something. Recomputing
+            # `duration` unconditionally would re-round every untrimmed take.
+            clipped = (not outside) and len(kept) != len(run)
+            if not outside:
+                if s < t_in:
+                    s, clipped = round(t_in, 3), True
+                if e > t_out:
+                    e, clipped = round(t_out, 3), True
             if e <= s:
                 # whisper sometimes stamps a word zero-length (seen:
                 # "literally." at 29.98-29.98 on a clip's last frame). A
@@ -331,11 +460,38 @@ def analyze(slug: str, log=print) -> Path:
                 e = round(s + 0.24, 3)
                 if f.get("duration"):
                     e = min(e, round(f["duration"], 3))
+                # ...and to the trim, but only while that still leaves a
+                # take. Letting the window shorten this to nothing would
+                # make the trim the reason a take vanished, and the id
+                # sequence would shift under every built cut.
+                if not outside and s < round(t_out, 3) < e:
+                    e = round(t_out, 3)
                 if e <= s:
-                    log("[takes] SKIP zero-length take at %.2fs in %s"
-                        % (s, f["name"]))
-                    continue
-            m = take_metrics(run)
+                    r_s = round(run[0]["s"], 3)
+                    r_e = round(run[-1]["e"], 3)
+                    if clipped and r_e > r_s and f["name"] in trims:
+                        # The TRIM collapsed this take, not whisper: the
+                        # run has real length and this same analysis drops
+                        # nothing without a trim. Measured 2026-08-28 — a
+                        # run ending on a zero-length stamp at the file's
+                        # own duration, windowed to the tail, reaches here
+                        # with s == e == duration, and the two clamps above
+                        # can only hold e where it is. Dropping it would
+                        # renumber every later take and re-point the built
+                        # cut, which is the one thing this stage may never
+                        # do, so it is MARKED on the run's own bounds
+                        # instead, exactly as a wholly excluded take is.
+                        outside, clipped = True, False
+                        src, s, e = run, r_s, r_e
+                    else:
+                        log("[takes] SKIP zero-length take at %.2fs in %s"
+                            % (s, f["name"]))
+                        continue
+            m = take_metrics(src)
+            if clipped:
+                # take_metrics measures the WORDS; s/e were clamped past
+                # them, and `duration` has to name what actually plays.
+                m["duration"] = round(e - s, 3)
             m.update({
                 "id": "T%02d" % (len(takes) + 1),
                 "file": f["name"],
@@ -343,15 +499,23 @@ def analyze(slug: str, log=print) -> Path:
                 "s": s,
                 "e": e,
             })
+            if outside:
+                # The field the rest of the engine already enforces:
+                # schemas.py:510-514 refuses a screened-out take in a plan
+                # and the Takes desk renders it. A second field would mean
+                # a second thing to teach every reader.
+                m["screened_out"] = True
+                m["screen_reason"] = TRIM_SCREEN_REASON
             vol = span_volume_db(f["path"], m["s"], m["e"])
             if vol is not None:
                 m["mean_volume_db"] = vol
             takes.append(m)
-            log("[takes] %s %s %.1f–%.1fs %dw%s%s%s" % (
+            log("[takes] %s %s %.1f–%.1fs %dw%s%s%s%s" % (
                 m["id"], f["name"], m["s"], m["e"], m["n_words"],
                 " RESTART" if m["restart"] else "",
                 "" if m["complete"] else " INCOMPLETE",
-                (" fillers=%d" % m["fillers"]) if m["fillers"] else ""))
+                (" fillers=%d" % m["fillers"]) if m["fillers"] else "",
+                " OUTSIDE-TRIM" if outside else ""))
 
     if not takes:
         raise IngestError("no speech takes found in catalog", code="no_speech")

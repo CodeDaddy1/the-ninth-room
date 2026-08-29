@@ -31,6 +31,7 @@ exactly what an un-labelled file IS.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import threading
@@ -38,6 +39,7 @@ import time
 from pathlib import Path
 
 from . import ingest as _ingest
+from .ingest import IngestError
 
 
 def work_path(slug: str) -> Path:
@@ -66,6 +68,7 @@ _SOURCES_LOCK = threading.Lock()
 _VERSION_LOCK = threading.Lock()
 _VERDICT_LOCK = threading.Lock()
 _SESSION_LOCK = threading.Lock()
+_TRIM_LOCK = threading.Lock()
 
 
 def _write_atomic(path: Path, data) -> None:
@@ -529,3 +532,229 @@ def clear_session_labels(slug: str) -> None:
             _sessions_path(slug).unlink()
         except OSError:
             pass
+
+
+# --- footage trims --------------------------------------------------------
+#
+# The usable RANGE inside one clip: {"in": seconds, "out": seconds}.
+#
+# Caleb, 2026-08-28: "edit the clip by manually cutting with a scrubber
+# during the footage ranking process." Triage had two verbs, stars and
+# reject, so a clip with a bad walk-up or a fumbled tail was thrown away
+# whole — the good forty seconds in the middle went with the bad four.
+#
+# The times are FILE-ABSOLUTE seconds, the same clock a take's `s`/`e` and
+# a cover's `src_s` are already in. Nothing downstream converts, and a
+# trim can be compared with a take boundary directly. An absent entry
+# means the whole clip is usable, which is exactly what an untrimmed clip
+# IS — so `trim_of` gives the no-trim path the same arithmetic rather than
+# a second branch every caller has to remember.
+#
+# A SIDECAR for the same reason every other one here is: ingest rebuilds
+# `catalog.json` from scratch, so a trim written into it is destroyed by
+# the next analysis — and a trim is the most expensive judgment on the
+# desk to re-make, because it is per-clip and by hand.
+#
+# What breaks if this is wrong: a take is silently DROPPED or renumbered.
+# Take ids are positional — `"T%02d" % (len(takes) + 1)`, takes.py:340,
+# assigned in catalog order — and `edit_plan.json` references them BY
+# NAME, so dropping one take re-points every later beat at different
+# footage. That is the same failure broll.py:218-245 documents for b-roll
+# ids, where it had already happened. A take outside the window is
+# MARKED, never removed; one straddling the edge is CLAMPED in place,
+# keeping its id and its position.
+
+# Under half a second of usable range is a mis-drag, not an edit. The
+# Review desk's beat trim has refused this floor since it shipped (the
+# Studio's `src/lib/trim-sheet.ts` MIN_CLIP_S = 0.5, "under half a second
+# is a flash frame"), and two trim surfaces disagreeing about the
+# smallest legal range is how one desk offers a drag the other rejects.
+MIN_TRIM_S = 0.5
+
+
+def _trims_path(slug: str) -> Path:
+    return work_path(slug) / "footage_trims.json"
+
+
+def read_trims(slug: str) -> "dict":
+    """filename -> {"in": float, "out": float}. Absent or unreadable both
+    mean the same thing to a caller: nothing has been trimmed."""
+    p = _trims_path(slug)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text())
+    except (ValueError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    files = data.get("files")
+    return files if isinstance(files, dict) else {}
+
+
+def set_trim(slug: str, name: str, in_s=None, out_s=None) -> "dict":
+    """Mark the usable range inside one clip. `in_s=None` or `out_s=None`
+    CLEARS it.
+
+    Returns ONE shape, always: `{"name": basename, "trim": {...} | None}`.
+    `trim` is the nullable half because "no trim" is a real answer here and
+    a zeroed window is not — `{"in": 0, "out": 0}` would read as a clip
+    with nothing usable in it, which is the one thing a cleared trim does
+    not mean. The route forwards this dict verbatim, so the wire shape and
+    the Python shape cannot drift.
+
+    Locked and atomic for the measured reason `record_source` is: a
+    scrubbing pass fires these as fast as the desk can drag, and a
+    read-modify-write without a lock loses most of them (12 concurrent
+    `record_source` calls once kept 2 of 12).
+
+    A refusal is an `IngestError` with a stable `code`, so the desk gets a
+    400 it can explain rather than a 500. `set_verdict` raises a bare
+    `ValueError` here and becomes a 500 with `ValueError:` in the message —
+    a wart, not a pattern to copy.
+    """
+    name = os.path.basename(name or "")
+    if not name:
+        raise IngestError(
+            "no clip named — a trim belongs to a file, send its name",
+            code="no_clip")
+    # A clear is not a write of a blank. An absent entry already means the
+    # whole clip is usable, and storing 0/0 would make a cleared trim read
+    # as an empty clip to every reader — the same rule verdicts follow when
+    # both stars and rejection go away.
+    if in_s is None or out_s is None:
+        with _TRIM_LOCK:
+            files = read_trims(slug)
+            if name in files:
+                files.pop(name, None)
+                _write_atomic(_trims_path(slug), {"files": files})
+        return {"name": name, "trim": None}
+    try:
+        start, end = float(in_s), float(out_s)
+        # `math.isfinite` is not a nicety: NaN and Infinity both survive
+        # `float()` AND `json.loads`, and NaN compares false against every
+        # bound — so it would pass the floor check below and then poison
+        # every clamp that reads the sidecar.
+        numeric = math.isfinite(start) and math.isfinite(end)
+    except (TypeError, ValueError):
+        numeric = False
+    if not numeric:
+        raise IngestError(
+            "a trim is two numbers of seconds, got in=%r out=%r — send the "
+            "scrubber's positions" % (in_s, out_s), code="bad_trim")
+    # Milliseconds, like `_clamp_cover` and every take boundary. A trim is
+    # dragged with a mouse; anything past a millisecond is noise that makes
+    # the sidecar unreadable and two equal drags compare unequal.
+    start = round(max(0.0, start), 3)
+    end = round(end, 3)
+    # ROUND THE SPAN, NOT JUST THE BOUNDS (2026-08-28). The desk enforces
+    # the same floor before it offers the button, and it measures the
+    # rounded span — so comparing the raw float here split the two on
+    # float representation alone: 721 of 20,001 millisecond in-points
+    # over one real clip enabled a control the engine then refused with a
+    # 400. A limit the screen and the engine disagree about is a limit
+    # that reads as a bug.
+    if round(end - start, 3) < MIN_TRIM_S:
+        raise IngestError(
+            "that leaves %.2fs of clip — under %.1fs is a mis-drag, not an "
+            "edit. Drag wider, or clear the trim to keep the whole clip."
+            % (max(0.0, end - start), MIN_TRIM_S), code="trim_too_short")
+    with _TRIM_LOCK:
+        files = read_trims(slug)
+        files[name] = {"in": start, "out": end}
+        _write_atomic(_trims_path(slug), {"files": files})
+    return {"name": name, "trim": {"in": start, "out": end}}
+
+
+def forget_trims(slug: str, names) -> None:
+    """Drop trims for files that are gone.
+
+    Same hazard `forget_verdicts` closes, and sharper: `_uniquify` only
+    guards names CURRENTLY present, so deleting a clip and re-dropping the
+    card gives the same filename back — and the new file would inherit a
+    window dragged against footage it never was. A stale trim is worse
+    than a stale rating: a rating changes what gets analyzed, a window
+    changes which seconds of a clip the cut is allowed to use.
+    """
+    if isinstance(names, str):
+        names = [names]
+    names = [os.path.basename(n) for n in (names or []) if n]
+    if not names:
+        return
+    with _TRIM_LOCK:
+        files = read_trims(slug)
+        if not any(n in files for n in names):
+            return
+        for n in names:
+            files.pop(n, None)
+        _write_atomic(_trims_path(slug), {"files": files})
+
+
+def clear_trims(slug: str) -> None:
+    """The shelf is empty, so there is nothing left to have trimmed."""
+    with _TRIM_LOCK:
+        try:
+            _trims_path(slug).unlink()
+        except OSError:
+            pass
+
+
+def trim_of(trims: "dict", name: str, duration) -> "tuple":
+    """PURE. One file's usable window, resolved against its real duration.
+
+    `(in_s, out_s)`, file-absolute seconds. No entry returns
+    `(0.0, duration)` — the whole clip — so every downstream site calls
+    this and the no-trim path is the SAME code path. A caller that
+    branched on `if name in trims` would have two implementations of
+    "usable range" and only one of them would get fixed.
+
+    TOTAL by design: it is called from the assemble path and from take
+    marking, where raising is not an option a caller can recover from.
+    An unknown name, a junk entry, a non-numeric bound, an `out` past the
+    real end of the file, an `in` past the `out` — every one of them
+    degrades to a sane window rather than an exception. The file on disk
+    is the truth; the sidecar is a note about it.
+
+    The window is clamped to [0, duration]. When clamping would collapse
+    it — a hand-edited entry, or a file replaced by a shorter one under
+    the same name — the answer is the whole clip, never an empty window:
+    an empty window would put every take outside the trim, and marking
+    all of them is the failure this whole feature must not cause.
+    """
+    try:
+        dur = float(duration)
+    except (TypeError, ValueError):
+        dur = 0.0
+    if not (math.isfinite(dur) and dur > 0):
+        # 0.0 is what `_footage_state` reports for a clip nothing has
+        # probed yet. There is no length to clamp against, so a stored
+        # window is passed through as-is rather than clamped to nothing.
+        dur = 0.0
+    whole = (0.0, dur)
+    if not isinstance(trims, dict):
+        return whole
+    entry = trims.get(os.path.basename(name or ""))
+    if not isinstance(entry, dict):
+        return whole
+    try:
+        start, end = float(entry.get("in")), float(entry.get("out"))
+    except (TypeError, ValueError):
+        return whole
+    if not (math.isfinite(start) and math.isfinite(end)):
+        return whole
+    start = max(0.0, start)
+    end = max(0.0, end)
+    if dur:
+        start, end = min(start, dur), min(end, dur)
+    # ROUND FIRST, then test. Rounding after the test is how an empty
+    # window gets out of here: a legal stored trim of `in` 59.9 / `out`
+    # 60.4 against a file that probes at 59.9004s clamps to
+    # (59.9, 59.9004) — which passes `end > start` — and only then rounds
+    # to (59.9, 59.9). Measured 2026-08-28, reachable with no hand-editing
+    # at all: it is the "file replaced by a shorter one" case this
+    # docstring already promises to degrade, whenever the new length lands
+    # inside a millisecond of the in point.
+    start, end = round(start, 3), round(end, 3)
+    if end <= start:
+        return whole
+    return start, end

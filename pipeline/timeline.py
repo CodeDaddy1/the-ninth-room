@@ -192,6 +192,20 @@ def plan_beats(slug: str) -> "dict":
     file_by_name = {f["name"]: f for f in catalog["files"]}
     broll_by_id = {c["id"]: c for c in broll_cat["clips"]}
 
+    # The Footage desk's trims (2026-08-28). EVERY source-time bound below
+    # is measured against the clip's usable window rather than against the
+    # whole file: a trim exists because the walk-up or the tail is
+    # unusable, so a clamp that still read `duration` would put a tail pad,
+    # a dissolve handle or a cover's in-point squarely in the footage Caleb
+    # cut away — the one place the cut must never reach.
+    #
+    # Read from the SIDECAR, not from broll.json's `trim`, so a trim set
+    # after the last catalog run takes effect on the next assemble. The
+    # catalogued copy is what the schema and the agents read; this is what
+    # the frames obey.
+    from .takes import file_trims, trim_window
+    trims = file_trims(slug)
+
     speech_fps = [f.get("fps") for f in catalog["files"]
                   if f.get("class") == "speech" and f.get("fps")]
     fps = speech_fps[0] if speech_fps else 30.0
@@ -251,20 +265,40 @@ def plan_beats(slug: str) -> "dict":
             take = None
             clip = broll_by_id[spine["clip_id"]]
             f = file_by_name[clip["file"]]
-            src_s = max(0.0, float(spine.get("src_s", 0.0)))
-            src_e = min(float(f["duration"]), float(spine["src_e"]))
+            t_in, t_out = trim_window(trims, f["name"], f["duration"])
+            src_s = max(t_in, float(spine.get("src_s", 0.0)))
+            src_e = min(t_out, float(spine["src_e"]))
             segments = [(src_s, src_e)] if src_e > src_s else []
             if not segments:
-                raise IngestError(
-                    "beat %s: spine window %.2f-%.2f is empty against %s"
-                    % (b["id"], src_s, src_e, clip["file"]))
+                why = ("beat %s: spine window %.2f-%.2f is empty against %s"
+                       % (b["id"], src_s, src_e, clip["file"]))
+                if f["name"] in trims:
+                    why += (" — its trim keeps only %.2f-%.2fs; widen the trim "
+                            "on the Footage desk or move the beat's window "
+                            "inside it" % (t_in, t_out))
+                raise IngestError(why)
         else:
             take = take_by_id[b["take_id"]]
             f = file_by_name[take["file"]]
+            t_in, t_out = trim_window(trims, f["name"], f["duration"])
             trim = b.get("trim") or {"s": take["s"], "e": take["e"]}
             snap_s, snap_e = snap_to_words(f, trim["s"], trim["e"])
-            span_s = max(0.0, snap_s - HEAD_PAD_SEC)
-            span_e = min(f["duration"], snap_e + TAIL_PAD_SEC)
+            # Both pads clamp to the TRIM, not to the file: a head pad
+            # reaching before `in` plays the fumble the trim removed, and a
+            # tail pad past `out` plays the one at the other end.
+            span_s = max(t_in, snap_s - HEAD_PAD_SEC)
+            span_e = min(t_out, snap_e + TAIL_PAD_SEC)
+            if span_e <= span_s and f["name"] in trims:
+                # Only a trim can empty this window — `validate_edit_plan`
+                # already refuses a beat whose trim is not s < e. Say so
+                # rather than emitting a beat with no segments, which reads
+                # downstream as a beat that was simply never built.
+                raise IngestError(
+                    "beat %s: take %s runs %.2f-%.2fs but %s is trimmed to "
+                    "%.2f-%.2fs — nothing of the beat is left to play; widen "
+                    "the trim on the Footage desk or pick another take"
+                    % (b["id"], b["take_id"], trim["s"], trim["e"],
+                       f["name"], t_in, t_out))
             segments = cut_dead_space(span_s, span_e, f.get("silence", []),
                                       hard_cuts=b.get("cuts"),
                                       words=file_words(f),
@@ -277,8 +311,16 @@ def plan_beats(slug: str) -> "dict":
             # sides of the cut. Degrade to a hard cut when handles are short.
             prev = beats_out[-1]
             prev_file = file_by_name[prev["file"]]
-            prev_tail = prev_file["duration"] - prev["segments"][-1]["src_e"]
-            head = segments[0][0]
+            # A handle is media the dissolve may reach INTO, so it is
+            # measured against the usable window at both ends. A trim-out
+            # shortens the outgoing tail and a trim-in shortens the
+            # incoming head; measured against `duration` the dissolve would
+            # be granted a handle made of the frames the trim excluded, and
+            # a second of them would be mixed into the cut.
+            _p_in, p_out = trim_window(trims, prev_file["name"],
+                                       prev_file["duration"])
+            prev_tail = p_out - prev["segments"][-1]["src_e"]
+            head = segments[0][0] - t_in
             if prev_tail < DISSOLVE_SEC / 2 or head < DISSOLVE_SEC / 2:
                 transition = "cut"
 
@@ -332,18 +374,31 @@ def plan_beats(slug: str) -> "dict":
         broll_out = []
         for br in b.get("broll", []):
             clip = broll_by_id[br["clip_id"]]
+            c_in, c_out = trim_window(trims, clip["file"], clip["duration"])
+            if c_out == float("inf"):
+                # `trim_window` answers "no bound" for a clip nothing has
+                # probed. The catalog's own number is the only bound there
+                # is, and it is what this line used before trims existed —
+                # an unbounded in-point would reach `grid.snap(inf)`.
+                c_out = float(clip["duration"] or 0.0)
+            usable = max(0.0, c_out - c_in)
             at = grid.snap(beat_rec_start + br["at"])
-            dur = grid.snap(min(br["duration"], clip["duration"], record - at))
+            dur = grid.snap(min(br["duration"], usable, record - at))
             if dur <= 0 or at >= record:
                 continue
             # honor a desk-set in-point (the P3 trim strip writes src_s);
-            # otherwise sample from 10% in — DJI clips often start with a ramp
+            # otherwise sample from 10% in — DJI clips often start with a
+            # ramp. Under a trim that 10% is 10% INTO THE USABLE WINDOW:
+            # measured from the head of the file it would land in the
+            # walk-up the trim was drawn to exclude, which is the one place
+            # an auto-chosen cover must not start. The last legal in-point
+            # is likewise `out - dur`, not `duration - dur`.
+            last_start = max(c_in, c_out - dur)
             if br.get("src_s") is not None:
-                src_off = grid.snap(min(float(br["src_s"]),
-                                        max(0.0, clip["duration"] - dur)))
+                src_off = grid.snap(min(max(c_in, float(br["src_s"])),
+                                        last_start))
             else:
-                src_off = grid.snap(min(clip["duration"] * 0.1,
-                                        max(0.0, clip["duration"] - dur)))
+                src_off = grid.snap(min(c_in + usable * 0.1, last_start))
             broll_out.append({"clip_id": br["clip_id"], "file": clip["file"],
                               "record_s": at, "duration": dur, "src_s": src_off})
 
@@ -409,6 +464,12 @@ def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
     w, h = CANVAS[tl_map["orientation"]]
     file_by_name = {f["name"]: f
                     for f in json.loads((analysis_dir(slug) / "catalog.json").read_text())["files"]}
+    # Only the split edits below read this: every other window in the XML
+    # was already resolved against the trim by `plan_beats`. A J/L-cut is
+    # the exception because its source range is derived HERE, from the
+    # neighbour beat's segments, and never passed through that clamp.
+    from .takes import file_trims, trim_window
+    trims = file_trims(slug)
 
     registry: "dict[str, str]" = {}
     asset_lines = []
@@ -417,6 +478,15 @@ def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
         known = name in registry
         aid = _asset_id(name, registry)
         if not known:
+            # `duration` here is DELIBERATELY the whole media on disk, never
+            # the Footage desk's trim. An <asset> describes the file, and
+            # every clip's `start=` is an offset into that file's own clock;
+            # declaring the trimmed length would put each in-point past the
+            # asset's declared end. Resolve rejects such a file whole —
+            # import returns nil with no error (docs/resolve-findings.md),
+            # which is the worst failure shape there is. A trim narrows what
+            # the cut may USE, and that is enforced in `plan_beats` where
+            # the windows are chosen, not here where the media is declared.
             asset_lines.append(
                 '<asset id="%s" name=%s start="0/1s" duration="%s" hasVideo="1"%s format="r1">'
                 '<media-rep kind="original-media" src=%s /></asset>'
@@ -476,8 +546,16 @@ def write_fcpxml(slug: str, tl_map: "dict", cards: "list[dict]",
         f = file_by_name[beat["file"]]
         if not f.get("has_audio", False):
             return _skip(beat, kind, "%s has no audio" % f["name"])
-        if src_start < 0 or src_start + dur > f["duration"]:
-            return _skip(beat, kind, "reaches outside the take")
+        # Bounded by the usable window, which is the whole file when nothing
+        # was trimmed. A J-cut's audio runs BEFORE its own picture, so on a
+        # take that starts at the trim's in-point the lead is exactly the
+        # excluded seconds — the fumbled walk-up, played under the outgoing
+        # shot. Skipped, not clamped, for the reason above: a shortened
+        # split edit is a different edit, and the editor asked for this one.
+        _t_in, _t_out = trim_window(trims, f["name"], f["duration"])
+        if src_start < _t_in or src_start + dur > _t_out:
+            return _skip(beat, kind, "reaches outside the %s"
+                         % ("clip's trim" if f["name"] in trims else "take"))
         child_off = host["src_s"] + (rec_start - host["record_s"])
         if child_off < 0:
             return _skip(beat, kind, "would need a negative offset")

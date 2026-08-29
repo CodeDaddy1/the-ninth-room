@@ -588,3 +588,226 @@ from 4K source, because the render never pinned its output size and took
 whichever of 24 presets was selected in Resolve's UI. Fixed — the render
 now pins to the timeline's own resolution and measures the result. Full
 write-up in `docs/resolve-findings.md`.
+
+---
+
+## `oligarchy`'s narration dial is wrong on disk (2026-08-28)
+
+`work/oligarchy/story_brief.json` holds `"vo_share": 0.6`. For a
+script-led Short the engine's own default is **0.85**
+(`schemas.VO_SHARE_DEFAULT[("script","short")]`), and the 0.6 is not a
+choice you made — it is damage. The old Story brief form never sent
+`vo_share`, and `_save_story_brief` defaults what the caller omits, so
+every save of that brief overwrote the dial with 0.60.
+
+The form now sends it and the Story desk shows it, so it will not drift
+again. What it cannot do is know what you meant: `script_notes` fails a
+draft whose VO share is more than 10% off this number, so a documentary
+short briefed at 0.6 is being told to put 40% of a 45-second film on
+camera it does not have.
+
+**Your call:** open `/studio/story/oligarchy`, press edit on the brief,
+and set Narrated to 85 (or whatever you actually want). One click, and
+it only matters before the next `script` run.
+
+Same question, quietly, for any other project created before today: the
+value on disk is only trustworthy if the brief was never saved from the
+Studio.
+
+## The re-cut question is spec'd and waiting (2026-08-28)
+
+`the-ninth-room-studio/docs/p10-beat-identity-spec.md`. Short version: a
+built cut cannot be rebuilt today, and the reason is that beat ids are
+free-form strings the `editplan` agent invents on each run — no
+derivation, and the one id space in `schemas.py` with no uniqueness
+check. A second run would land ~76 of hmns's 82 ids on a *different*
+take, and `review.json` (your note history), `graphics_plan.json`,
+`sfx_cues.json`, 81 baked captions and 82 proxies all key on that string.
+
+Nothing is broken today. It only bites the day you want to re-cut, and
+the spec says what it would take. Read it when you want to decide; there
+is nothing to do until then.
+
+## The hmns script needs the Narrated dial moved (2026-08-28)
+
+Your Q8 = c answer took the two `desk` sections out of
+`work/houston-museum-of-natural-science/script.json` — the hook and the
+confession, 54 seconds of written performance — and made them
+voice-over. That is a good call for the shoot and a bad one for the dial:
+`story_brief.json` still says `vo_share` 0.20, and `script_notes` fails
+any draft more than 10 points off it.
+
+Round 2 passes at 29.0% only because I put two more quoted takes on
+screen and compressed eight narration lines to get there. One point of
+margin is left. The next narrated sentence anyone writes breaks the bar.
+
+**Your call:** open `/studio/story/houston-museum-of-natural-science`,
+press edit on the brief, and set Narrated to 30. It is Q14 in
+`script_questions.json` with the alternatives, if you would rather cut
+narration than move the number.
+
+Second thing, same script, from Q9 = b: T112 now says on camera that the
+tomb was built for a queen, and `research.json` has nothing behind it.
+You said that blocks the lock. It is Q15 on the desk.
+
+## Two coverage decisions the sourcer cannot make (2026-08-28)
+
+Six rounds are waiting on the Assets desk for
+`houston-museum-of-natural-science`. Two of them carry a decision that is
+yours, not the sourcer's.
+
+**1. The falling peg does not exist to buy.** CH3.S9 promises "it knocks
+them over by itself" and that is the episode's payoff. I searched Pexels,
+Pixabay and Wikimedia Commons: every free-licensed image of a Foucault
+pendulum shows the ring with the pegs STANDING. Nobody has published a
+reusable shot of one going over. The five candidates on that round are
+all rings at rest. If the peg has to be seen falling, that is a return
+trip to the Grand Hall with a camera — the pendulum is in the building
+and takes just over seven seconds a swing.
+
+**2. Approving the HMNS pendulum photo breaks CH3.S12.** Candidate 5 on
+the CH3.S8 round is a Commons photo of *our* pendulum, in the Grand Hall,
+CC BY-SA 4.0. It is the best-matching picture in the whole set. But
+CH3.S12 says "everything you just watched swing was somebody else's
+pendulum" — approve that candidate and the line stops being true and
+needs a rewrite on the Script desk. Every other candidate on that round
+is somebody else's pendulum and leaves the line alone.
+
+## The edit plan is written and cannot be conformed yet (2026-08-28)
+
+`work/houston-museum-of-natural-science/edit_plan.json` is written and
+valid — 56 beats, all 40 script sections, 9m18s. It is a **picture edit
+with silence where the narration goes**, because there are no `vo_*` files
+in `footage/` and all 351 takes are `oncamera`.
+
+**Twelve VO takes are yours to record** — one per VO section, at the names
+the Script desk expects:
+
+    vo_CH1-S2_r2   vo_CH1-S6_r1   vo_CH1-S10_r2  vo_CH1-S13_r2
+    vo_CH2-S2_r2   vo_CH2-S6_r2   vo_CH3-S5_r2   vo_CH3-S8_r1
+    vo_CH3-S9_r1   vo_CH3-S10_r2  vo_CH3-S11_r2  vo_CH3-S12_r2
+
+CH3.S13 needs none — it is a deliberate 14-second wordless hold.
+
+Until those land, each VO section sits in the plan as picture beats
+carrying `spine` and `vo_pending`. When a recording ingests, its beats
+take the take id and a trim; the shot choices stand.
+
+Related, already on this list: the narrated share lands at **31%**, not the
+brief's 20% (Q14), and the six sourcing rounds above are still unapproved —
+so CH1.S10, CH1.S13, CH2.S6 and CH3.S8–S10 are covered from our own footage
+and the plan's `why` lines say plainly what they do not claim to be.
+
+## The storytelling overhaul — what needs your hands (2026-08-28)
+
+The plan is approved and Phase 1 is built. These are the points where the
+work stops and waits for you. Nothing here is urgent today; the order is
+the order the phases need them.
+
+- [ ] **The taste sign-off sitting (~30 minutes).** `brand/taste.md` holds 30
+  statements mined from your own review verdicts, and its header bars every
+  agent from citing any of them until you sign. Until that happens the craft
+  rules get written from the film studies alone and your recorded taste stays
+  locked out. The cards are prepared: read
+  `docs/taste-signoff-cards.md` — one card per statement, in plain words,
+  with its evidence and its catch. Answer keep / reject; "revise" only if you
+  want different wording. Two need a real decision rather than a reflex:
+  **T15** (eleven of the fourteen engagement card types died in your review)
+  against `brand/engagement-playbook.md`, which still tells the
+  graphics-director a card every 60–90 seconds is the whole retention
+  strategy — and the confound is that the dead cards were only ever tried
+  carrying placeholder text; and **T30**, whose source files were deleted
+  with the crooise project and survive only in a job log.
+
+- [ ] **Review the cut-bar calibration** (~10 minutes, before any gate goes
+  live). Run `/usr/bin/python3 scripts/cut_report.py` in the engine repo. It
+  grades every cut on disk against the new assembly bar. hmns comes back with
+  24 findings and they are the four things you named: 78% of the episode is
+  undifferentiated "build", the hook carries 2 covers instead of a chapter
+  preview, no chapter declares a pace, and nothing is marked as a protected
+  peak. Say whether any threshold is too strict before it starts failing
+  jobs — every one is a single constant at the top of `pipeline/cutbar.py`.
+
+- [ ] **Keep your own copy of `work/hmns/`** before the beat-id migration
+  runs. It is the only shipped episode and its `review.json` is the evidence
+  behind taste.md. The migration backs itself up and hardlinks the caption
+  bakes rather than renaming them, so the shipped Resolve timeline stays
+  linked — but a second copy costs you one command and removes the question.
+
+- [ ] **The hmns benchmark re-screen** — the point of all of it. Once the
+  re-cut job exists, hmns gets rebuilt under the new rules and you screen it
+  against the version you shipped, clip by clip, same footage, old brain vs
+  new brain. Your verdicts on the unchanged shots carry over, so you only
+  judge what actually changed.
+
+- [ ] **Drop 2–3 film-study links** on the new Film Studies desk once it
+  exists (`/studio/studies`). Videos whose editing you admire. Each one gets
+  broken down shot by shot and every finding lands as a row in the adoption
+  ledger, so nothing agreed can quietly go unwired again — which is what
+  happened to four findings already on the shelf.
+
+## Two things the taste sign-off left open (2026-08-28)
+
+The sitting is done — `brand/taste.md` is signed, 15 kept, 11 rejected, 4
+revised, and every statement carries a dated verdict line. Agents may now
+cite the kept and revised ones and nothing else. Two answers need a second
+pass from you.
+
+- [ ] **The landing rule — you asked to see it before deciding.** You kept
+  T28 (a beat should end on a chosen outgoing image) and rejected T10 (the
+  face delivers). Both point away from the BT94 decision, where you chose
+  the "last fifth belongs to the face" gate and refused an escape hatch.
+  Judge it at the hmns benchmark re-screen with both versions in front of
+  you. Until then the gate stands as written and nothing cites T28.
+  Recorded in `docs/decisions-cut-bar-calibration.md`.
+
+- [ ] **You asked for a tool, not a taste rule, and it is not built.** Your
+  answers to T2 and T5 asked to trim a clip with a scrubber during footage
+  ranking, and to mute a clip so it becomes B-roll. Neither exists: today
+  trimming only happens after the cut is built (a ±2s nudge on the Review
+  desk), and there is no mute anywhere. Half of the second half already
+  works under another name — promoting a take to the b-roll catalog makes it
+  a cover, and covers carry no audio on the timeline. Say whether you want
+  clip-range trimming added to the Footage desk; it is real new scope and it
+  changes the review plan, because your reason for rejecting T5 was that
+  trimming would stop you having to delete whole beats.
+
+## Clip trimming is built and owes you a browser pass (2026-08-28)
+
+You asked for it after the taste sign-off: trim a clip to its usable range
+with a scrubber during footage ranking, so a clip with a bad walk-up or a
+fumbled tail stops being all-or-nothing. It is built end to end — sidecar,
+route, and the trimmer inside the Screener where the clip plays big.
+
+- [x] ~~Engine restarted 2026-08-28 so the route exists at all~~ — the
+  first attempt failed with "Range could not be saved" because the engine
+  had been running for 5h46m and was serving code from before the feature.
+  The route 404'd, which is why retrying could not help. Now documented in
+  CLAUDE.md: editing `pipeline/` changes nothing until the service
+  restarts.
+
+- [ ] **Open the Footage desk against a real project and use it.** A green
+  test suite is not a working feature and this repo's own rule says so.
+  Press `s` to screen, then `i` to set the in point at the playhead, `o` for
+  the out, `[` and `]` to nudge a frame, `\` to reset, then commit. Check
+  the range survives a reload, then run an analysis and confirm the takes
+  outside the range come back marked rather than missing.
+
+Two things worth knowing about how it behaves:
+
+**A trim never deletes a take.** Take ids are positional, so dropping one
+would renumber every later take and silently re-point your built cuts at
+different footage — the same class of bug the b-roll ids already suffered
+once. So a take outside the range is marked unusable and keeps its id, and a
+take straddling the edge is clipped in place with its transcript re-derived
+from the words that survive.
+
+**Trimming a clip an existing cut already uses is safe but loud.** The plan
+validator will name any beat whose take the trim just put out of bounds
+rather than letting it ship. Trim during ranking, before the cut, and the
+question never comes up.
+
+Still not built, and you may not need it: the "mute a clip so it becomes
+B-roll" half of your T2 answer. Promoting a take to the b-roll catalog
+already gets you most of it, because covers carry no audio on the timeline.
+Say the word if you want an explicit mute anyway.
