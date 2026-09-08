@@ -61,12 +61,16 @@ ID_SCHEME = "anchor-v1"
 # spellings of one identity is the disease this module exists to cure.
 ID_RE = re.compile(r"^B-(T\d+|B\d+)(?:-([1-9]\d*))?$")
 
-# A beat proxy is `<beat id>.<12-hex spec hash>.mp4` (proxy.py). BOTH id
-# eras have to match at once: a migration renames the beats but the
-# proxies are re-rendered afterwards, and every reader in between would
-# otherwise see an empty directory. There is no moment when only one
-# pattern is correct, which is why this is a tuple and not a switch.
-PROXY_GLOBS = ("BT*.mp4", "B-*.mp4")
+# A beat proxy is `<beat id>.<12-hex spec hash>.mp4` (proxy.py). EVERY id
+# era has to match at once: a migration renames the beats but the proxies
+# are re-rendered afterwards, and every reader in between would otherwise
+# see an empty directory. There is no moment when only one pattern is
+# correct, which is why this is a tuple and not a switch — and a scheme
+# change ADDS an entry rather than replacing one, because the era it
+# replaces is still lying on disk until the re-render finishes. Three
+# eras exist today: the hand-written `BT` ids, anchor-v1's `B-`, and the
+# readable `shot-` spelling that replaced it.
+PROXY_GLOBS = ("BT*.mp4", "B-*.mp4", "shot-*.mp4")
 
 # Where an edit plan names its OWN beats outside `beats[].id`. Measured
 # across every plan on disk (2026-09-08): `fun` is the only one, the

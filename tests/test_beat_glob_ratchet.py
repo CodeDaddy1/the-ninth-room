@@ -31,8 +31,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pipeline import beat_identity as bi  # noqa: E402
 
 PIPELINE = Path(__file__).resolve().parent.parent / "pipeline"
-# a glob on a literal beat-id prefix, however it is quoted
-HAND_ROLLED = re.compile(r"""glob\(\s*['"]BT""")
+# A glob on a literal beat-id prefix, however it is quoted, in ANY id
+# era. The first version of this pattern knew only `BT`, so the day the
+# ids became `B-T362` a fresh hand-rolled copy would have walked
+# straight past it — the ratchet would have been guarding the one
+# spelling that no longer existed.
+HAND_ROLLED = re.compile(r"""glob\(\s*['"](?:BT|B-|shot-)""")
 
 
 class OneHomeForTheProxyGlob(unittest.TestCase):
@@ -53,12 +57,19 @@ class OneHomeForTheProxyGlob(unittest.TestCase):
         matches the exact line the seven sites used to carry."""
         self.assertTrue(HAND_ROLLED.search('for p in pdir.glob("BT*.mp4"):'))
         self.assertTrue(HAND_ROLLED.search("sorted(d.glob('BT*.mp4'))"))
+        # and the two spellings that came after it
+        self.assertTrue(HAND_ROLLED.search('for p in pdir.glob("B-*.mp4"):'))
+        self.assertTrue(HAND_ROLLED.search('sorted(d.glob("shot-*.mp4"))'))
+        # not every glob in the pipeline — a pattern that flags
+        # `glob("*.mp4")` would be turned off within a day
+        self.assertIsNone(HAND_ROLLED.search('deliver.glob("*.mp4")'))
 
 
-class BothIdErasAreFound(unittest.TestCase):
+class EveryIdEraIsFound(unittest.TestCase):
     """There is no moment when only one spelling is correct: a migration
     renames the beats and the proxies are re-rendered afterwards, so
-    every reader in between sees a mixed directory."""
+    every reader in between sees a mixed directory. Three eras can be on
+    disk at once — `BT`, anchor-v1's `B-`, and shot-v1's `shot-`."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -67,10 +78,20 @@ class BothIdErasAreFound(unittest.TestCase):
         for n in names:
             (self.tmp / n).write_bytes(b"x")
 
-    def test_legacy_and_anchor_names_both_come_back(self):
+    def test_every_era_comes_back(self):
         self._touch("BT01.abc123def456.mp4", "B-T362.abc123def456.mp4",
-                    "B-T04-2.abc123def456.mp4")
-        self.assertEqual(len(bi.beat_proxies(self.tmp)), 3)
+                    "B-T04-2.abc123def456.mp4", "shot-T362.abc123def456.mp4",
+                    "shot-T04-2.abc123def456.mp4")
+        self.assertEqual(len(bi.beat_proxies(self.tmp)), 5)
+
+    def test_the_current_scheme_is_one_of_the_patterns(self):
+        """The glob list is written by hand and the spelling lives in
+        `format_id`. Renaming the scheme and forgetting this tuple is
+        the silent-empty-desk failure, so tie them together."""
+        import fnmatch
+        name = bi.format_id("T362") + ".abc123def456.mp4"
+        self.assertTrue(any(fnmatch.fnmatch(name, pat)
+                            for pat in bi.PROXY_GLOBS), name)
 
     def test_a_mixed_directory_is_not_deduped_away(self):
         """The two patterns must not both match one file and drop it."""
@@ -95,12 +116,74 @@ class BothIdErasAreFound(unittest.TestCase):
         self.assertEqual(bi.beat_of_proxy("BT01.abc123.mp4"), "BT01")
         self.assertEqual(bi.beat_of_proxy("B-T362.abc123.mp4"), "B-T362")
         self.assertEqual(bi.beat_of_proxy("B-T04-2.abc123.mp4"), "B-T04-2")
+        self.assertEqual(bi.beat_of_proxy("shot-T362.abc123.mp4"),
+                         "shot-T362")
+        self.assertEqual(bi.beat_of_proxy("shot-T04-2.abc123.mp4"),
+                         "shot-T04-2")
 
     def test_beat_of_proxy_takes_a_path_or_a_name(self):
         self._touch("B-T99.abc.mp4")
         p = bi.beat_proxies(self.tmp)[0]
         self.assertEqual(bi.beat_of_proxy(p), "B-T99")
         self.assertEqual(bi.beat_of_proxy(p.name), "B-T99")
+
+
+class AnIdIsSafeEverywhereItLands(unittest.TestCase):
+    """The other half of the glob problem, and the one a pattern in this
+    file cannot see.
+
+    Eight sites interpolate a beat id straight into an UNESCAPED glob:
+    `proxy.py:356`, `editroom.py:1634/2404/2407/5286/5289` and
+    `qc_frames.py:128/158`. It also becomes a directory name
+    (`produce.py:122`, `captions/tmp/<id>`), an FCPXML `src` attribute
+    that is XML-escaped but not URI-escaped, a segment of the proxy URL
+    the browser fetches, and a Lua string over the Resolve bridge, which
+    REFUSES rather than escapes (`conform.py:35-43`).
+
+    So none of those sites needs to change when the scheme does — as
+    long as the id stays inside the union of what all of them accept.
+    That union is `[A-Za-z0-9_-]`, no leading `-` or `_`, and no dot
+    anywhere, because `beat_of_proxy` splits the filename on the first
+    one. `#` was rejected for the same reason at the spec stage: it is
+    the URL fragment separator, and the engine serves proxies over HTTP.
+
+    This is the test that would have caught the original `T341#2`
+    spelling, and it is what lets the next scheme change be a constant
+    rather than an audit.
+    """
+
+    SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+    def _ids(self):
+        return [bi.format_id("T1"), bi.format_id("T362"),
+                bi.format_id("T362", 2), bi.format_id("B015"),
+                bi.format_id("B015", 17)]
+
+    def test_the_spelling_is_inside_the_union(self):
+        for bid in self._ids():
+            self.assertRegex(bid, self.SAFE)
+            self.assertNotIn(".", bid)
+
+    def test_the_id_is_a_glob_literal_not_a_pattern(self):
+        """`glob(bid + ".*.mp4")` is only a lookup while the id has no
+        metacharacter in it. One `*` or `[` and it silently matches the
+        wrong beats, or none."""
+        import glob as globmod
+        for bid in self._ids():
+            self.assertEqual(globmod.escape(bid), bid)
+
+    def test_the_resolve_bridge_accepts_it(self):
+        """The bridge cannot escape a quote or a backslash, so it raises
+        on one. An id it refuses would take conform offline for the
+        whole project, not just that beat."""
+        from pipeline import conform
+        for bid in self._ids():
+            self.assertEqual(conform._lua_safe(bid), bid)
+
+    def test_it_survives_a_round_trip_through_a_proxy_name(self):
+        for bid in self._ids():
+            self.assertEqual(bi.beat_of_proxy("%s.abc123def456.mp4" % bid),
+                             bid)
 
 
 class ARenameIsNotAReRender(unittest.TestCase):
