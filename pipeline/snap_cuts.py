@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 
 from .ingest import work_path, analysis_dir
@@ -61,7 +60,13 @@ def quietest_near(path: str, t: float) -> "tuple":
 def snap(slug: str, log=print) -> int:
     work = work_path(slug)
     plan_path = work / "edit_plan.json"
-    shutil.copyfile(plan_path, work / "edit_plan_presnap.json")
+    # ONE slot became a history. The old line copied to a fixed
+    # `edit_plan_presnap.json`, so a second snap overwrote the backup
+    # taken before the first — the only run you could undo was the most
+    # recent one. Nothing ever read that file, so re-pointing it costs
+    # no reader; hmns's copy from 2026-08-24 stays on disk untouched.
+    from . import plan_history
+    plan_history.archive(slug, reason="presnap")
     plan = json.loads(plan_path.read_text())
     takes = {t["id"]: t for t in json.loads(
         (analysis_dir(slug) / "takes.json").read_text())["takes"]}
