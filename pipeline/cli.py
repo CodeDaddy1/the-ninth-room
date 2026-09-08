@@ -153,10 +153,12 @@ def cmd_migrate_beat_ids(args) -> int:
     if not args.apply:
         print("  DRY RUN — nothing was written. Re-run with --apply.\n")
         return 0
-    migrate_ids.apply(args.slug)
+    report = migrate_ids.apply(args.slug)
+    # The backup directory is per hop — `_premigration`, then
+    # `_premigration.v2` — so it is read off the run, never assumed.
     print("\n  applied. Backups in %s/, the map in %s, the report in %s.\n"
-          % (migrate_ids.BACKUP_DIRNAME, migrate_ids.MAP_FILE,
-             migrate_ids.REPORT_FILE))
+          % (report.get("backup_dir") or migrate_ids.BACKUP_DIRNAME,
+             migrate_ids.MAP_FILE, migrate_ids.REPORT_FILE))
     return 0
 
 

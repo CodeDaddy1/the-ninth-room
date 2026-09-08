@@ -69,14 +69,14 @@ class TheAnchorRule(unittest.TestCase):
 class ParseAndFormat(unittest.TestCase):
 
     def test_round_trip(self):
-        self.assertEqual(bi.parse_id("B-T362"), ("T362", 1))
-        self.assertEqual(bi.parse_id("B-T92-2"), ("T92", 2))
-        self.assertEqual(bi.parse_id("B-B024"), ("B024", 1))
-        self.assertEqual(bi.format_id("T362"), "B-T362")
-        self.assertEqual(bi.format_id("T92", 5), "B-T92-5")
+        self.assertEqual(bi.parse_id("shot-T362"), ("T362", 1))
+        self.assertEqual(bi.parse_id("shot-T92-2"), ("T92", 2))
+        self.assertEqual(bi.parse_id("shot-B024"), ("B024", 1))
+        self.assertEqual(bi.format_id("T362"), "shot-T362")
+        self.assertEqual(bi.format_id("T92", 5), "shot-T92-5")
 
     def test_legacy_ids_do_not_parse(self):
-        """BT\\d+ and B-\\w are disjoint, so a mixed state is
+        """BT\\d+ and shot-\\w are disjoint, so a mixed state is
         detectable rather than plausible."""
         self.assertIsNone(bi.parse_id("BT06"))
         self.assertIsNone(bi.parse_id("BT103"))
@@ -84,9 +84,9 @@ class ParseAndFormat(unittest.TestCase):
     def test_one_identity_has_one_spelling(self):
         """A spelled-out -1 or a leading zero would be a second name
         for a beat that already has one."""
-        self.assertIsNone(bi.parse_id("B-T92-1"))
-        self.assertIsNone(bi.parse_id("B-T92-02"))
-        self.assertIsNone(bi.parse_id("B-t92"))
+        self.assertIsNone(bi.parse_id("shot-T92-1"))
+        self.assertIsNone(bi.parse_id("shot-T92-02"))
+        self.assertIsNone(bi.parse_id("shot-t92"))
         self.assertIsNone(bi.parse_id(None))
 
     def test_format_refuses_what_parse_would_refuse(self):
@@ -104,8 +104,8 @@ class Derivation(unittest.TestCase):
                  take_beat("BT70", "T04"))
         out = bi.derive_ids(p)
         self.assertEqual([b["id"] for b in out["beats"]],
-                         ["B-T362", "B-B024", "B-T04"])
-        self.assertEqual(out["id_scheme"], "anchor-v1")
+                         ["shot-T362", "shot-B024", "shot-T04"])
+        self.assertEqual(out["id_scheme"], "shot-v1")
 
     def test_occurrence_counts_repeats(self):
         """hmns repeats 11 take ids across beats — T92 five times — so
@@ -116,7 +116,7 @@ class Derivation(unittest.TestCase):
                  take_beat("BT04", "T92", 9, 12))
         out = bi.derive_ids(p)
         self.assertEqual([b["id"] for b in out["beats"]],
-                         ["B-T92", "B-T45", "B-T92-2", "B-T92-3"])
+                         ["shot-T92", "shot-T45", "shot-T92-2", "shot-T92-3"])
 
     def test_derive_never_mutates_its_argument(self):
         p = plan(take_beat("BT01", "T362"), spine_beat("BT02", "B024"))
@@ -137,19 +137,19 @@ class Derivation(unittest.TestCase):
 class Minting(unittest.TestCase):
 
     def test_a_removal_does_not_renumber_the_survivors(self):
-        """B-T92-2 removed, then a new T92 beat minted: the mint fills
-        the hole and B-T92-3 stays exactly where it is. Safe because
+        """shot-T92-2 removed, then a new T92 beat minted: the mint fills
+        the hole and shot-T92-3 stays exactly where it is. Safe because
         the hole and its filler name the SAME shot."""
-        existing = ["B-T92", "B-T92-3", "B-T45"]
-        self.assertEqual(bi.mint_id("T92", existing), "B-T92-2")
-        self.assertIn("B-T92-3", existing)
+        existing = ["shot-T92", "shot-T92-3", "shot-T45"]
+        self.assertEqual(bi.mint_id("T92", existing), "shot-T92-2")
+        self.assertIn("shot-T92-3", existing)
 
     def test_first_of_an_anchor_is_bare(self):
-        self.assertEqual(bi.mint_id("T341", ["B-T92", "B-T92-2"]),
-                         "B-T341")
+        self.assertEqual(bi.mint_id("T341", ["shot-T92", "shot-T92-2"]),
+                         "shot-T341")
 
     def test_legacy_ids_cannot_collide(self):
-        self.assertEqual(bi.mint_id("T06", ["BT06", "BT70"]), "B-T06")
+        self.assertEqual(bi.mint_id("T06", ["BT06", "BT70"]), "shot-T06")
 
 
 class TheInvariant(unittest.TestCase):
@@ -175,7 +175,7 @@ class TheInvariant(unittest.TestCase):
         p = self.conforming()
         p["beats"][0]["take_id"] = "T04"
         errs = bi.id_errors(p)
-        self.assertTrue(any("B-T362" in e and "T04" in e for e in errs),
+        self.assertTrue(any("shot-T362" in e and "T04" in e for e in errs),
                         errs)
 
     def test_a_legacy_survivor_in_a_marked_plan_is_caught(self):
@@ -186,15 +186,15 @@ class TheInvariant(unittest.TestCase):
 
     def test_two_beats_cannot_share_a_name(self):
         p = self.conforming()
-        p["beats"][2]["id"] = "B-T362"
+        p["beats"][2]["id"] = "shot-T362"
         errs = bi.id_errors(p)
         self.assertTrue(any("duplicate id" in e for e in errs), errs)
 
     def test_occurrence_gaps_are_legal(self):
-        """B-T362-3 without B-T362-2 is the trace of a removal —
+        """shot-T362-3 without shot-T362-2 is the trace of a removal —
         renumbering survivors is the disease, not the cure."""
         p = self.conforming()
-        p["beats"][2]["id"] = "B-T362-3"
+        p["beats"][2]["id"] = "shot-T362-3"
         self.assertEqual(bi.id_errors(p), [])
 
 
@@ -210,9 +210,9 @@ class MappingAcrossARegeneration(unittest.TestCase):
                                  take_beat("x", "T45")))
         m = bi.id_map(old, new)
         self.assertEqual(m["map"],
-                         {"BT01": "B-T362", "BT70": "B-T92"})
+                         {"BT01": "shot-T362", "BT70": "shot-T92"})
         self.assertEqual(m["unmatched_old"], ["BT08"])
-        self.assertEqual(m["unmatched_new"], ["B-T45"])
+        self.assertEqual(m["unmatched_new"], ["shot-T45"])
 
     def test_occurrence_matches_positionally_on_both_sides(self):
         """The Nth beat showing a shot matches the Nth showing it —
@@ -223,7 +223,7 @@ class MappingAcrossARegeneration(unittest.TestCase):
                                  take_beat("x", "T92")))
         m = bi.id_map(old, new)
         self.assertEqual(m["map"],
-                         {"BT01": "B-T92", "BT02": "B-T92-2"})
+                         {"BT01": "shot-T92", "BT02": "shot-T92-2"})
 
 
 class JunkTolerance(unittest.TestCase):
@@ -280,19 +280,19 @@ class CarryingTheReview(unittest.TestCase):
 
     def test_same_shot_same_cut_carries_unchanged(self):
         out = self.carry()
-        self.assertEqual(out["carried"]["B-T362"],
+        self.assertEqual(out["carried"]["shot-T362"],
                          self.review["BT01"])
-        self.assertNotIn("B-T362", out["requeued"])
+        self.assertNotIn("shot-T362", out["requeued"])
 
     def test_same_shot_moved_cut_keeps_the_note_and_requeues(self):
         """Mirrors _reset_review on a swap: the verdict is about a cut
         nobody has watched, but deleting the reviewer's words destroyed
         irrecoverable text (gate F11)."""
         out = self.carry()
-        entry = out["carried"]["B-T92"]
+        entry = out["carried"]["shot-T92"]
         self.assertNotIn("status", entry)
         self.assertEqual(entry["note"], "hold the door shot longer")
-        self.assertEqual(out["requeued"], ["B-T92"])
+        self.assertEqual(out["requeued"], ["shot-T92"])
 
     def test_a_gone_beat_strands_by_name_with_its_text(self):
         """hmns already carries 14 ghost entries against 82 live beats;
@@ -306,12 +306,12 @@ class CarryingTheReview(unittest.TestCase):
     def test_a_trim_inside_the_eps_is_the_same_cut(self):
         self.new["beats"][0]["trim"]["e"] = 10.63 + 0.04  # under 0.05
         out = self.carry()
-        self.assertEqual(out["carried"]["B-T362"]["status"], "approved")
+        self.assertEqual(out["carried"]["shot-T362"]["status"], "approved")
 
     def test_carry_is_pure(self):
         before = copy.deepcopy(self.review)
         out = self.carry()
-        out["carried"]["B-T92"]["note"] = "scribbled on"
+        out["carried"]["shot-T92"]["note"] = "scribbled on"
         self.assertEqual(self.review, before)
 
 

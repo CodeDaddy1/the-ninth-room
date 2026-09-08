@@ -39,6 +39,10 @@ from .ingest import work_path
 
 DIRNAME = "plan_history"
 MANIFEST = "manifest.json"
+# Where a verdict goes when its beat stops existing. Lives here rather
+# than in either writer because BOTH strand entries — a re-cut and a
+# beat-id migration — and each one used to write the whole file.
+REVIEW_ARCHIVE = "review_archive.json"
 
 # Why a version was archived. `promote` is the runner replacing a cut it
 # just validated; `recut` is the same seam with history to carry;
@@ -137,6 +141,52 @@ def archive(slug: str, reason: str, note: str = "") -> "dict | None":
         rows.append(row)
         _write_atomic(_manifest_path(slug), {"slug": slug, "versions": rows})
         return row
+
+
+def archive_review(slug: str, why: str, entries) -> "dict":
+    """Park review entries that have no beat left. APPEND, never replace.
+
+    Two seams strand verdicts — a re-cut (`promote`) and the beat-id
+    migration — and both wrote this file whole. The second one to run
+    therefore deleted the first one's record: hmns carries 14 ghosts
+    from some earlier surgery, and they hold Caleb's own notes on beats
+    that no longer exist. A file whose job is "nothing is dropped" must
+    not be the thing that drops it.
+
+    Same entry twice is not appended twice, so a re-run is quiet rather
+    than doubling. `rounds` records which run stranded what; a file
+    written before this function existed is folded in as round one.
+
+    Returns the document it wrote, or the existing one when there is
+    nothing to add.
+    """
+    path = work_path(slug) / REVIEW_ARCHIVE
+    doc = None
+    if path.exists():
+        try:
+            doc = json.loads(path.read_text())
+        except (OSError, ValueError):
+            doc = None          # unreadable: keep it, do not overwrite it
+        if doc is not None and not isinstance(doc, dict):
+            doc = None
+        if doc is None and path.exists():
+            raise RuntimeError(
+                "%s exists and cannot be read — refusing to overwrite "
+                "archived verdicts" % path)
+    prev = list((doc or {}).get("entries") or [])
+    fresh = [e for e in (entries or []) if e not in prev]
+    if not fresh:
+        return doc or {}
+    rounds = list((doc or {}).get("rounds") or [])
+    if prev and not rounds:
+        rounds = [{"why": (doc or {}).get("why") or "",
+                   "ids": [e.get("id") for e in prev if isinstance(e, dict)]}]
+    rounds.append({"why": why,
+                   "ids": [e.get("id") for e in fresh if isinstance(e, dict)]})
+    out = {"slug": slug, "why": why, "entries": prev + fresh,
+           "rounds": rounds}
+    _write_atomic(path, out)
+    return out
 
 
 def _write_atomic(path: Path, data) -> None:

@@ -43,7 +43,7 @@ from . import beat_identity, cutbar, plan_history, schemas
 STAGE_DIRNAME = "staging"
 PLAN_NAME = "edit_plan.json"
 RECUT_REPORT = "recut_report.json"
-REVIEW_ARCHIVE = "review_archive.json"
+REVIEW_ARCHIVE = plan_history.REVIEW_ARCHIVE   # one home, two writers
 
 # THE CRAFT BAR IS NOT ARMED YET, and this constant is the whole switch.
 #
@@ -182,9 +182,12 @@ def promote_cut(slug: str, reason: str, note: str = "",
                                              carry_from, plan)
         _write(work_path(slug) / "review.json", carried["carried"])
         if carried["stranded"]:
-            _write(work_path(slug) / REVIEW_ARCHIVE,
-                   {"slug": slug, "why": "re-cut: %s" % (note or reason),
-                    "entries": carried["stranded"]})
+            # APPEND. This wrote the whole file until 2026-09-08, and so
+            # did the beat-id migration, so whichever ran second deleted
+            # the other's record — including hmns's 14 ghosts, which
+            # carry Caleb's notes on beats that no longer exist.
+            plan_history.archive_review(
+                slug, "re-cut: %s" % (note or reason), carried["stranded"])
         report["carried"] = sorted(carried["carried"])
         report["requeued"] = carried["requeued"]
         report["stranded"] = [s["id"] for s in carried["stranded"]]

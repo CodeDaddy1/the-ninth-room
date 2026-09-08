@@ -146,9 +146,9 @@ class VerdictsFollowTheShot(unittest.TestCase):
         promote.promote_cut("ep", reason="promote", log=lambda *a: None)
         self.before = json.loads((self.tmp / "edit_plan.json").read_text())
         (self.tmp / "review.json").write_text(json.dumps({
-            "B-T04": {"status": "approved", "note": "the hook lands"},
-            "B-T12": {"status": "approved", "note": "keep"},
-            "B-T30": {"status": "flagged", "note": "fix the tail"}}))
+            "shot-T04": {"status": "approved", "note": "the hook lands"},
+            "shot-T12": {"status": "approved", "note": "keep"},
+            "shot-T30": {"status": "flagged", "note": "fix the tail"}}))
 
     def tearDown(self):
         promote.BAR_ARMED = self._armed
@@ -171,8 +171,8 @@ class VerdictsFollowTheShot(unittest.TestCase):
         r = self.recut([_beat("a", "T04", 0.0, 8.0, "hook"),
                         _beat("b", "T12", 0.0, 9.0),
                         _beat("c", "T30", 0.0, 9.0, "payoff")])
-        self.assertIn("B-T12", r["carried"])
-        self.assertEqual(self.review()["B-T12"],
+        self.assertIn("shot-T12", r["carried"])
+        self.assertEqual(self.review()["shot-T12"],
                          {"status": "approved", "note": "keep"})
 
     def test_a_recut_beat_comes_back_to_the_queue_keeping_its_note(self):
@@ -181,23 +181,43 @@ class VerdictsFollowTheShot(unittest.TestCase):
         r = self.recut([_beat("a", "T04", 0.0, 8.0, "hook"),
                         _beat("b", "T12", 0.0, 6.5),      # trim moved
                         _beat("c", "T30", 0.0, 9.0, "payoff")])
-        self.assertIn("B-T12", r["requeued"])
-        self.assertEqual(self.review()["B-T12"], {"note": "keep"})
+        self.assertIn("shot-T12", r["requeued"])
+        self.assertEqual(self.review()["shot-T12"], {"note": "keep"})
 
     def test_a_dropped_beat_is_archived_by_name_never_silently(self):
         r = self.recut([_beat("a", "T04", 0.0, 8.0, "hook"),
                         _beat("c", "T30", 0.0, 9.0, "payoff")])
-        self.assertEqual(r["stranded"], ["B-T12"])
+        self.assertEqual(r["stranded"], ["shot-T12"])
         arch = json.loads((self.tmp / promote.REVIEW_ARCHIVE).read_text())
         self.assertEqual(arch["entries"][0]["entry"]["note"], "keep")
-        self.assertNotIn("B-T12", self.review())
+        self.assertNotIn("shot-T12", self.review())
+
+    def test_a_second_recut_does_not_erase_the_first_ones_archive(self):
+        """Both writers of `review_archive.json` wrote it whole — this
+        seam and the beat-id migration — so whichever ran second deleted
+        the other's record. hmns carries 14 archived ghosts holding
+        Caleb's notes on beats that no longer exist, and the file whose
+        job is "nothing is dropped" was the thing dropping them."""
+        self.recut([_beat("a", "T04", 0.0, 8.0, "hook"),
+                    _beat("c", "T30", 0.0, 9.0, "payoff")])
+        self.before = json.loads((self.tmp / "edit_plan.json").read_text())
+        self.recut([_beat("a", "T04", 0.0, 8.0, "hook"),
+                    _beat("b", "T12", 0.0, 9.0, "payoff")])
+        arch = json.loads((self.tmp / promote.REVIEW_ARCHIVE).read_text())
+        self.assertEqual(sorted(e["id"] for e in arch["entries"]),
+                         ["shot-T12", "shot-T30"])
+        notes = {e["id"]: e["entry"].get("note") for e in arch["entries"]}
+        self.assertEqual(notes["shot-T12"], "keep")
+        self.assertEqual(notes["shot-T30"], "fix the tail")
+        self.assertEqual([r["ids"] for r in arch["rounds"]],
+                         [["shot-T12"], ["shot-T30"]])
 
     def test_a_new_beat_has_no_history_to_inherit(self):
         r = self.recut([_beat("a", "T04", 0.0, 8.0, "hook"),
                         _beat("b", "T12", 0.0, 9.0),
                         _beat("c", "T30", 0.0, 9.0, "payoff"),
                         _beat("d", "T04", 20.0, 28.0)])
-        self.assertEqual(r["added"], ["B-T04-2"])
+        self.assertEqual(r["added"], ["shot-T04-2"])
 
     def test_a_reordered_beat_still_carries_because_the_shot_is_the_same(self):
         """The reason the scheme anchors on the shot: moving a beat is not
@@ -205,8 +225,8 @@ class VerdictsFollowTheShot(unittest.TestCase):
         r = self.recut([_beat("a", "T04", 0.0, 8.0, "hook"),
                         _beat("c", "T30", 0.0, 9.0),
                         _beat("b", "T12", 0.0, 9.0, "payoff")])
-        self.assertIn("B-T12", r["carried"])
-        self.assertEqual(self.review()["B-T12"]["status"], "approved")
+        self.assertIn("shot-T12", r["carried"])
+        self.assertEqual(self.review()["shot-T12"]["status"], "approved")
 
     def test_the_report_records_what_moved(self):
         r = self.recut([_beat("a", "T04", 0.0, 8.0, "hook"),

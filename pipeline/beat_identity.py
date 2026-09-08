@@ -25,12 +25,21 @@ rule covers all four beat kinds — oncamera, vo and desk anchor on their
 take, picture beats on their spine clip. Take ids (T\\d+) and b-roll ids
 (B\\d+) are disjoint mint spaces, verified across all three live
 projects (2026-08-28: 875 takes, 407 clips, zero nonconforming), so an
-anchor can never be ambiguous. The id is `B-<anchor>` for an anchor's
-first beat and `B-<anchor>-<n>` from the second beat on — and occurrence
-is genuinely load-bearing: hmns repeats 11 take ids across beats, T92
-five times. NOT the spec's original `T341#2` spelling: `#` is the URL
-fragment separator and the engine serves proxies over HTTP, so an id
-with `#` in it could never name its own proxy in a URL.
+anchor can never be ambiguous. The id is `shot-<anchor>` for an
+anchor's first beat and `shot-<anchor>-<n>` from the second beat on —
+and occurrence is genuinely load-bearing: hmns repeats 11 take ids
+across beats, T92 five times.
+
+TWO spellings were tried and thrown away, and both failures were about
+READING the id rather than parsing it. The spec's `T341#2`: `#` is the
+URL fragment separator and the engine serves proxies over HTTP, so an
+id with `#` in it could never name its own proxy in a URL. Then
+`B-T362`, which survived one afternoon — it is one hyphen away from the
+`BT362` it replaced, so the first thing Caleb did with it was search for
+the old name and find nothing ("Can't find bt362", 2026-09-08). An id
+nobody can tell apart from the id it replaced is a worse tool than the
+arbitrary one, however correct its derivation. `shot-T362` cannot be
+mistaken for anything, and it says what it is.
 
 The invariant that kills mis-binding STRUCTURALLY rather than by
 convention: every id parses, is unique in its plan, and its anchor part
@@ -51,15 +60,16 @@ import re
 # derive_ids stamps this; id_errors gates on it. Legacy plans carry no
 # marker, so the checker can tell "predates the scheme" from "violates
 # it" without guessing from what the ids happen to look like.
-ID_SCHEME = "anchor-v1"
+ID_SCHEME = "shot-v1"
 
 # The derived shape. Legacy ids are BT\d+, which this cannot match, so a
 # mixed state is detectable rather than plausible. The occurrence suffix
 # is emitted only from 2 up (the first beat is bare) — parse_id refuses
-# a spelled-out "-1" and format_id cannot emit one, because "B-T92-1"
-# would be a second name for the beat "B-T92" already names, and two
+# a spelled-out "-1" and format_id cannot emit one, because
+# "shot-T92-1" would be a second name for the beat "shot-T92" already
+# names, and two
 # spellings of one identity is the disease this module exists to cure.
-ID_RE = re.compile(r"^B-(T\d+|B\d+)(?:-([1-9]\d*))?$")
+ID_RE = re.compile(r"^shot-(T\d+|B\d+)(?:-([1-9]\d*))?$")
 
 # A beat proxy is `<beat id>.<12-hex spec hash>.mp4` (proxy.py). EVERY id
 # era has to match at once: a migration renames the beats but the proxies
@@ -151,8 +161,8 @@ def format_id(anchor_id: str, occurrence: int = 1) -> str:
         raise ValueError("occurrence %d — an anchor's first beat is "
                          "occurrence 1" % n)
     if n == 1:
-        return "B-%s" % anchor_id
-    return "B-%s-%d" % (anchor_id, n)
+        return "shot-%s" % anchor_id
+    return "shot-%s-%d" % (anchor_id, n)
 
 
 def derive_ids(plan: "dict") -> "dict":
@@ -247,7 +257,7 @@ def id_errors(plan: "dict") -> "list[str]":
     marked plan (one BT survivor after a bad merge) is exactly what
     this must catch.
 
-    Occurrence gaps are legal: B-T92-3 without B-T92-2 is the trace of
+    Occurrence gaps are legal: shot-T92-3 without shot-T92-2 is the trace of
     a removal, and renumbering survivors is the disease, not the cure.
     """
     if not isinstance(plan, dict) or plan.get("id_scheme") != ID_SCHEME:
@@ -264,7 +274,7 @@ def id_errors(plan: "dict") -> "list[str]":
         parsed = parse_id(bid)
         if parsed is None:
             errors.append("%s: id %r does not parse — a marked plan "
-                          "names every beat B-<shot>" % (where, bid))
+                          "names every beat shot-<shot>" % (where, bid))
         elif a is not None and parsed[0] != a:
             errors.append("%s: id '%s' names %s but the beat shows %s "
                           "— an id may never point at a different shot "
@@ -439,10 +449,11 @@ def carry_review(old_review: "dict", mapping: "dict",
 def beat_of_proxy(name) -> str:
     """The beat id a proxy filename carries.
 
-    `BT01.9dbac390e124.mp4` -> `BT01`, `B-T362.9dbac.mp4` -> `B-T362`.
-    Neither id spelling contains a dot (that is why `format_id` uses `-`
-    for the occurrence suffix), so the first segment IS the id under both
-    schemes and this needed no change when the scheme did.
+    `BT01.9dbac390e124.mp4` -> `BT01`, `shot-T362.9dbac.mp4` ->
+    `shot-T362`. No id spelling contains a dot (that is why `format_id`
+    uses `-` for the occurrence suffix), so the first segment IS the id
+    under every scheme and this needed no change when the scheme changed
+    twice.
     """
     return str(getattr(name, "name", name)).split(".")[0]
 

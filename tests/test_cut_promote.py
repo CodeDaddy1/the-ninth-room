@@ -116,7 +116,7 @@ class Seam(_SeamFixture):
         self.stage(_plan())
         promote.promote_cut("ep", reason="promote", log=self.quiet)
         self.assertEqual([b["id"] for b in self.live()["beats"]],
-                         ["B-T04", "B-T12"])
+                         ["shot-T04", "shot-T12"])
         self.assertEqual(self.live()["id_scheme"], bi.ID_SCHEME)
 
     def test_the_staged_file_is_kept_as_the_agents_raw_output(self):

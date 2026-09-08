@@ -76,12 +76,12 @@ class PlanHistory(unittest.TestCase):
         self.assertEqual(len(kept["beats"]), 5)
 
     def test_the_manifest_records_what_it_is_and_why(self):
-        self._plan(n_beats=4, scheme="anchor-v1")
+        self._plan(n_beats=4, scheme="shot-v1")
         row = ph.archive("ep", reason="migration", note="beat ids")
         self.assertEqual(row["reason"], "migration")
         self.assertEqual(row["note"], "beat ids")
         self.assertEqual(row["beats"], 4)
-        self.assertEqual(row["id_scheme"], "anchor-v1")
+        self.assertEqual(row["id_scheme"], "shot-v1")
 
     def test_an_unknown_reason_is_refused(self):
         """The reasons are a closed vocabulary because they are what the
