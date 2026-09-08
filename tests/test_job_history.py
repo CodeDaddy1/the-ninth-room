@@ -31,6 +31,15 @@ class History(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self._real = jobs.HISTORY_PATH
         jobs.HISTORY_PATH = Path(self.tmp) / "_jobs.log"
+        # AND the snapshot. `_update` writes both, and this test moved
+        # only the log — so every run of the suite appended a fake failed
+        # "ingest ep" row to the REAL `work/_jobs.json` (15 of them by
+        # 2026-09-08), which is what the Studio's activity tray reads.
+        # Worse than the litter: the suite's `_save` rewrites that file
+        # from ITS memory, so running tests while the engine works can
+        # drop a live job out of the tray.
+        self._real_jobs = jobs.JOBS_PATH
+        jobs.JOBS_PATH = Path(self.tmp) / "_jobs.json"
         self.jid = "JTEST%d" % id(self)
         with jobs._LOCK:
             jobs._jobs[self.jid] = {"id": self.jid, "kind": "ingest",
@@ -39,6 +48,7 @@ class History(unittest.TestCase):
 
     def tearDown(self):
         jobs.HISTORY_PATH = self._real
+        jobs.JOBS_PATH = self._real_jobs
         with jobs._LOCK:
             jobs._jobs.pop(self.jid, None)
             if self.jid in jobs._order:
@@ -79,7 +89,13 @@ class History(unittest.TestCase):
 
     def test_history_never_fails_a_job(self):
         """Diagnostic only. An unwritable path must not raise out of
-        _update and kill the worker thread."""
+        _update and kill the worker thread.
+
+        It covers BOTH writes now. The tray snapshot lives in the same
+        temp dir as the log, so this chmod takes them both away — and
+        until 2026-09-08 `_persist` had no guard at all, which this test
+        could not see because it was writing to the real `work/` while
+        claiming to write here."""
         jobs.HISTORY_PATH = Path(self.tmp) / "no" / "such" / "dir" / "x.log"
         os.chmod(self.tmp, 0o500)
         try:

@@ -116,10 +116,23 @@ def _persist():
     for i in missing:
         _order.remove(i)
     rows = [_jobs[i] for i in _order[-KEEP:]]
-    JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = JOBS_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"jobs": rows}, indent=2))
-    os.replace(tmp, JOBS_PATH)
+    # BEST-EFFORT, like _append_history and for the same reason: this is
+    # the Studio tray's snapshot, rebuilt in full by the next update, and
+    # `_update` is called from inside worker threads by way of log(). An
+    # OSError here — a full disk, a read-only volume — climbed out
+    # through log() and killed the worker, which is the failure this
+    # module has already fixed twice from other causes. The cost of
+    # swallowing it is a tray that stops moving; the cost of raising is
+    # the job itself. Only OSError: a bug in the rows is not an IO
+    # problem and should still be loud. (Found 2026-09-08 by the test
+    # that says exactly this and only ever covered the history file.)
+    try:
+        JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = JOBS_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"jobs": rows}, indent=2))
+        os.replace(tmp, JOBS_PATH)
+    except OSError:
+        pass
 
 
 def _restore():
