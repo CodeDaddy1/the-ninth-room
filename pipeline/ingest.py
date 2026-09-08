@@ -168,6 +168,45 @@ def analysis_dir(slug: str) -> Path:
     return d
 
 
+class WordsOnDisk(dict):
+    """file name -> its word timings, read on first ask.
+
+    whisper writes `<file>.words.json` next to the catalog for all 370 of
+    hmns's files, and `takes.json` carries only the transcript STRING. So
+    `validate_edit_plan`'s sentence check interpolated word positions
+    across the take span, which assumes every word takes the same time —
+    and it does not. Measured 2026-09-08 on the shipped plan: the guess
+    lands on 'Check' where the real last word is 'before.', and on 'if'
+    where the real first word is 'What'. Both produced a MUST-FIX on a
+    beat that is correct, and a must-fix blocks the assemble.
+
+    Lazy because a project has hundreds of these and a validation call
+    touches a handful. Missing or unreadable reads as no words, which
+    puts the caller back on the old estimate rather than raising: every
+    plan on disk predates this, and six surgery paths roll their whole
+    write back on any error.
+    """
+
+    def __init__(self, slug: str):
+        dict.__init__(self)
+        self._dir = work_path(slug) / "analysis"
+
+    def get(self, name, default=None):
+        if name not in self:
+            p = self._dir / ("%s.words.json" % name)
+            try:
+                rows = json.loads(p.read_text())
+            except (OSError, ValueError):
+                rows = []
+            self[name] = rows if isinstance(rows, list) else []
+        return self[name] or (default if default is not None else [])
+
+
+def words_by_file(slug: str) -> "WordsOnDisk":
+    """The word timings for a project, for the validator to reason with."""
+    return WordsOnDisk(slug)
+
+
 # --- probing --------------------------------------------------------------
 
 def probe_file(path: Path) -> "dict":

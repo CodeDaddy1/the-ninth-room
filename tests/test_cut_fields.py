@@ -45,8 +45,9 @@ def _plan(**over):
     return plan, takes
 
 
-def _errs(plan, takes, broll=None):
-    return schemas.validate_edit_plan(plan, takes, broll or {"clips": []})
+def _errs(plan, takes, broll=None, words=None):
+    return schemas.validate_edit_plan(plan, takes, broll or {"clips": []},
+                                      words=words)
 
 
 class TheValidatorReportsInsteadOfRaising(unittest.TestCase):
@@ -164,6 +165,81 @@ class ABeatMayHoldTheSilenceAroundItsTake(unittest.TestCase):
                 t2,
                 {"id": "T3", "file": "b.mp4", "s": 31.0, "e": 50.0}]
         self.assertEqual(schemas.take_window(t2, rows), (19.0, 31.0))
+
+
+class TheSentenceCheckReadsTheRealTimings(unittest.TestCase):
+    """It interpolated word positions across the take, which assumes a
+    constant speaking rate. On the shipped hmns plan that landed on
+    'Check' where the real last word is 'before.' and on 'if' where the
+    real first word is 'What' — a MUST-FIX on two correct beats, which
+    blocks the assemble. It also MISSED two beats whose trims cut
+    through their own punchline word (2026-09-08).
+
+    whisper writes the timings to `<file>.words.json`; `takes.json` keeps
+    only the transcript string. `ingest.words_by_file` hands them over
+    and this check prefers them whenever they are there."""
+
+    WORDS = {"b.mp4": [
+        {"w": "One", "s": 0.0, "e": 0.4},
+        {"w": "sentence", "s": 0.4, "e": 1.0},
+        {"w": "that", "s": 1.0, "e": 1.4},
+        {"w": "goes", "s": 1.4, "e": 1.8},
+        {"w": "here.", "s": 1.8, "e": 2.4},
+        # a real pause, then a new utterance whisper punctuated with a comma
+        {"w": "Yeah,", "s": 4.0, "e": 4.4},
+        {"w": "I'm", "s": 9.8, "e": 10.0}]}
+
+    def _plan_with(self, s, e, transcript="One sentence that goes here."):
+        plan, takes = _plan()
+        takes["takes"][1]["transcript"] = transcript
+        plan["beats"][1]["trim"] = {"s": s, "e": e}
+        return plan, takes
+
+    def test_a_complete_sentence_passes_where_the_estimate_failed(self):
+        """Trim 0.0-2.4 ends exactly on 'here.'. The estimate puts the
+        boundary two tokens later and reports a fragment."""
+        plan, takes = self._plan_with(0.0, 2.4)
+        self.assertTrue(any("mid-sentence" in e
+                            for e in _errs(plan, takes)))          # estimate
+        self.assertEqual([e for e in _errs(plan, takes, words=self.WORDS)
+                          if "mid-sentence" in e], [])             # timings
+
+    def test_a_trim_cutting_through_a_word_is_caught(self):
+        """Ending at 2.0 leaves 'goes' as the last whole word, with the
+        next word starting immediately. The estimate missed this."""
+        plan, takes = self._plan_with(0.0, 2.0)
+        errs = _errs(plan, takes, words=self.WORDS)
+        self.assertTrue(any("ends mid-sentence on 'goes'" in e for e in errs),
+                        errs)
+
+    def test_a_measured_pause_is_a_clean_boundary(self):
+        """`Yeah,` carries a comma and 5.4s of silence after it. Speech
+        has utterance boundaries punctuation misses, and hmns's shot-T316
+        was flagged for exactly this. Caleb's call, 2026-09-08."""
+        plan, takes = self._plan_with(9.8, 10.0)
+        self.assertEqual([e for e in _errs(plan, takes, words=self.WORDS)
+                          if "mid-sentence" in e], [])
+
+    def test_no_pause_after_a_comma_still_fails(self):
+        """The pause is the exemption, not the comma."""
+        words = {"b.mp4": [dict(w="Yeah,", s=0.0, e=0.4),
+                           dict(w="I'm", s=0.5, e=0.9)]}
+        plan, takes = self._plan_with(0.5, 0.9)
+        self.assertTrue(any("starts mid-sentence" in e
+                            for e in _errs(plan, takes, words=words)))
+
+    def test_a_file_with_no_timings_falls_back_to_the_estimate(self):
+        """Absent-tolerance: every plan on disk predates this, and six
+        surgery paths roll their whole write back on any error."""
+        plan, takes = self._plan_with(0.0, 2.4)
+        self.assertEqual(_errs(plan, takes, words={}),
+                         _errs(plan, takes))
+
+    def test_a_fragment_flag_still_silences_it(self):
+        plan, takes = self._plan_with(0.0, 2.0)
+        plan["beats"][1]["fragment"] = True
+        self.assertEqual([e for e in _errs(plan, takes, words=self.WORDS)
+                          if "mid-sentence" in e], [])
 
 
 class TheRealPlanIsUnchanged(unittest.TestCase):

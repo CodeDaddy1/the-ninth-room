@@ -30,7 +30,7 @@ from fractions import Fraction
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
-from .ingest import work_path, analysis_dir, IngestError
+from .ingest import work_path, analysis_dir, IngestError, words_by_file
 
 
 def _brief_delivery(slug: str) -> str:
@@ -184,7 +184,8 @@ def plan_beats(slug: str) -> "dict":
         else {"clips": []}
 
     from . import schemas
-    errors = schemas.validate_edit_plan(plan, takes, broll_cat)
+    errors = schemas.validate_edit_plan(plan, takes, broll_cat,
+                                        words=words_by_file(slug))
     if errors:
         raise IngestError("edit_plan invalid:\n  " + "\n  ".join(errors))
 

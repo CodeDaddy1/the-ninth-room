@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .ingest import (work_path, analysis_dir, IngestError, VIDEO_EXT,
-                     AUDIO_EXT, PROJECT_ROOT)
+                     AUDIO_EXT, PROJECT_ROOT, words_by_file)
 from . import beat_identity
 from . import facts
 
@@ -909,7 +909,8 @@ def _trash_restore(slug: str, uid: str, kind: str = "") -> "dict":
                               "removed — place it again by hand")
         from . import schemas
         plan, takes, broll = _plan_takes_broll(slug)
-        errs = schemas.validate_edit_plan(plan, takes, broll)
+        errs = schemas.validate_edit_plan(plan, takes, broll,
+                                          words=words_by_file(slug))
         if errs:
             _broll_detach(slug, entry["beat_id"], entry["clip_id"], 0,
                           record_s=restored.get("record_s"))
@@ -955,7 +956,8 @@ def _trash_restore(slug: str, uid: str, kind: str = "") -> "dict":
                 idx = max(0, min(int(r.get("index", len(plan["beats"]))),
                                  len(plan["beats"])))
                 plan["beats"].insert(idx, r["beat"])
-            errs = schemas.validate_edit_plan(plan, takes, broll)
+            errs = schemas.validate_edit_plan(plan, takes, broll,
+                                          words=words_by_file(slug))
             if errs:
                 raise IngestError("cannot restore: %s" % errs[0])
             _write_edit_plan(slug, plan)
@@ -1140,7 +1142,8 @@ def _beat_swap(slug: str, beat_id: str, take_id: str) -> "dict":
                 dropped.append(br)
         if dropped:
             beat["broll"] = kept
-        errs = schemas.validate_edit_plan(plan, takes, broll)
+        errs = schemas.validate_edit_plan(plan, takes, broll,
+                                          words=words_by_file(slug))
         if errs:
             for k, v in old.items():
                 if v is None:
@@ -1188,7 +1191,8 @@ def _beat_trim(slug: str, beat_id: str, d_in: float, d_out: float) -> "dict":
             raise IngestError("a clip under half a second is a flash frame")
         old = dict(trim)
         beat["trim"] = {"s": new_s, "e": new_e}
-        errs = schemas.validate_edit_plan(plan, takes, broll)
+        errs = schemas.validate_edit_plan(plan, takes, broll,
+                                          words=words_by_file(slug))
         if errs:
             beat["trim"] = old
             raise IngestError("trim refused: %s" % errs[0])
@@ -1257,7 +1261,8 @@ def _beat_move(slug: str, beat_ids: "list", chapter_id: str) -> "dict":
                 by_id[i]["chapter_id"] = chapter_id
             else:
                 by_id[i].pop("chapter_id", None)
-        errs = schemas.validate_edit_plan(plan, takes, broll)
+        errs = schemas.validate_edit_plan(plan, takes, broll,
+                                          words=words_by_file(slug))
         if errs:
             for i, was in old.items():
                 if was is None:
@@ -1346,7 +1351,8 @@ def _beat_remove(slug: str, beat_ids: "list") -> "dict":
             key=lambda r: r["index"],
         )
         plan["beats"] = kept
-        errs = schemas.validate_edit_plan(plan, takes, broll)
+        errs = schemas.validate_edit_plan(plan, takes, broll,
+                                          words=words_by_file(slug))
         if errs:
             plan["beats"] = beats
             raise IngestError("remove refused: %s" % errs[0])

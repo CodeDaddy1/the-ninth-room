@@ -37,7 +37,7 @@ import json
 import os
 from pathlib import Path
 
-from .ingest import work_path, analysis_dir, IngestError
+from .ingest import work_path, analysis_dir, IngestError, words_by_file
 from . import beat_identity, cutbar, plan_history, schemas
 
 STAGE_DIRNAME = "staging"
@@ -104,7 +104,8 @@ def check_cut(slug: str, staged: bool = False) -> "dict":
     if plan is None:
         raise IngestError("%s is not readable JSON" % p.name)
     takes, broll, brief = _material(slug)
-    errors = schemas.validate_edit_plan(plan, takes, broll)
+    errors = schemas.validate_edit_plan(plan, takes, broll,
+                                        words=words_by_file(slug))
     errors += beat_identity.id_errors(plan)
     notes = cutbar.cut_notes(plan, takes, broll, brief)
     return {"slug": slug, "staged": staged, "errors": errors, "notes": notes,
@@ -144,7 +145,8 @@ def promote_cut(slug: str, reason: str, note: str = "",
 
     # 2. Correctness. These refuse whether or not the craft bar is armed:
     #    a plan that does not validate cannot be rendered at all.
-    errs = schemas.validate_edit_plan(plan, takes, broll)
+    errs = schemas.validate_edit_plan(plan, takes, broll,
+                                      words=words_by_file(slug))
     if errs:
         raise RuntimeError("the cut does not validate: %s%s"
                            % ("; ".join(errs[:4]),

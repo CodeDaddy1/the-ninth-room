@@ -43,7 +43,7 @@ import re
 import shutil
 from pathlib import Path
 
-from .ingest import work_path
+from .ingest import work_path, words_by_file
 from . import beat_identity, migrate_ids, plan_history, schemas
 
 # A candidate must say this much of the beat's caption, and beat the
@@ -177,7 +177,8 @@ def apply(slug: str, log=print) -> "dict":
 
     errs = schemas.validate_edit_plan(
         new, _read(work / "analysis" / "takes.json") or {},
-        _read(work / "analysis" / "broll.json") or {"clips": []})
+        _read(work / "analysis" / "broll.json") or {"clips": []},
+        words=words_by_file(slug))
     bounds = [e for e in errs if "outside take" in e]
     if bounds:
         raise RebindError("the rebound plan still fails its bounds: %s"

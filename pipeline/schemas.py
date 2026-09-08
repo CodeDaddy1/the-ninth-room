@@ -587,6 +587,13 @@ def _validate_spine(errors: "list[str]", spine: "Any", clip_by_id: "dict",
                       % (where, type(spine["audio"]).__name__))
 
 
+# A gap this long at a trim boundary is a clean cut on its own, whatever
+# the punctuation says. Same number as `ingest.MIN_SILENCE_GAP_SEC`, which
+# is what the dead-space cutter calls a silence — quoted rather than
+# imported because schemas takes data and never reads a file, and a cycle
+# through ingest would be a worse price than a duplicated constant.
+CLEAN_PAUSE_SEC = 0.6
+
 # The longest silence a beat may hold on either side of its take's
 # words. Measured on hmns (2026-09-08): the whole 82-beat cut holds
 # silence on three beats, the largest 1.94s — the reach for the camera
@@ -639,9 +646,17 @@ def take_window(take: "dict", takes: "list") -> "tuple":
 
 
 def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
-                       broll: "dict[str, Any]") -> "list[str]":
+                       broll: "dict[str, Any]",
+                       words: "Any | None" = None) -> "list[str]":
     """edit_plan.json — the story-designer's output, cross-checked against
     takes.json and broll.json so the plan can only reference real material.
+
+    `words` is optional and absent-tolerant: a mapping from a take's file
+    name to that file's word timings (`ingest.words_by_file(slug)`).
+    Given it, the sentence check reads which words are really inside a
+    trim; without it, it falls back to interpolating across the take,
+    which assumes every word takes the same time and produced must-fix
+    errors on correct beats (2026-09-08).
 
     The storytelling rules enforced here are the brand's non-negotiables:
     the first beat is a hook and stays under MAX_HOOK_SEC; a payoff beat
@@ -950,9 +965,59 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
         toks = t.get("transcript", "").split()
         if not toks:
             return []
+        errs = []
+
+        # THE REAL TIMINGS FIRST. whisper wrote them; `takes.json` keeps
+        # only the transcript string, so this check used to interpolate
+        # word positions across the take — which assumes a constant
+        # speaking rate. On the shipped hmns plan it landed on 'Check'
+        # where the real last word is 'before.' and on 'if' where the
+        # real first word is 'What', and each wrong guess was a MUST-FIX
+        # on a correct beat. A must-fix blocks the assemble, so a
+        # rounding error froze an episode.
+        rows = words.get(t.get("file")) if words is not None else None
+        if rows:
+            inside = [r for r in rows
+                      if r.get("s", 0) >= trim["s"] - 0.05
+                      and r.get("e", 0) <= trim["e"] + 0.05]
+            if inside:
+                first_i, last_i = rows.index(inside[0]), rows.index(inside[-1])
+                # A CUT IS CLEAN IF IT LANDS IN A SILENCE, whatever the
+                # punctuation says. whisper writes commas where a speaker
+                # simply stopped: hmns's shot-T316 starts after a 5.26
+                # SECOND pause and was flagged for starting "mid-sentence"
+                # after "Yeah,". Speech has utterance boundaries that
+                # punctuation misses, and the rest of the pipeline already
+                # reasons in pauses (ingest.MIN_SILENCE_GAP_SEC). Both
+                # real findings on the shipped plan have a 0.00s gap, so
+                # this removes the noise without softening the signal.
+                # Caleb's call, 2026-09-08.
+                last = str(inside[-1].get("w", "")).rstrip()
+                tail_gap = (rows[last_i + 1].get("s", 0) - inside[-1].get("e", 0)
+                            if last_i + 1 < len(rows) else None)
+                if (not last.endswith(_terminal)
+                        and tail_gap is not None
+                        and tail_gap < CLEAN_PAUSE_SEC):
+                    errs.append(
+                        "beat %s: ends mid-sentence on %r with no pause after "
+                        "it — extend the trim to the sentence end or mark "
+                        "fragment:true" % (b.get("id"), last))
+                if first_i > 0:
+                    prev = str(rows[first_i - 1].get("w", "")).rstrip()
+                    head_gap = inside[0].get("s", 0) - rows[first_i - 1].get("e", 0)
+                    if (not prev.endswith(_terminal)
+                            and head_gap < CLEAN_PAUSE_SEC):
+                        errs.append(
+                            "beat %s: starts mid-sentence on %r, %.2fs after "
+                            "%r — pull the trim back to the sentence start or "
+                            "mark fragment:true"
+                            % (b.get("id"),
+                               str(inside[0].get("w", "")).rstrip(),
+                               head_gap, prev))
+            return errs
+
         # Approximate word times across the take span to find boundary words.
         span = max(t["e"] - t["s"], 0.001)
-        errs = []
         # last word fully inside the trim
         idx_end = min(len(toks) - 1,
                       int((trim["e"] - t["s"]) / span * len(toks)))

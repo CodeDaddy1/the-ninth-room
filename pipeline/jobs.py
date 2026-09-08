@@ -1799,7 +1799,8 @@ def _run_coverage(slug, log, set_pct):
     plan = json.loads(plan_path.read_text())
     takes = json.loads((work / "analysis" / "takes.json").read_text())
     broll = json.loads((work / "analysis" / "broll.json").read_text())
-    errs = schemas.validate_edit_plan(plan, takes, broll)
+    errs = schemas.validate_edit_plan(plan, takes, broll,
+                                      words=ingest.words_by_file(slug))
     if errs:
         raise RuntimeError("the pass broke the plan: %s" % errs[0])
     # broll is passed so the tag lift can fire — without the catalog
