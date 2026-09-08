@@ -76,6 +76,17 @@ def _relative_beat(beat: "dict") -> "dict":
     """
     import copy
     b = copy.deepcopy(beat)
+    # The NAME is not a pixel. The proxy file is `<beat id>.<hash>.mp4`,
+    # so the id already identifies the beat in the filename; carrying it
+    # inside the hash as well means a pure rename re-renders every beat
+    # it touches — 82 of them on hmns, for footage that did not change.
+    # Everything the picture actually depends on is here on its own
+    # terms: the caption by its TEXT (and `cap_sig`, its mtime+size),
+    # the cards by their fields, the renderer versions by number. Two
+    # beats that agree on all of that do render the same pixels, and
+    # they still get separate files because the filename carries the id
+    # (2026-09-08, alongside the anchor-scheme rename).
+    b.pop("id", None)
     r0 = b["record_s"]
     b["record_s"] = 0.0
     b["record_e"] = round(b["record_e"] - r0, 6)
@@ -161,7 +172,7 @@ def render_beat(slug: str, beat: "dict", catalog: "dict", caption_text: str,
     work = work_path(slug)
     src = catalog[beat["file"]]["path"]
     rec0 = beat["record_s"]
-    # ffmpeg writes to a temp name the Edit Room's BT*.mp4 glob can't see,
+    # ffmpeg writes to a temp name `beat_identity.PROXY_GLOBS` can't see,
     # then an atomic rename publishes it — a browser must never fetch a
     # half-encoded proxy (that is exactly how BT103 broke).
     tmp_path = out_path.parent / ("_tmp.%s" % out_path.name)

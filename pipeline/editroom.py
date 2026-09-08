@@ -24,6 +24,7 @@ from pathlib import Path
 
 from .ingest import (work_path, analysis_dir, IngestError, VIDEO_EXT,
                      AUDIO_EXT, PROJECT_ROOT)
+from . import beat_identity
 from . import facts
 
 PORT = 8765
@@ -70,12 +71,11 @@ def _state(slug: str) -> "dict":
                  "copy": c.get("text") or c.get("stat") or c.get("kicker") or ""})
     review = _normalize_review(slug)
     proxies = {}
-    pdir = work / "proxies"
-    if pdir.is_dir():
-        for p in pdir.glob("BT*.mp4"):
-            # mtime in the URL busts any stale browser-cached copy of a
-            # proxy that was later re-rendered under the same name
-            proxies[p.name.split(".")[0]] = "%s?v=%d" % (p.name, p.stat().st_mtime)
+    for p in beat_identity.beat_proxies(work / "proxies"):
+        # mtime in the URL busts any stale browser-cached copy of a
+        # proxy that was later re-rendered under the same name
+        proxies[beat_identity.beat_of_proxy(p)] = "%s?v=%d" % (
+            p.name, p.stat().st_mtime)
 
     plan_by_id = {b["id"]: b for b in plan["beats"]}
     # the takes a trim is bounded by — read once, not per beat
@@ -1741,10 +1741,7 @@ def _project_poster(slug: str) -> "str | None":
     poster = work / "poster.jpg"
     if poster.exists():
         return "poster.jpg?v=%d" % poster.stat().st_mtime
-    pdir = work / "proxies"
-    if not pdir.is_dir():
-        return None
-    prox = sorted(pdir.glob("BT*.mp4"))
+    prox = beat_identity.beat_proxies(work / "proxies")
     if not prox:
         return None
     try:
@@ -1806,10 +1803,9 @@ def _clean_stale(slug: str, log=print) -> "dict":
         live = {b["id"] for b in json.loads(tm.read_text()).get("beats", [])}
     pdir = work / "proxies"
     by_beat: "dict" = {}
-    if pdir.is_dir():
-        for f in pdir.glob("BT*.mp4"):
-            bid = f.name.split(".")[0]
-            by_beat.setdefault(bid, []).append((f.name, f.stat().st_mtime))
+    for f in beat_identity.beat_proxies(pdir):
+        by_beat.setdefault(beat_identity.beat_of_proxy(f), []).append(
+            (f.name, f.stat().st_mtime))
     doomed = _clean_stale_candidates(by_beat, live)
     freed = 0
     for name in doomed:
@@ -2034,12 +2030,10 @@ def _overlays_state(slug: str) -> "dict":
             beats = json.loads(tm_path.read_text())["beats"]
         except (ValueError, KeyError):
             beats = []
-    pdir = work_path(slug) / "proxies"
     proxy_by_beat = {}
-    if pdir.is_dir():
-        for f in pdir.glob("BT*.mp4"):
-            proxy_by_beat[f.name.split(".")[0]] = "%s?v=%d" % (f.name,
-                                                               f.stat().st_mtime)
+    for f in beat_identity.beat_proxies(work_path(slug) / "proxies"):
+        proxy_by_beat[beat_identity.beat_of_proxy(f)] = "%s?v=%d" % (
+            f.name, f.stat().st_mtime)
     by_id = {b["id"]: b for b in beats}
     for it in items:
         ctx = None
@@ -2737,8 +2731,7 @@ def _project_row(slug: str) -> "dict":
     plan = (work / "edit_plan.json").exists()
     graphics = (work / "graphics_plan.json").exists()
     tl = (out / "timeline_map.json").exists()
-    prox = (len(list((work / "proxies").glob("BT*.mp4")))
-            if (work / "proxies").is_dir() else 0)
+    prox = len(beat_identity.beat_proxies(work / "proxies"))
     masters = (sorted(m for m in (work / "deliverables").glob("*.mp4")
                       if not m.name.startswith("_tmp."))
                if (work / "deliverables").is_dir() else [])
@@ -5147,11 +5140,9 @@ def _captions_state(slug: str) -> "dict":
                 json.loads((work / "captions.json").read_text()).get("beats", [])}
     review = _normalize_review(slug)
     proxies = {}
-    pdir = work / "proxies"
-    if pdir.is_dir():
-        for p in pdir.glob("BT*.mp4"):
-            proxies[p.name.split(".")[0]] = "%s?v=%d" % (p.name,
-                                                         p.stat().st_mtime)
+    for p in beat_identity.beat_proxies(work / "proxies"):
+        proxies[beat_identity.beat_of_proxy(p)] = "%s?v=%d" % (
+            p.name, p.stat().st_mtime)
     style = "classic"
     if (work / "captions.json").exists():
         try:

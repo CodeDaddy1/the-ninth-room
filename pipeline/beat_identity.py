@@ -38,9 +38,12 @@ equals the beat's actual anchor. An id can never point at a different
 shot than it names — a regeneration can strand history, loudly, but it
 can no longer silently re-home it.
 
-Pure identity functions only. Nothing here reads a file, writes an
-artifact, or migrates anything — the runner that will own promotion
-(the job-contract cut) is where these get wired, later and separately.
+Pure identity functions, and ONE that reads a directory. Nothing here
+writes an artifact or migrates anything — the runner that will own
+promotion (the job-contract cut) is where these get wired, later and
+separately. The exception is `beat_proxies`, and it earns its place:
+"which files on disk carry this beat's name" is an identity question, it
+is the question a rename breaks, and it had seven separate answers.
 """
 import copy
 import re
@@ -57,6 +60,13 @@ ID_SCHEME = "anchor-v1"
 # would be a second name for the beat "B-T92" already names, and two
 # spellings of one identity is the disease this module exists to cure.
 ID_RE = re.compile(r"^B-(T\d+|B\d+)(?:-([1-9]\d*))?$")
+
+# A beat proxy is `<beat id>.<12-hex spec hash>.mp4` (proxy.py). BOTH id
+# eras have to match at once: a migration renames the beats but the
+# proxies are re-rendered afterwards, and every reader in between would
+# otherwise see an empty directory. There is no moment when only one
+# pattern is correct, which is why this is a tuple and not a switch.
+PROXY_GLOBS = ("BT*.mp4", "B-*.mp4")
 
 # What a take id or a b-roll clip id looks like — the two mint spaces,
 # disjoint by construction (takes.py mints T01.., broll B001..).
@@ -396,3 +406,41 @@ def carry_review(old_review: "dict", mapping: "dict",
             requeued.append(new_id)
     return {"carried": carried, "requeued": requeued,
             "stranded": stranded}
+
+
+def beat_of_proxy(name) -> str:
+    """The beat id a proxy filename carries.
+
+    `BT01.9dbac390e124.mp4` -> `BT01`, `B-T362.9dbac.mp4` -> `B-T362`.
+    Neither id spelling contains a dot (that is why `format_id` uses `-`
+    for the occurrence suffix), so the first segment IS the id under both
+    schemes and this needed no change when the scheme did.
+    """
+    return str(getattr(name, "name", name)).split(".")[0]
+
+
+def beat_proxies(pdir) -> "list":
+    """Every beat proxy in a directory, both id eras, sorted, deduped.
+
+    Seven readers globbed `BT*.mp4` by hand — the Review desk's payload,
+    the poster frame, clean-stale, the Overlays desk, the project row,
+    the captions desk and the retention job's precondition. Renaming
+    beats to the anchor scheme makes all seven find NOTHING, and not one
+    of them raises: the desk reads zero clips, `_state` drops the project
+    back to the assembly phase, and retention refuses with "no previews
+    yet". Every byte of the migration can be correct and the project
+    still looks destroyed, with nothing anywhere naming the cause.
+
+    So the pattern gets one home, and `tests/test_beat_glob_ratchet.py`
+    keeps it that way. A directory that does not exist is empty, not an
+    error — every caller was already writing that check by hand.
+    """
+    from pathlib import Path
+    d = Path(pdir)
+    if not d.is_dir():
+        return []
+    seen = {}
+    for pat in PROXY_GLOBS:
+        for f in d.glob(pat):
+            seen[f.name] = f
+    return [seen[k] for k in sorted(seen)]

@@ -1254,8 +1254,8 @@ def _run_retention(slug, log, set_pct):
     work = work_path(slug)
     if not (work / "edit_plan.json").exists():
         raise RuntimeError("no cut yet")
-    if not any((work / "proxies").glob("BT*.mp4")) \
-            if (work / "proxies").is_dir() else True:
+    from . import beat_identity
+    if not beat_identity.beat_proxies(work / "proxies"):
         raise RuntimeError("no previews yet -- assemble first")
     rv = work / "review.json"
     if rv.exists():
