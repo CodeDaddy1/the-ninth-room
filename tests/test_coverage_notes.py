@@ -116,6 +116,133 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TagsLiftTwoCapsAndOnlyTwo(unittest.TestCase):
+    """Caleb, 2026-08-28, rejecting taste T11 and T7 in his own words:
+    "allow for extra b-roll if relevant by tags." So "support, not
+    density" stopped being his standard, and the three-cover cap and the
+    60% ceiling stopped being absolute.
+
+    The lift has to mean the TAG did work. Intersecting a clip's tags
+    with words in the line would pass on coincidence — a clip tagged
+    "butterfly" over any line that says butterfly — and coincidence is
+    what a bombardment looks like from the inside. So the cover names the
+    tag in the why it already owed.
+
+    What breaks if this is wrong: too permissive and the cap is
+    decoration; too strict and it is the build-share cap all over again,
+    a rule nobody can satisfy. Every, not any, is the hinge.
+    """
+
+    def catalog(self, **id_to_tags):
+        return {"clips": [{"id": i, "tags": t}
+                          for i, t in id_to_tags.items()]}
+
+    def notes(self, *beats, takes=None, broll=None):
+        return schemas.coverage_notes({"beats": list(beats)}, takes, broll)
+
+    def _four(self, whys):
+        return [cover(clip="B%02d" % i, at=i * 2.0, dur=1.9, why=w)
+                for i, w in enumerate(whys)]
+
+    def test_four_covers_that_all_name_a_tag_are_allowed(self):
+        covers = self._four(["illustrate: the butterfly wing"] * 4)
+        out = self.notes(beat(dur=20.0, covers=covers),
+                         broll=self.catalog(**{"B%02d" % i: ["butterfly"]
+                                               for i in range(4)}))
+        self.assertEqual([x for x in out if "bombardment" in x], [], out)
+
+    def test_one_untagged_cover_and_the_cap_still_fires(self):
+        """EVERY, not any — one unjustified cover in a pile is still what
+        a bombardment is made of."""
+        covers = self._four(["illustrate: the butterfly wing"] * 3
+                            + ["illustrate: something else"])
+        out = self.notes(beat(dur=20.0, covers=covers),
+                         broll=self.catalog(**{"B%02d" % i: ["butterfly"]
+                                               for i in range(4)}))
+        self.assertTrue(any("bombardment" in x for x in out), out)
+
+    def test_the_note_names_the_cover_that_broke_the_match(self):
+        """Otherwise the lift is invisible machinery: someone who tagged
+        three of four reads the same sentence as someone who tagged none,
+        and cannot tell a working rule from a broken one."""
+        covers = self._four(["illustrate: the butterfly wing"] * 3
+                            + ["illustrate: something else"])
+        out = [x for x in self.notes(
+            beat(dur=20.0, covers=covers),
+            broll=self.catalog(**{"B%02d" % i: ["butterfly"]
+                                  for i in range(4)})) if "bombardment" in x]
+        self.assertIn("B03", out[0])
+        self.assertIn("3 of them name a tag", out[0])
+
+    def test_the_ratio_ceiling_rises_but_does_not_vanish(self):
+        """0.85, not unbounded — an on-camera beat stays at least a sixth
+        face however well tagged its covers are."""
+        covers = [cover(clip="B01", at=0.5, dur=3.5,
+                        why="illustrate: the butterfly"),
+                  cover(clip="B02", at=4.2, dur=3.5,
+                        why="illustrate: the butterfly")]
+        cat = self.catalog(B01=["butterfly"], B02=["butterfly"])
+        # 70% covered: over the plain 60% ceiling, under the tagged 85%
+        self.assertEqual([x for x in self.notes(beat(dur=10.0, covers=covers),
+                                                broll=cat)
+                          if "stops being one" in x], [])
+        # 90% covered: over both
+        covers[1]["duration"] = 5.5
+        self.assertTrue(any("stops being one" in x
+                            for x in self.notes(beat(dur=10.0, covers=covers),
+                                                broll=cat)))
+
+    def test_a_peak_stays_untouchable_however_well_tagged(self):
+        """The one rule six of the seven film studies converged on. It is
+        not on the table and no tag buys it."""
+        c = cover(clip="B01", why="illustrate: the butterfly")
+        out = self.notes(beat(covers=[c], peak=True),
+                         broll=self.catalog(B01=["butterfly"]))
+        self.assertTrue(any("peak" in x for x in out), out)
+
+    def test_the_landing_and_the_legibility_floor_are_not_lifted(self):
+        out = self.notes(
+            beat(dur=10.0, covers=[cover(clip="B01", at=8.5, dur=1.1,
+                                         why="illustrate: the butterfly")]),
+            broll=self.catalog(B01=["butterfly"]))
+        self.assertTrue(any("landing" in x for x in out), out)
+        self.assertTrue(any("cannot be read" in x for x in out), out)
+
+    def test_a_tag_must_be_named_not_merely_owned(self):
+        """The clip carries the tag; the why never says it. Nothing is
+        earned by owning a tag you did not use."""
+        covers = self._four(["illustrate: a shot"] * 4)
+        out = self.notes(beat(dur=20.0, covers=covers),
+                         broll=self.catalog(**{"B%02d" % i: ["butterfly"]
+                                               for i in range(4)}))
+        self.assertTrue(any("bombardment" in x for x in out), out)
+
+    def test_a_substring_is_not_a_tag_match(self):
+        """"butter" inside "butterfly" must not count, or the match is
+        decided by spelling accidents."""
+        covers = self._four(["illustrate: the butterfly wing"] * 4)
+        out = self.notes(beat(dur=20.0, covers=covers),
+                         broll=self.catalog(**{"B%02d" % i: ["butter"]
+                                               for i in range(4)}))
+        self.assertTrue(any("bombardment" in x for x in out), out)
+
+    def test_calebs_own_manual_tags_count_too(self):
+        """catalog_broll keeps the agent's tags and his apart on purpose;
+        a reader asking what a clip is about has to union them."""
+        covers = self._four(["illustrate: the butterfly wing"] * 4)
+        cat = {"clips": [{"id": "B%02d" % i, "tags": [],
+                          "manual_tags": ["butterfly"]} for i in range(4)]}
+        out = self.notes(beat(dur=20.0, covers=covers), broll=cat)
+        self.assertEqual([x for x in out if "bombardment" in x], [], out)
+
+    def test_without_a_catalog_the_caps_stand_exactly_as_before(self):
+        """The lift is opt-in on real data. Both existing callers passed
+        no catalog, and nothing they gate on may have moved."""
+        covers = self._four(["illustrate: the butterfly wing"] * 4)
+        out = self.notes(beat(dur=20.0, covers=covers))
+        self.assertTrue(any("bombardment" in x for x in out), out)
+
+
 class JustifiedWhys(unittest.TestCase):
     """R1, mechanized (2026-08-24, from the Beau Miles study).
 

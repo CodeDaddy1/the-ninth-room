@@ -87,7 +87,10 @@ def run_checker(slug: str, task_id: str, craft: str, log=print) -> "list[str]":
         # takes carry `kind`, and the VO exemption is read from it
         tp = work / "analysis" / "takes.json"
         takes = json.loads(tp.read_text()) if tp.exists() else None
-        notes = schemas.coverage_notes(plan, takes)
+        # the catalog carries the tags the cover caps lift on
+        bp = work / "analysis" / "broll.json"
+        broll = json.loads(bp.read_text()) if bp.exists() else None
+        notes = schemas.coverage_notes(plan, takes, broll)
     # future crafts land here beside their *_notes bars (team plan P3)
     append(slug, [{"type": "checker_result", "by": "engine",
                    "task_id": task_id, "name": craft, "notes": notes}],

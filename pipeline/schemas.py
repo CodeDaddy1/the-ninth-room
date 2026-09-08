@@ -220,6 +220,14 @@ MAX_HOOK_SEC = 15.0
 COVER_MIN_S = 1.8        # below this a cutaway cannot be read
 COVER_MAX_RATIO = 0.6    # an on-camera beat stays an on-camera beat
 COVER_LANDING = 0.2      # the last fifth belongs to the face
+# The lifted ceiling for a beat whose every cover is tag-matched (Caleb,
+# 2026-08-28: T11 and T7 both rejected, "allow for extra b-roll if
+# relevant by tags"). NOT unbounded: 0.85 is the act-scoped coverage
+# ceiling the Rober wiring already names, so the number has a precedent
+# rather than being invented here, and it keeps an on-camera beat at
+# least a sixth face. The COUNT cap lifts entirely when the tags earn it;
+# this ratio is the backstop that stops a beat becoming pure b-roll.
+COVER_MAX_RATIO_TAGGED = 0.85
 
 # The b-roll grammar's justifications, in the brief's order. A cover's
 # `why` must LEAD with one of these words — the fifth, `process`, came
@@ -287,8 +295,44 @@ def beat_kind(beat: "dict", take_by_id: "dict | None") -> str:
     return take_kind(take_by_id.get(tid))
 
 
+def _clip_tags(clip: "dict | None") -> "set":
+    """A clip's tags, the agent's and Caleb's together.
+
+    `broll.catalog_broll` keeps them in two fields on purpose — merging
+    them into one list would let a description pass silently drop a
+    hand-typed keyword — so any reader asking "what is this clip about"
+    has to union them.
+    """
+    out = set()
+    for key in ("tags", "manual_tags"):
+        for t in (clip or {}).get(key) or []:
+            t = str(t).strip().lower()
+            if t:
+                out.add(t)
+    return out
+
+
+def _tag_matched(cover: "dict", clip: "dict | None") -> bool:
+    """True when the cover's `why` NAMES one of its clip's tags.
+
+    "Relevant by tags" has to mean the tag did work. Intersecting a
+    clip's tags with words in the beat's transcript would pass on
+    coincidence — a clip tagged "butterfly" over any line that happens to
+    say butterfly — and coincidence is exactly what a bombardment looks
+    like from the inside. Requiring the writer to name the tag in the why
+    it was already obliged to write costs an honest cover nothing and
+    cannot be hit by accident.
+    """
+    tags = _clip_tags(clip)
+    if not tags:
+        return False
+    why = str(cover.get("why", "")).lower()
+    return any(re.search(r"\b%s\b" % re.escape(t), why) for t in tags)
+
+
 def coverage_notes(plan: "dict[str, Any]",
-                   takes: "dict | None" = None) -> "list[str]":
+                   takes: "dict | None" = None,
+                   broll: "dict | None" = None) -> "list[str]":
     """The b-roll craft rules, checked mechanically (2026-08-24 — the
     crooise cut put five 1.1s postcards over the hook). ADVISORY, not part
     of validate_edit_plan: existing plans must not brick surgery writes.
@@ -304,12 +348,32 @@ def coverage_notes(plan: "dict[str, Any]",
     `process` earns NO exemption of its own (2026-08-24). Inside a beat
     anchored to a spoken take the landing still belongs to the face, and
     an exemption a cover could grant itself by naming it is not a bar.
+
+    TAGS LIFT TWO OF THESE, and only two (Caleb, 2026-08-28 — taste T11
+    and T7 both rejected, in his words "allow for extra b-roll if
+    relevant by tags"). When EVERY cover on a beat names one of its
+    clip's tags in its why, the three-cover cap lifts entirely and the
+    ratio ceiling rises to COVER_MAX_RATIO_TAGGED. Every, not any: one
+    unjustified cover in a pile is still what a bombardment is made of.
+
+    Never lifted, whatever the tags say: a `peak` beat stays untouchable
+    (the one rule six of the seven film studies converged on), the
+    landing still belongs to the face, COVER_MIN_S still applies, and a
+    cover still owes a why that leads with a justification.
     """
     notes: "list[str]" = []
+    clip_by_id = {c["id"]: c for c in (broll or {}).get("clips", [])
+                  if isinstance(c, dict) and isinstance(c.get("id"), str)}
     for b in plan.get("beats", []):
         covers = b.get("broll") or []
         if not covers:
             continue
+        # Without a catalog nothing can be tag-matched, so the caps stand
+        # exactly as they did — the lift is opt-in on real data, and the
+        # two existing callers that pass no broll are unaffected.
+        unmatched = [c for c in covers
+                     if not _tag_matched(c, clip_by_id.get(c.get("clip_id")))]
+        tagged = bool(clip_by_id) and not unmatched
         trim = b.get("trim") or {}
         dur = float(trim.get("e", 0)) - float(trim.get("s", 0))
         # WAS `take_id.startswith("vo_")`, which no take id can satisfy —
@@ -320,9 +384,20 @@ def coverage_notes(plan: "dict[str, Any]",
         if b.get("peak") and covers:
             notes.append("%s: a peak beat is covered — the face delivers"
                          % b["id"])
-        if len(covers) > 3 and not is_vo:
-            notes.append("%s: %d covers on one beat — that is a "
-                         "bombardment" % (b["id"], len(covers)))
+        if len(covers) > 3 and not is_vo and not tagged:
+            note = ("%s: %d covers on one beat — that is a bombardment"
+                    % (b["id"], len(covers)))
+            # NAME the cover that broke the match. Without this the lift
+            # is invisible machinery: a writer who tagged three of four
+            # sees the same sentence as one who tagged none, and cannot
+            # tell a rule that is working from a rule that is broken.
+            if clip_by_id and len(unmatched) < len(covers):
+                note += ("; %d of them name a tag, %s do not — say which "
+                         "tag each cover is here for and the cap lifts"
+                         % (len(covers) - len(unmatched),
+                            ", ".join(str(c.get("clip_id"))
+                                      for c in unmatched[:3])))
+            notes.append(note)
         total = 0.0
         for c in covers:
             d = float(c.get("duration", 0))
@@ -350,11 +425,17 @@ def coverage_notes(plan: "dict[str, Any]",
                     notes.append("%s: %s covers the landing — the last "
                                  "fifth belongs to the face"
                                  % (b["id"], c.get("clip_id")))
-        if dur > 0 and not is_vo and total / dur > COVER_MAX_RATIO + 0.01:
-            notes.append("%s: %.0f%% covered — past %.0f%% an on-camera "
-                         "beat stops being one"
-                         % (b["id"], 100 * total / dur,
-                            100 * COVER_MAX_RATIO))
+        ceiling = COVER_MAX_RATIO_TAGGED if tagged else COVER_MAX_RATIO
+        if dur > 0 and not is_vo and total / dur > ceiling + 0.01:
+            note = ("%s: %.0f%% covered — past %.0f%% an on-camera beat "
+                    "stops being one"
+                    % (b["id"], 100 * total / dur, 100 * ceiling))
+            if clip_by_id and unmatched and len(unmatched) < len(covers):
+                note += ("; the ceiling would be %.0f%% if %s named a tag"
+                         % (100 * COVER_MAX_RATIO_TAGGED,
+                            ", ".join(str(c.get("clip_id"))
+                                      for c in unmatched[:3])))
+            notes.append(note)
     return notes
 
 

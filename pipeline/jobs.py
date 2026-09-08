@@ -1621,7 +1621,9 @@ def _run_coverage(slug, log, set_pct):
     errs = schemas.validate_edit_plan(plan, takes, broll)
     if errs:
         raise RuntimeError("the pass broke the plan: %s" % errs[0])
-    notes = schemas.coverage_notes(plan, takes)
+    # broll is passed so the tag lift can fire — without the catalog
+    # nothing can be tag-matched and the caps stay where they were
+    notes = schemas.coverage_notes(plan, takes, broll)
     if notes:
         raise RuntimeError("the pass left craft violations: %s (+%d more)"
                            % (notes[0], len(notes) - 1))
