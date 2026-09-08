@@ -76,6 +76,48 @@ class MergeNotRebuild(unittest.TestCase):
         self.assertEqual(after[0]["description"], "the glass cone at dawn")
         self.assertEqual(after[0]["tags"], ["exterior"])
 
+    def test_framing_survives_a_re_analysis(self):
+        """The shot size is the story-designer's judgment, read off the
+        9-frame contact sheet while it writes the description — same
+        author, same lifecycle, so it needs the same carry-forward.
+
+        Without it every tag dies at the next ingest SILENTLY, and the
+        only symptom weeks later is the craft bar reporting clips as
+        untagged that somebody already tagged. That is the exact failure
+        this file exists to record, one field later."""
+        self._catalog(["a.mp4", "b.mp4"])
+        broll.catalog_broll("ep", log=lambda *a: None)
+        clips = self._broll()
+        clips[0]["framing"] = "detail"
+        (self.tmp / "analysis" / "broll.json").write_text(
+            json.dumps({"slug": "ep", "clips": clips}))
+        broll.catalog_broll("ep", log=lambda *a: None)
+        self.assertEqual(self._broll()[0]["framing"], "detail")
+
+    def test_an_untagged_clip_carries_the_empty_string(self):
+        """"" is the untagged state, and it must be a real key: the bar
+        reads `clip.get("framing") not in SHOT_SIZES`, and a missing key
+        and an empty one have to mean the same thing."""
+        self._catalog(["a.mp4"])
+        broll.catalog_broll("ep", log=lambda *a: None)
+        self.assertEqual(self._broll()[0]["framing"], "")
+
+    def test_a_catalog_with_framing_validates(self):
+        """And a typo does not — it would otherwise surface as the bar
+        reporting the clip untagged, which sends the writer to tag it
+        again rather than to fix the spelling."""
+        from pipeline import schemas
+        self._catalog(["a.mp4"])
+        broll.catalog_broll("ep", log=lambda *a: None)
+        doc = json.loads(
+            (self.tmp / "analysis" / "broll.json").read_text())
+        self.assertEqual(schemas.validate_broll(doc), [])
+        doc["clips"][0]["framing"] = "wide"
+        self.assertEqual(schemas.validate_broll(doc), [])
+        doc["clips"][0]["framing"] = "widee"
+        self.assertTrue(any("framing" in e
+                            for e in schemas.validate_broll(doc)))
+
     def test_an_added_file_gets_a_NEW_id_and_disturbs_nobody(self):
         self._catalog(["a.mp4", "b.mp4"])
         broll.catalog_broll("ep", log=lambda *a: None)

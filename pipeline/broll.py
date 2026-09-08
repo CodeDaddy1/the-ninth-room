@@ -317,6 +317,14 @@ def catalog_broll(slug: str, log=print) -> Path:
             "sheet": "sheets/" + sheet_name,
             # kept across re-analysis; "" only for a file never seen before
             "description": (was or {}).get("description", ""),
+            # Shot size, for the variety rule (cutbar C7). Carried forward
+            # for the same reason `description` is, and it is the whole
+            # reason C7 can exist without a vision API: the story-designer
+            # already opens every contact sheet to write the description,
+            # so naming the framing costs it nothing. Without this line the
+            # tag would die at the next ingest and C7 would start failing
+            # cuts for a reason nobody could see (2026-09-08).
+            "framing": (was or {}).get("framing", ""),
             # The agent's tags and Caleb's are kept APART and unioned for
             # anyone filtering. Merging them into one list would mean the
             # next description pass could silently drop a hand-typed

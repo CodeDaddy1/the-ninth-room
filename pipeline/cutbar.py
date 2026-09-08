@@ -100,7 +100,9 @@ GEAR_MIN_VO_BEATS = 5    # under this many vo beats the ratio is noise
 # C7 — the shot-size vocabulary for broll clip `framing`. Declared here:
 # the catalog has never carried the field, and it fills in exactly the
 # order it matters — a clip is only asked for a size once a plan uses it.
-SHOT_SIZES = ("wide", "medium", "close", "detail")
+# One home for the vocabulary: schemas owns it, the catalog and the
+# validator read it there too (2026-09-08).
+SHOT_SIZES = schemas.SHOT_SIZES
 
 _CH_RE = re.compile(r"CH(\d+)")
 

@@ -135,6 +135,16 @@ def validate_broll(data: "dict[str, Any]") -> "list[str]":
         # before the field existed validates unchanged.
         if "trim" in c:
             _validate_trim(errors, c["trim"], where)
+        # `framing` is written by the story-designer off the contact sheet
+        # and carried across re-analysis by broll.catalog_broll. "" is the
+        # untagged state the catalog writes for every clip, so it is valid;
+        # a value that is neither empty nor a shot size is a typo the bar
+        # would otherwise report as "untagged" and the writer would fix by
+        # tagging it again (2026-09-08).
+        if c.get("framing") not in (None, "") \
+                and c.get("framing") not in SHOT_SIZES:
+            errors.append("%s: framing '%s' not in %s"
+                          % (where, c.get("framing"), SHOT_SIZES))
     return errors
 
 
@@ -217,6 +227,12 @@ COVER_LANDING = 0.2      # the last fifth belongs to the face
 # against a spoken line, so footage of the work advancing had no legal
 # reason to exist and R1 obliged an editor to DELETE it.
 COVER_WHYS = ("establish", "illustrate", "foretell", "bridge", "process")
+
+# Shot size, for the variety rule. Lives HERE and not in cutbar.py for the
+# same reason `kind` lives on the take: a vocabulary with two homes drifts,
+# and this one is read by the b-roll catalog, the validator and the bar
+# (2026-09-08). `cutbar.SHOT_SIZES` is an alias of this tuple.
+SHOT_SIZES = ("wide", "medium", "close", "detail")
 
 
 def why_kind(why: "Any") -> "str | None":
@@ -532,6 +548,35 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
                 errors.append("%s: duplicate chapter id '%s'" % (where, ch["id"]))
             chapter_ids.add(ch["id"])
         _req(errors, ch, "title", str, where)
+        # The pace ladder cutbar grades (C1). Absent-tolerant on purpose:
+        # every plan written before the field existed must still validate,
+        # so the schema only says what a well-formed one looks like and
+        # `cutbar.cut_notes` is what asks for it at all (2026-09-08).
+        if "pace_cpm" in ch:
+            v = ch["pace_cpm"]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) \
+                    or v <= 0:
+                errors.append("%s: pace_cpm must be a positive number of "
+                              "cuts per minute" % where)
+
+    # Declared threads (the chronology escape hatch) and the loop ledger.
+    # SHAPE ONLY, for the same reason coverage_notes is advisory: whether a
+    # thread earns its exception, or a loop pays in order, is craft, and
+    # craft lives in cutbar. An undeclared thread id on a beat is therefore
+    # NOT an error here -- cutbar reads it and asks for its why.
+    for i, t in enumerate(plan.get("threads") or []):
+        where = "threads[%d]" % i
+        if not isinstance(t, dict):
+            errors.append(where + ": not an object")
+            continue
+        _req(errors, t, "id", str, where)
+        _req(errors, t, "why", str, where)
+    for i, lp in enumerate(plan.get("loops") or []):
+        where = "loops[%d]" % i
+        if not isinstance(lp, dict):
+            errors.append(where + ": not an object")
+            continue
+        _req(errors, lp, "id", str, where)
 
     used_groups: "dict[str, str]" = {}
     # Beats were the ONE id space here without a uniqueness check
@@ -631,6 +676,38 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
         if tech == "jump" and not b.get("cuts"):
             errors.append("%s: technique 'jump' but the beat has no cuts — a "
                           "jump cut is time removed from ONE take" % where)
+        # --- the craft-bar's beat fields (2026-09-08) ---
+        # Shape only, and absent-tolerant. cutbar decides whether a loop
+        # pays in order or a flag_note earns its take; this only refuses a
+        # field that is present and malformed, because a `pays_loop` of 3
+        # or a `peak` of "yes" reads as absent to every grader and the
+        # writer never learns why its declaration did nothing.
+        for key in ("opens_loop", "pays_loop", "thread", "flag_note"):
+            if key in b and not (isinstance(b[key], str) and b[key].strip()):
+                errors.append("%s: %s must be a non-empty string"
+                              % (where, key))
+        if "peak" in b and not isinstance(b["peak"], bool):
+            errors.append("%s: peak must be true or false" % where)
+        for j, pn in enumerate(b.get("punches") or []):
+            pw = "%s.punches[%d]" % (where, j)
+            if not isinstance(pn, dict):
+                errors.append(pw + ": not an object")
+                continue
+            for key in ("at", "zoom"):
+                v = pn.get(key)
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    errors.append("%s: missing numeric '%s'" % (pw, key))
+        # PEAK PROTECTION, first of three sites. A peak is the moment the
+        # cut exists to deliver, and a zoom punch is the editor talking
+        # over it. The other two are the card refusal in
+        # validate_graphics_plan and the dead-space exemption in
+        # timeline.plan_beats -- six of the seven film studies converged
+        # on protecting these, which is more evidence than any other rule
+        # in the program has behind it.
+        if b.get("peak") is True and b.get("punches"):
+            errors.append("%s: a peak beat carries %d punch-in(s) — the "
+                          "moment plays, the edit does not comment on it"
+                          % (where, len(b["punches"])))
         if chapter_ids and b.get("chapter_id") and b["chapter_id"] not in chapter_ids:
             errors.append("%s: unknown chapter '%s'" % (where, b["chapter_id"]))
 
@@ -738,7 +815,19 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
         if not last.endswith(_terminal):
             errs.append("beat %s: ends mid-sentence near %r — extend the trim to the "
                         "sentence end or mark fragment:true" % (b.get("id"), last))
-        idx_start = max(0, int((trim["s"] - t["s"]) / span * len(toks)))
+        # CLAMPED AT BOTH ENDS, like idx_end above. `idx_start` only ever
+        # had a floor, so a trim starting past its take's end indexed off
+        # the transcript and the whole validator raised IndexError instead
+        # of returning the errors it had already collected -- including the
+        # "trim outside take bounds" error that names the very cause.
+        #
+        # That is not theoretical: it happens on the shipped hmns plan
+        # today (beat BT19 names take T56, 0.00-2.07, and trims 4.14-7.30,
+        # which is T57's window). A validator that dies on the input it
+        # exists to reject cannot be a gate, and _run_editplan is about to
+        # call this on untrusted agent output (2026-09-08).
+        idx_start = min(len(toks) - 1,
+                        max(0, int((trim["s"] - t["s"]) / span * len(toks))))
         if idx_start > 0 and not toks[idx_start - 1].rstrip().endswith(_terminal):
             errs.append("beat %s: starts mid-sentence near %r — pull the trim back to "
                         "the sentence start or mark fragment:true"
@@ -814,6 +903,10 @@ def validate_graphics_plan(plan: "dict[str, Any]",
     if not _req(errors, plan, "cards", list, "graphics"):
         return errors
     beat_ids = {b["id"] for b in (edit_plan or {}).get("beats", [])}
+    # PEAK PROTECTION, second of three sites (2026-09-08). Only knowable
+    # when the cut is passed in, which is why it lives beside beat_ids.
+    peak_beats = {b["id"] for b in (edit_plan or {}).get("beats", [])
+                  if b.get("peak") is True}
     ids = set()
     for i, c in enumerate(plan["cards"]):
         where = "cards[%d]" % i
@@ -838,6 +931,10 @@ def validate_graphics_plan(plan: "dict[str, Any]",
                               % (where, c["at"], c.get("beat_id"), blen))
         if beat_ids and c.get("beat_id") not in beat_ids:
             errors.append("%s: unknown beat '%s'" % (where, c.get("beat_id")))
+        if c.get("beat_id") in peak_beats:
+            errors.append("%s: a card on peak beat %s — the reaction is "
+                          "the product, and nothing shares the frame with "
+                          "it" % (where, c.get("beat_id")))
         for key in ("at", "duration"):
             if not isinstance(c.get(key), (int, float)):
                 errors.append("%s: missing numeric '%s'" % (where, key))

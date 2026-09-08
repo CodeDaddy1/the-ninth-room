@@ -299,7 +299,22 @@ def plan_beats(slug: str) -> "dict":
                     "the trim on the Footage desk or pick another take"
                     % (b["id"], b["take_id"], trim["s"], trim["e"],
                        f["name"], t_in, t_out))
-            segments = cut_dead_space(span_s, span_e, f.get("silence", []),
+            # PEAK PROTECTION, third of three sites (2026-09-08). On a
+            # peak the pause IS the moment -- the beat exists to deliver a
+            # reaction, and automatic silence removal deletes exactly the
+            # thing being protected. Six of the seven film studies found
+            # this independently: Johnny Harris as engineered silence,
+            # Beau Miles as darkness plus a 6x slower cut rate, Kara &
+            # Nate as the film's only true silence, laid on the moment the
+            # premise broke.
+            #
+            # The exemption is the GAPS, not the call. The beat's own
+            # `cuts` are the editor's deliberate removals and still apply
+            # -- dropping the call outright would silently discard them,
+            # which is a different bug wearing this one's clothes.
+            segments = cut_dead_space(span_s, span_e,
+                                      [] if b.get("peak") is True
+                                      else f.get("silence", []),
                                       hard_cuts=b.get("cuts"),
                                       words=file_words(f),
                                       audio_path=f.get("path"),
