@@ -110,6 +110,36 @@ def cmd_scorecard_path(args) -> int:
     return 0
 
 
+def cmd_cut_check(args) -> int:
+    """The bar, runnable. The story-designer's prompt tells it to run this
+    and leave it empty before ending its session — a bar failure caught
+    mid-session costs nothing, one caught at promote costs the session."""
+    from . import promote
+    try:
+        r = promote.check_cut(args.slug, staged=args.staged)
+    except Exception as e:
+        print("cannot check: %s" % e)
+        return 2
+    m = r["metrics"]
+    print("\n  %s%s — %d beats, %d chapters, %s peaks, %s loops"
+          % (args.slug, " (staged)" if args.staged else "",
+             m.get("beats", 0), m.get("chapters", 0),
+             m.get("peaks", 0), m.get("loops", 0)))
+    for label, rows in (("MUST FIX", r["errors"]), ("CRAFT BAR", r["notes"])):
+        if rows:
+            print("  %s — %d" % (label, len(rows)))
+            for x in rows:
+                print("    - %s" % x)
+    if r["ok"]:
+        print("  PASS — nothing to fix\n")
+        return 0
+    if not r["errors"] and not r["bar_armed"]:
+        print("  the craft bar is not armed yet, so these do not block a "
+              "promote — fix them anyway, they are the cut\n")
+    print("")
+    return 1
+
+
 def cmd_migrate_beat_ids(args) -> int:
     """Dry run by default. `--apply` is a second, deliberate run, made
     after reading what the first one printed."""
@@ -351,6 +381,14 @@ def main(argv=None) -> int:
     p.add_argument("slug")
     p.add_argument("task_id")
     p.set_defaults(fn=cmd_scorecard_path)
+    p = sub.add_parser("cut-check",
+                       help="run the cut's validators and craft bar")
+    p.add_argument("slug")
+    p.add_argument("--staged", action="store_true",
+                   help="check work/<slug>/staging/edit_plan.json instead "
+                        "of the built cut")
+    p.set_defaults(fn=cmd_cut_check)
+
     p = sub.add_parser("migrate-beat-ids",
                        help="rename beats onto the anchor scheme (dry run "
                             "unless --apply)")

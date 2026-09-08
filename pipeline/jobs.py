@@ -67,7 +67,7 @@ _LOCK = threading.Lock()
 # source — a new kind must be classified deliberately, and
 # test_job_lanes.py fails if any kind in KINDS is missing from it.
 SESSION_KINDS = {
-    "story", "editplan", "coverage", "graphics", "script", "research",
+    "story", "editplan", "recut", "coverage", "graphics", "script", "research",
     "sourcing", "interview",
     "retention", "room", "publish", "scout", "fixer", "hook", "perf",
     "retro", "diagnose",
@@ -447,6 +447,75 @@ STORY_PROMPT = (
     ":8765; leave it alone.")
 
 
+def _craft_clause(slug) -> str:
+    """The craft bar, stated to the writer BEFORE it writes.
+
+    The bar was calibrated against five real cuts and then wired to
+    nothing, and the fields it grades — pace_cpm, opens_loop, pays_loop,
+    framing, peak — appeared in no brief. A gate that asks for
+    declarations nobody was told to make is not a gate, it is a trap: the
+    session spends its minutes, the promote refuses, and the notes name
+    fields the agent has never heard of.
+
+    EVERY NUMBER IS READ FROM `cutbar`, never retyped. That is what keeps
+    the calibration doc's promise that recalibrating means changing one
+    constant and re-running the report, rather than hunting for the same
+    figure in a prompt string. Pure, so a test can prove the numbers
+    actually reach the agent — the same reason `_brief_clause` is pure.
+    """
+    from . import cutbar
+    b = _read_json(work_path(slug) / "story_brief.json", {}) or {}
+    chapters = int(b.get("chapters") or 0)
+    short = str(b.get("delivery") or "long") == "short"
+    peaks = max(cutbar.PEAKS_MIN, chapters - 1) if chapters else cutbar.PEAKS_MIN
+
+    c = ("THE CRAFT BAR (mechanical, checked on promote — run "
+         "`/usr/bin/python3 -m pipeline.cli cut-check %s --staged` and "
+         "leave it EMPTY before you finish): " % slug)
+    # The chapter half of the peak rule is vacuous below two chapters,
+    # and saying it anyway teaches a short-form writer to look for a
+    # structure its format does not have.
+    where = ("" if chapters < 2
+             else ", one in every chapter after the intro")
+    c += ("Protect %d PEAK beats%s, %g-%gs each, marked `\"peak\": true` — "
+          "nothing may cover, card or punch a peak, and the renderer stops "
+          "cutting its silence. "
+          % (peaks, where, cutbar.PEAK_LEN_S[0], cutbar.PEAK_LEN_S[1]))
+    if short:
+        c += ("This is a SHORT: one loop, not a ledger, and no chapter "
+              "furniture. ")
+    else:
+        c += ("Declare `pace_cpm` (cuts per minute) on EVERY chapter as a "
+              "DECLINING ladder — the last chapter at or under %.0f%% of "
+              "the first, at most %d second wind, and the cut you actually "
+              "build within %.0f%% of what you declared. "
+              % (cutbar.PACE_DECLINE_MAX * 100, cutbar.PACE_REVERSALS_MAX,
+                 cutbar.PACE_BAND * 100))
+        c += ("Every chapter opens AND closes, and carries one moment "
+              "between its doors that LANDS: a peak, or a beat whose "
+              "purpose is one of %s. " % "/".join(cutbar.CHAPTER_TEXTURE))
+        if chapters >= cutbar.LONG_FORM_CHAPTERS or not chapters:
+            c += ("Open at least %d loops (`opens_loop` on the beat that "
+                  "promises, `pays_loop` on the beat that pays) and pay "
+                  "them IN ORDER, the last one past %.0f%% of the runtime. "
+                  % (cutbar.LOOPS_MIN, cutbar.CLIMAX_AT * 100))
+        c += ("The hook is a chapter-preview montage: %d covers, each at "
+              "least %.1fs, each `why` LEADING with foretell and naming "
+              "its chapter id. "
+              % (min(chapters, cutbar.HOOK_COVERS_CAP) if chapters
+                 else cutbar.HOOK_COVERS_CAP, cutbar.COVER_MIN_S))
+    c += ("Tag every b-roll clip you place with `framing` — one of %s — "
+          "read off its 9-frame contact sheet under analysis/sheets, and "
+          "write it back into analysis/broll.json; consecutive covers in "
+          "one beat change framing or move tighter. "
+          % "/".join(cutbar.SHOT_SIZES))
+    c += ("A beat quoting a flagged or superseded take needs a "
+          "`flag_note` saying why that one is right anyway. ")
+    c += ("To break chronology, declare a `threads` entry with a `why` and "
+          "put its id on at least two beats. ")
+    return c
+
+
 def _brief_clause(slug) -> str:
     """The questionnaire's voice in the prompt. Pure and separate so a test
     can prove the brief actually reaches the agent -- the failure mode a
@@ -503,7 +572,11 @@ def _story_prompt(slug) -> str:
     return STORY_PROMPT % {"slug": slug, "brief": _brief_clause(slug)}
 
 
-def _editplan_prompt(slug) -> str:
+def _editplan_prompt(slug, retry_notes=None) -> str:
+    """`retry_notes` turns a second attempt into an EDIT rather than a
+    rewrite: the staged file is still on disk and the notes say what is
+    wrong with it, so the session fixes those lines instead of spending
+    its minutes re-deriving a cut it already wrote."""
     clause = _brief_clause(slug)
     source = (EDITPLAN_SOURCE_SCRIPT if _script_origin(slug) == "script"
               else EDITPLAN_SOURCE_PITCH) % {"slug": slug}
@@ -516,7 +589,16 @@ def _editplan_prompt(slug) -> str:
                    "ingest) with b-roll covering their ENTIRE beat -- a "
                    "teleprompter recording on screen is a mistake. Respect "
                    "the one-use-per-b-roll-clip rule. " % slug)
-    return EDITPLAN_PROMPT % {"slug": slug, "brief": clause, "source": source}
+    retry = ""
+    if retry_notes:
+        retry = ("YOUR LAST ATTEMPT IS STILL AT work/%s/staging/"
+                 "edit_plan.json and it did not pass. Fix these IN PLACE "
+                 "rather than starting over: %s. "
+                 % (slug, "; ".join(retry_notes[:6])))
+    return EDITPLAN_PROMPT % {"slug": slug, "brief": clause,
+                              "source": source,
+                              "craft": _craft_clause(slug),
+                              "retry": retry}
 
 
 def _run_story(slug, log, set_pct):
@@ -551,8 +633,14 @@ EDITPLAN_PROMPT = (
     "Read .claude/agents/story-designer.md "
     "and act as that agent for the EDIT PLAN stage: %(source)s "
     "Read work/%(slug)s/analysis/ (takes, b-roll, timings) and "
-    "write work/%(slug)s/edit_plan.json that satisfies the agent's plan "
-    "rules. Do NOT run conforms or renders, and do NOT touch DaVinci "
+    "write work/%(slug)s/staging/edit_plan.json that satisfies the "
+    "agent's plan rules. WRITE TO staging/ — the runner validates what "
+    "you leave there and promotes it; writing to "
+    "work/%(slug)s/edit_plan.json directly replaces the built cut with "
+    "something nothing has checked. Beat ids are MINTED BY THE ENGINE "
+    "from the shot each beat shows, so any placeholder id will do and "
+    "will be rewritten. %(craft)s%(retry)s"
+    "Do NOT run conforms or renders, and do NOT touch DaVinci "
     "Resolve. The engine is running on :8765; leave it alone.")
 
 # The two lanes hand the cut a different source. A visit is cut from the
@@ -1067,13 +1155,93 @@ def _run_editplan(slug, log, set_pct):
         # not a button press
         raise RuntimeError("edit_plan.json already exists — the cut is "
                            "built; re-cutting is a session decision")
+    # A LEFTOVER STAGED CUT IS A RETRY, NOT RUBBISH. A promote that
+    # refused left the file exactly where the session put it, precisely so
+    # the next attempt can be handed its own notes and fix them in place
+    # instead of spending a second session re-deriving the same cut.
+    from . import promote
+    retry_notes = None
+    if promote.staged_plan(slug).exists():
+        try:
+            chk = promote.check_cut(slug, staged=True)
+            retry_notes = (chk["errors"] + chk["notes"]) or None
+        except Exception:
+            retry_notes = None
+        if retry_notes:
+            log("[editplan] a staged cut from a previous attempt is still "
+                "here with %d finding(s) — handing them back rather than "
+                "starting over" % len(retry_notes))
+        else:
+            promote.clear_staging(slug)
     log("[editplan] dispatching the story designer for the cut")
     set_pct(5)
-    _dispatch_json(_editplan_prompt(slug), log, set_pct, "editplan")
+    _dispatch_json(_editplan_prompt(slug, retry_notes), log, set_pct,
+                   "editplan")
+    # The runner promotes; the agent no longer publishes. Everything
+    # promote_cut checks raises BEFORE the swap, so a refusal leaves the
+    # built cut untouched and the staged file on disk to diagnose.
+    r = promote.promote_cut(slug, reason="promote", log=log)
+    log("[editplan] cut promoted — %d beats, ids minted by the engine; "
+        "assemble builds the timeline next" % r["beats"])
+    set_pct(100)
+
+
+def _run_recut(slug, log, set_pct, arg=None):
+    """Rebuild a cut that already exists, carrying what still applies.
+
+    `_run_editplan` refuses when a plan exists, and that refusal stays
+    honest — overwriting a cut the desks and reviews hang off is a
+    decision, not a button press. THIS is the sanctioned door, and it
+    differs from editplan in exactly two ways: it requires a plan rather
+    than refusing one, and it hands `promote_cut` the plan being replaced
+    so verdicts follow the SHOT through the id map instead of being
+    thrown away.
+
+    `arg` is Caleb's one line saying what this re-cut should improve.
+    It is required, and that is pre-registration in miniature: a re-cut
+    with no stated intent cannot be judged against anything afterwards.
+    The guard is repeated here as well as in `start()` because a chain
+    follower, a retry or a direct call goes straight to the runner — the
+    lesson `_run_story` records at its own guard.
+    """
+    from . import promote
+    work = work_path(slug)
+    plan_path = work / "edit_plan.json"
     if not plan_path.exists():
-        raise RuntimeError("session finished but edit_plan.json was not "
-                           "written — read the log")
-    log("[editplan] cut written — assemble builds the timeline next")
+        raise RuntimeError("there is no cut to re-cut — build one first")
+    reason = str(arg or "").strip()
+    if not reason:
+        raise RuntimeError("say in one line what this re-cut should "
+                           "improve — a re-cut with no stated intent "
+                           "cannot be judged against the one it replaces")
+    before = _read_json(plan_path, None)
+    if before is None:
+        raise RuntimeError("the built cut is not readable JSON")
+
+    retry_notes = None
+    if promote.staged_plan(slug).exists():
+        try:
+            chk = promote.check_cut(slug, staged=True)
+            retry_notes = (chk["errors"] + chk["notes"]) or None
+        except Exception:
+            retry_notes = None
+        if not retry_notes:
+            promote.clear_staging(slug)
+
+    log("[recut] rebuilding the cut — %s" % reason)
+    set_pct(5)
+    _dispatch_json(_editplan_prompt(slug, retry_notes) +
+                   ("THIS IS A RE-CUT of an existing plan. What it must "
+                    "improve: %s. The current cut is at "
+                    "work/%s/edit_plan.json — read it, then write the NEW "
+                    "one to staging/. " % (reason, slug)),
+                   log, set_pct, "recut")
+    r = promote.promote_cut(slug, reason="recut", note=reason,
+                            carry_from=before, log=log)
+    log("[recut] %d beats — %d verdicts carried, %d back in the queue, "
+        "%d archived. Screening only what changed."
+        % (r["beats"], len(r["carried"]), len(r["requeued"]),
+           len(r["stranded"])))
     set_pct(100)
 
 
@@ -1949,6 +2117,7 @@ KINDS = {
     "fixer": ("Auto-fix — rework the flagged clips", _run_fixer),
     "story": ("Pitch stories — three directions", _run_story),
     "editplan": ("Build the cut", _run_editplan),
+    "recut": ("Re-cut — rebuild it, carry what still applies", _run_recut),
     "interview": ("Interview me — the director's questions", _run_interview),
     "script": ("Write the script", _run_script),
     "sourcing": ("Source supporting coverage", _run_sourcing),
@@ -1981,6 +2150,8 @@ KINDS = {
 # Only DONE jobs chain — a failure stops the line and says so.
 CHAIN = {
     "editplan": "assemble",
+    # a re-cut is only watchable once the timeline and proxies follow it
+    "recut": "assemble",
     # `script -> sourcing` USED to live here and has moved to the approval
     # (editroom._save_script_feedback, 2026-08-25). The intent is unchanged
     # — sourcing finds what can show the narration, then STOPS at the human
@@ -2303,6 +2474,17 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
             raise JobError("ingest first — the designer needs transcripts")
         if (work_path(slug) / "edit_plan.json").exists():
             raise JobError("story is locked — an edit plan already exists")
+    if kind == "recut":
+        # Both of these are answerable before the click, which is the
+        # whole point of the job contract: a session that dispatches and
+        # then discovers it had nothing to do costs billed minutes to
+        # learn what a file check knows for free.
+        if not (work_path(slug) / "edit_plan.json").exists():
+            raise JobError("there is no cut to re-cut — build one first")
+        if not str(arg or "").strip():
+            raise JobError("say in one line what this re-cut should "
+                           "improve — a re-cut with no stated intent "
+                           "cannot be judged against the one it replaces")
     if kind == "fixer":
         rv = work_path(slug) / "review.json"
         n = 0

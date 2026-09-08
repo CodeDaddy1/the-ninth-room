@@ -4334,6 +4334,25 @@ def _recheck_script(slug: str) -> "dict":
             "locked": bool(script.get("locked"))}
 
 
+def _recheck_cut(slug: str, staged: bool = False) -> "dict":
+    """Run the cut's own gates against what is on disk RIGHT NOW.
+
+    Same reasoning as `_recheck_script`, one artifact over: the job
+    validates what it promoted, which is enough while the job is the only
+    writer. A resumed session is not the job — it edits the same files
+    with the same authority and answers to nothing — and neither is a
+    surgery write from the desk. This is the way back, and it REPORTS
+    rather than refusing, because by the time anyone asks the cut is
+    already built and the question is what to fix.
+
+    `metrics` rides along deliberately. A desk that lists the failures
+    without the numbers cannot tell an over-strict threshold from a bad
+    cut, which is the one judgement the calibration review needs to make.
+    """
+    from . import promote
+    return promote.check_cut(slug, staged=staged)
+
+
 def _unlock_script(slug: str) -> "dict":
     """Reopen an approved script. Deliberately its own verb: approving is
     what tells every later stage the words are final, so undoing it should
@@ -6098,9 +6117,19 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                            body.get("notes", ""),
                                            body.get("decision", "direction"))
                 self._send(200, {"ok": True, "feedback": fb})
+            # THE ENVELOPE FLAG MUST NOT EAT THE VERDICT. Both these
+            # checkers return `ok` meaning "this artifact passes", and
+            # the route used to wrap the result in `dict(..., ok=True)`
+            # for the call-succeeded flag — which overwrote it. The
+            # Studio badges "clean ✓" on `ok` (session-doors.tsx), so a
+            # script that missed its bar was reported clean on the one
+            # surface built to report that it had not. The HTTP 200 is
+            # already the call-succeeded signal; nothing else is needed.
+            elif self.path == "/api/cut/recheck":
+                self._send(200, _recheck_cut(self._slug_b(body),
+                                             bool(body.get("staged"))))
             elif self.path == "/api/script/recheck":
-                self._send(200, dict(_recheck_script(self._slug_b(body)),
-                                     ok=True))
+                self._send(200, _recheck_script(self._slug_b(body)))
             elif self.path == "/api/script/unlock":
                 sc = _unlock_script(self._slug_b(body))
                 self._send(200, {"ok": True, "locked": sc.get("locked", False)})

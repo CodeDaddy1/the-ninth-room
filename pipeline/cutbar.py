@@ -79,6 +79,14 @@ LONG_FORM_CHAPTERS = 3   # at or past this many chapters, the cut is
 # C3 — peak protection is the finding six of the seven film studies
 # independently confirmed: the reaction is the product, and it is delivered
 # uncovered. hmns marked zero.
+# CALIBRATION GAP, for the ten-minute review: PEAKS_MIN and the
+# max(PEAKS_MIN, chapters-1) rule below were measured against five
+# LONG-FORM cuts (hmns, houston, allure and the two _compare_ runs, all
+# 82-beat museum days). No short was in that set, so a 45-second vertical
+# is currently told to protect two moments of 8s or more out of 45s. That
+# may well be right — a short is mostly payoff — but it is untested, and
+# inventing a short-form threshold here rather than measuring one is the
+# mistake the build-share cap already made once (2026-09-08).
 PEAKS_MIN = 2
 PEAK_LEN_S = (8.0, 45.0)  # the standing rule says 15-30s; the band is
                           # wider so a marked reaction beat does not
