@@ -61,19 +61,109 @@ class TheValidatorReportsInsteadOfRaising(unittest.TestCase):
     on the input it exists to reject cannot be a gate, and the cut job is
     about to call it on untrusted agent output."""
 
-    def test_a_trim_past_the_takes_end_reports_and_does_not_raise(self):
+    def _far_outside(self):
+        """A trim that lands in a NEIGHBOUR's words, which is what the
+        bounds rule refuses since 2026-09-08. Silence past the last take
+        on a file is legal now (`schemas.take_window`), so the fixture
+        needs a neighbour for there to be anything to reach into."""
         plan, takes = _plan()
-        plan["beats"][1]["trim"] = {"s": 40.0, "e": 47.0}   # take ends at 10
+        takes["takes"].append({"id": "T3", "file": "b.mp4", "s": 30.0,
+                               "e": 50.0, "duration": 50.0,
+                               "transcript": "The neighbour's own line."})
+        plan["beats"][1]["trim"] = {"s": 40.0, "e": 47.0}   # T2 ends at 10
+        return plan, takes
+
+    def test_a_trim_inside_another_take_reports_and_does_not_raise(self):
+        plan, takes = self._far_outside()
         errs = _errs(plan, takes)                            # must not raise
         self.assertTrue(any("outside take" in e for e in errs), errs)
 
     def test_the_bounds_error_survives_to_the_caller(self):
         """The point of the fix: the diagnosis is IN the returned list."""
-        plan, takes = _plan()
-        plan["beats"][1]["trim"] = {"s": 40.0, "e": 47.0}
+        plan, takes = self._far_outside()
         errs = _errs(plan, takes)
-        self.assertTrue(any("T2" in e and "outside take" in e for e in errs),
-                        errs)
+        self.assertTrue(any("T2" in e and "outside take" in e
+                            for e in errs), errs)
+
+
+class ABeatMayHoldTheSilenceAroundItsTake(unittest.TestCase):
+    """A take's bounds are where the WORDS are. whisper ends them on the
+    last syllable, and a beat routinely wants the silence on either side:
+    hmns holds three of them on purpose, each with Caleb's note attached,
+    and the assembler puts all three on screen. The old rule refused every
+    one, which meant the shipped episode failed its own validator and
+    could not be re-assembled at all (2026-09-08)."""
+
+    def _two_takes_one_file(self):
+        plan, takes = _plan()
+        # T2 and T3 share b.mp4 with a 20s gap of silence between them
+        takes["takes"].append({"id": "T3", "file": "b.mp4", "s": 30.0,
+                               "e": 50.0, "duration": 50.0,
+                               "transcript": "The neighbour's own line."})
+        return plan, takes
+
+    def test_a_held_tail_into_the_gap_is_legal(self):
+        plan, takes = self._two_takes_one_file()
+        plan["beats"][1]["trim"] = {"s": 0.0, "e": 12.0}     # 2s of silence
+        self.assertEqual([e for e in _errs(plan, takes) if "trim" in e], [])
+
+    def test_a_head_into_the_gap_is_legal(self):
+        plan, takes = self._two_takes_one_file()
+        plan["beats"][1]["take_id"] = "T3"
+        plan["beats"][1]["trim"] = {"s": 28.0, "e": 50.0}    # 2s before it
+        self.assertEqual([e for e in _errs(plan, takes) if "trim" in e], [])
+
+    def test_the_gap_ends_where_the_next_takes_words_begin(self):
+        plan, takes = self._two_takes_one_file()
+        plan["beats"][1]["trim"] = {"s": 0.0, "e": 31.0}     # 1s into T3
+        self.assertTrue(any("outside take" in e
+                            for e in _errs(plan, takes)))
+
+    def test_silence_after_the_last_take_on_a_file_is_capped_not_open(self):
+        """With no neighbour there is nothing to reach into, so only
+        MAX_HOLD_SEC bounds it. hmns's shot-T331 holds 1.6s of the kids
+        still on camera and passes; an unbounded side would have let
+        shot-T374 name a take on a 4.9s file and trim 236 to 240 of it."""
+        plan, takes = _plan()                     # T2 on b.mp4 runs 0-10
+        plan["beats"][1]["trim"] = {"s": 0.0, "e": 12.0}      # 2s hold
+        self.assertEqual([e for e in _errs(plan, takes) if "trim" in e], [])
+        plan["beats"][1]["trim"] = {"s": 0.0, "e": 14.0}      # 4s hold
+        self.assertTrue(any("outside take" in e
+                            for e in _errs(plan, takes)))
+
+    def test_a_neighbour_on_a_DIFFERENT_file_does_not_bound_it(self):
+        """T1 sits at 0-10 too, but on a.mp4. Only same-file takes are
+        neighbours; otherwise every beat would be bounded by whatever
+        happened to be recorded at the same clock time elsewhere."""
+        plan, takes = _plan()
+        plan["beats"][1]["trim"] = {"s": 0.0, "e": 12.0}
+        self.assertEqual([e for e in _errs(plan, takes) if "trim" in e], [])
+
+    def test_a_backwards_trim_is_still_refused(self):
+        """Widening the window must not lose the check that a trim has
+        to be a forward span at all."""
+        plan, takes = _plan()
+        plan["beats"][1]["trim"] = {"s": 8.0, "e": 3.0}
+        self.assertTrue(any("empty or backwards" in e
+                            for e in _errs(plan, takes)))
+
+    def test_the_cap_wins_when_the_neighbours_are_far(self):
+        t2 = {"id": "T2", "file": "b.mp4", "s": 20.0, "e": 30.0}
+        rows = [{"id": "T1", "file": "b.mp4", "s": 0.0, "e": 10.0},
+                t2,
+                {"id": "T3", "file": "b.mp4", "s": 40.0, "e": 50.0},
+                {"id": "T9", "file": "other.mp4", "s": 25.0, "e": 26.0}]
+        self.assertEqual(schemas.take_window(t2, rows),
+                         (20.0 - schemas.MAX_HOLD_SEC,
+                          30.0 + schemas.MAX_HOLD_SEC))
+
+    def test_a_close_neighbour_wins_over_the_cap(self):
+        """The words of another take are the harder bound of the two."""
+        t2 = {"id": "T2", "file": "b.mp4", "s": 20.0, "e": 30.0}
+        rows = [{"id": "T1", "file": "b.mp4", "s": 12.0, "e": 19.0},
+                t2,
+                {"id": "T3", "file": "b.mp4", "s": 31.0, "e": 50.0}]
+        self.assertEqual(schemas.take_window(t2, rows), (19.0, 31.0))
 
 
 class TheRealPlanIsUnchanged(unittest.TestCase):
@@ -88,10 +178,20 @@ class TheRealPlanIsUnchanged(unittest.TestCase):
         takes = json.loads((w / "analysis" / "takes.json").read_text())
         broll = json.loads((w / "analysis" / "broll.json").read_text())
         errs = _errs(plan, takes, broll)
-        # Every error is one of the two pre-existing families. A craft
-        # field firing here would mean the new checks are not tolerant.
+        # Every error is one of the three families that predate the craft
+        # fields. A craft field firing here would mean the new checks are
+        # not tolerant, which is what this ratchet is for.
+        #
+        # "kill list" joined the list on 2026-09-08, and it is a finding
+        # rather than a regression: `rebind-takes` corrected beats[20]
+        # from T49 to T50, which is the take it actually shows — and T50
+        # carries a kill-list entry reading "Caleb: cut in review (was
+        # BT17)". The mis-binding is why that rule never fired. Whether
+        # the beat or the kill entry is the mistake is Caleb's call, and
+        # it is open.
         for e in errs:
-            self.assertTrue("outside take" in e or "mid-sentence" in e,
+            self.assertTrue("outside take" in e or "mid-sentence" in e
+                            or "kill list" in e,
                             "a new check fired on the shipped plan: %s" % e)
 
     def test_hmns_broll_still_validates(self):

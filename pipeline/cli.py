@@ -162,6 +162,26 @@ def cmd_migrate_beat_ids(args) -> int:
     return 0
 
 
+def cmd_rebind_takes(args) -> int:
+    """Dry run by default, like every other verb that rewrites a cut."""
+    from . import rebind_takes
+    try:
+        s = rebind_takes.survey(args.slug)
+    except rebind_takes.RebindError as e:
+        print("refused: %s" % e)
+        return 1
+    rebind_takes.print_survey(s)
+    if not s["proposals"]:
+        return 0
+    if not args.apply:
+        print("  DRY RUN — nothing was written. Re-run with --apply.\n")
+        return 0
+    r = rebind_takes.apply(args.slug)
+    print("\n  %d beats rebound, %d renamed. Backups in %s/.\n"
+          % (r["rebound"], r["renamed"], r["backup_dir"]))
+    return 0
+
+
 def cmd_snap_cuts(args) -> int:
     from . import snap_cuts
     snap_cuts.snap(args.slug)
@@ -398,6 +418,14 @@ def main(argv=None) -> int:
     p.add_argument("--apply", action="store_true",
                    help="actually write; without it nothing is touched")
     p.set_defaults(fn=cmd_migrate_beat_ids)
+
+    p = sub.add_parser("rebind-takes",
+                       help="point a beat at the take it actually shows "
+                            "(dry run unless --apply)")
+    p.add_argument("slug")
+    p.add_argument("--apply", action="store_true",
+                   help="actually write; without it nothing is touched")
+    p.set_defaults(fn=cmd_rebind_takes)
 
     p = sub.add_parser("snap-cuts", help="snap explicit cut edges to acoustic silence")
     p.add_argument("slug")

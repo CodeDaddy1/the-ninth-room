@@ -587,6 +587,57 @@ def _validate_spine(errors: "list[str]", spine: "Any", clip_by_id: "dict",
                       % (where, type(spine["audio"]).__name__))
 
 
+# The longest silence a beat may hold on either side of its take's
+# words. Measured on hmns (2026-09-08): the whole 82-beat cut holds
+# silence on three beats, the largest 1.94s — the reach for the camera
+# that ends the episode. Three seconds is comfortably past every real
+# one and nowhere near a mis-binding, which misses by minutes.
+MAX_HOLD_SEC = 3.0
+
+
+def take_window(take: "dict", takes: "list") -> "tuple":
+    """How far a beat on this take may reach: (earliest, latest).
+
+    A TAKE'S BOUNDS ARE WHERE THE WORDS ARE. They come from whisper, so
+    they end on the last syllable — and a beat routinely wants the
+    silence on either side of that. hmns holds three of them on purpose,
+    each with Caleb's own note attached: the kids stay on camera 1.6s
+    after "It's fantastic" (shot-T331), the sign-off starts 0.6s before
+    "And" in the gap (shot-T374), and the final beat keeps the 2s reach
+    for the camera after the last word (shot-T374-2). The assembler
+    delivers all three: it uses the full trim and pads slightly beyond
+    it, so those seconds are on screen in the shipped episode.
+
+    The old rule refused every one of them, which made a cut that
+    renders correctly, that Caleb reviewed beat by beat, and that has
+    already shipped, fail its own validator — and `plan_beats` refuses
+    to assemble on a validation error, so hmns could not be rebuilt at
+    all until this changed (2026-09-08).
+
+    TWO BOUNDS, and both are needed. The neighbours: a beat owns the
+    silence around its take, out to where the next take's words begin
+    and back to where the previous one's end, on the same source file.
+    It may never contain a word from another take, which is what the
+    original rule was really protecting. And MAX_HOLD_SEC, because on
+    the first or last take of a file there is no neighbour at all — and
+    an unbounded side would have let hmns's shot-T374 pass while naming
+    a take on a 4.9-second file and trimming 236.40-240.81 of it. A hold
+    is a breath, a reaction or a gesture; past a few seconds the plan
+    should be saying so with a wordless picture beat, which the schema
+    already has.
+    """
+    lo = max(0.0, float(take["s"]) - MAX_HOLD_SEC)
+    hi = float(take["e"]) + MAX_HOLD_SEC
+    for o in takes:
+        if o is take or o.get("file") != take.get("file"):
+            continue
+        if o["e"] <= take["s"] + 0.01:
+            lo = max(lo, float(o["e"]))
+        elif o["s"] >= take["e"] - 0.01:
+            hi = min(hi, float(o["s"]))
+    return (lo, hi)
+
+
 def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
                        broll: "dict[str, Any]") -> "list[str]":
     """edit_plan.json — the story-designer's output, cross-checked against
@@ -711,9 +762,22 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
                 if trim is not None:
                     if not isinstance(trim, dict) or "s" not in trim or "e" not in trim:
                         errors.append(where + ": trim needs s and e")
-                    elif not (t["s"] - 0.01 <= trim["s"] < trim["e"] <= t["e"] + 0.01):
-                        errors.append("%s: trim %.2f-%.2f outside take %s bounds %.2f-%.2f"
-                                      % (where, trim["s"], trim["e"], tid, t["s"], t["e"]))
+                    elif not trim["s"] < trim["e"]:
+                        errors.append("%s: trim %.2f-%.2f is empty or backwards"
+                                      % (where, trim["s"], trim["e"]))
+                    else:
+                        # The take's bounds are its WORDS; the beat may hold
+                        # the silence around them, out to the neighbouring
+                        # takes. See take_window.
+                        lo, hi = take_window(t, takes.get("takes", []))
+                        if trim["s"] < lo - 0.01 or trim["e"] > hi + 0.01:
+                            errors.append(
+                                "%s: trim %.2f-%.2f outside take %s's window "
+                                "%.2f-%.2f on %s — a beat holds its take's "
+                                "words plus the silence around them, never "
+                                "another take's"
+                                % (where, trim["s"], trim["e"], tid, lo, hi,
+                                   t.get("file", "its file")))
         for j, br in enumerate(b.get("broll", [])):
             bw = "%s.broll[%d]" % (where, j)
             if not isinstance(br, dict):
