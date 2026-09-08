@@ -5,6 +5,44 @@ console settings, recordings, decisions). Check items off when done.
 
 ## Open
 
+## From two toolkits Caleb found (2026-09-08)
+
+Neither repo is worth adopting — `digitalsamba/claude-code-video-toolkit`
+generates explainer videos from a concept on paid APIs, and
+`browser-use/video-use` finishes to `final.mp4` through ffmpeg rather than
+Resolve. Both violate the $0/mo rule at their core. Two ideas out of them are
+real, and both are DEFERRED until after the hmns benchmark:
+
+- [ ] **Speaker diarization on takes.** `takes.json` carries `transcript`,
+  `fillers`, `restart`, `complete` and `kind` — and no speaker. Three people
+  are on camera, and the voice rules turn on which one is talking, so the
+  story-designer currently infers it from the words alone. video-use uses
+  ElevenLabs Scribe, which is paid; `pyannote` or `whisperx` run local the way
+  faster-whisper already does. This matters more than it looks: the craft bar
+  is about who lands the moment, and half the cast is invisible to the system.
+
+- [ ] **A short audio fade at every splice.** There is no fade anywhere in
+  `timeline.py` — the only fades in the pipeline are the graphics alpha in
+  `graphics.py`. Cut edges are snapped to measured acoustic troughs, which is
+  more careful than a blanket fade, but a ~30ms fade on a hard splice kills
+  clicks that trough-snapping alone does not. Cheap, and it applies to every
+  cut the program will ever make.
+
+- [ ] **Upload to YouTube.** `_run_publish` writes `publish.md` with title
+  options, a description and tags, and stops. Nothing uploads — there is no
+  OAuth or YouTube code anywhere in `pipeline/`. Every episode ends with
+  copying text off the Export desk by hand. The video-toolkit's
+  `youtube_upload.py` is the shape: OAuth 2.0 plus metadata read from the
+  project file. Free. Park it until an episode is actually ready to ship.
+
+**Checked and NOT worth taking:** their self-evaluation pass (renders, then
+judges the output). `pipeline/qc_frames.py` already samples the master and the
+approved proxies at 45% and 85% of every beat and compares them mechanically,
+which asks the better question — does the master show what Caleb approved,
+rather than does this look good. It exists because a unit bug placed every
+caption at 80% of its length and only a lucky spot-check caught it.
+
+
 - [ ] **Name the desk lane's signatures.** You decided (2026-08-24) that a
   script-led desk episode owes **neither** the ninth-room moment nor the door
   meter, and that its own conventions get defined later. Until you name them,
