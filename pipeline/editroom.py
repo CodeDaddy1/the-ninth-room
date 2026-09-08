@@ -2738,11 +2738,39 @@ def _project_row(slug: str) -> "dict":
     review = {}
     if (work / "review.json").exists():
         review = json.loads((work / "review.json").read_text())
-    n_appr = sum(1 for e in review.values() if e.get("status") == "approved")
-    n_flag = sum(1 for e in review.values() if e.get("status") == "flagged")
+    # COUNT OVER BEATS THAT EXIST, not over every row in review.json.
+    #
+    # `review.json` outlives the beats it describes: hmns holds 96 entries
+    # against 82 live beats, and ALL FOURTEEN of its queue-state rows are
+    # ghosts of beats some earlier surgery removed. Counting the file
+    # meant the board advertised "14 clip(s) still in the queue. Clear
+    # them, then Conform" — work that cannot be done, because there is no
+    # clip to open. The Review desk counts the live beats and said 82 of
+    # 82 approved, so the two surfaces disagreed about the same episode
+    # and the row was the one that was wrong (2026-09-08, Caleb spotted it
+    # on the desk).
+    #
+    # The ghosts are NOT deleted here. They hold his notes, and the
+    # beat-id migration archives them by name into `review_archive.json`.
+    # Until then they simply stop being counted as outstanding work.
+    #
+    # Falls back to the whole file when no readable plan exists, so a
+    # project mid-rebuild reports what it always did rather than zero.
+    live = None
+    if plan:
+        try:
+            live = {b["id"] for b
+                    in json.loads((work / "edit_plan.json").read_text())
+                    .get("beats", []) if isinstance(b, dict) and b.get("id")}
+        except (ValueError, OSError):
+            live = None
+    counted = (review if live is None
+               else {k: v for k, v in review.items() if k in live})
+    n_appr = sum(1 for e in counted.values() if e.get("status") == "approved")
+    n_flag = sum(1 for e in counted.values() if e.get("status") == "flagged")
     # reworked + edited both mean "back in Caleb's queue for a re-look";
     # the retired needs tags no longer drive anything (round-2 audit A3)
-    n_queue = sum(1 for e in review.values()
+    n_queue = sum(1 for e in counted.values()
                   if e.get("status") in ("flagged", "reworked", "edited"))
 
     # the Script stage's rail/first-run facts. Recorded counts honor
