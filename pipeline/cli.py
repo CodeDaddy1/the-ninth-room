@@ -110,6 +110,26 @@ def cmd_scorecard_path(args) -> int:
     return 0
 
 
+def cmd_migrate_beat_ids(args) -> int:
+    """Dry run by default. `--apply` is a second, deliberate run, made
+    after reading what the first one printed."""
+    from . import migrate_ids
+    try:
+        s = migrate_ids.survey(args.slug)
+    except migrate_ids.MigrationError as e:
+        print("refused: %s" % e)
+        return 1
+    migrate_ids.print_survey(s)
+    if not args.apply:
+        print("  DRY RUN — nothing was written. Re-run with --apply.\n")
+        return 0
+    migrate_ids.apply(args.slug)
+    print("\n  applied. Backups in %s/, the map in %s, the report in %s.\n"
+          % (migrate_ids.BACKUP_DIRNAME, migrate_ids.MAP_FILE,
+             migrate_ids.REPORT_FILE))
+    return 0
+
+
 def cmd_snap_cuts(args) -> int:
     from . import snap_cuts
     snap_cuts.snap(args.slug)
@@ -331,6 +351,14 @@ def main(argv=None) -> int:
     p.add_argument("slug")
     p.add_argument("task_id")
     p.set_defaults(fn=cmd_scorecard_path)
+    p = sub.add_parser("migrate-beat-ids",
+                       help="rename beats onto the anchor scheme (dry run "
+                            "unless --apply)")
+    p.add_argument("slug")
+    p.add_argument("--apply", action="store_true",
+                   help="actually write; without it nothing is touched")
+    p.set_defaults(fn=cmd_migrate_beat_ids)
+
     p = sub.add_parser("snap-cuts", help="snap explicit cut edges to acoustic silence")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_snap_cuts)

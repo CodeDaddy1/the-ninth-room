@@ -68,6 +68,12 @@ ID_RE = re.compile(r"^B-(T\d+|B\d+)(?:-([1-9]\d*))?$")
 # pattern is correct, which is why this is a tuple and not a switch.
 PROXY_GLOBS = ("BT*.mp4", "B-*.mp4")
 
+# Where an edit plan names its OWN beats outside `beats[].id`. Measured
+# across every plan on disk (2026-09-08): `fun` is the only one, the
+# story-designer's engagement-card ideas. Listed, never discovered by
+# walking, so this file is the audit trail for what a rename touches.
+INTERNAL_BEAT_REFS = (("fun", "beat_id"),)
+
 # What a take id or a b-roll clip id looks like — the two mint spaces,
 # disjoint by construction (takes.py mints T01.., broll B001..).
 ANCHOR_RE = re.compile(r"^(?:T\d+|B\d+)$")
@@ -170,6 +176,7 @@ def derive_ids(plan: "dict") -> "dict":
     """
     out = copy.deepcopy(plan) if isinstance(plan, dict) else {}
     seen = {}  # type: dict
+    renamed = {}  # type: dict
     for b in out.get("beats", []) or []:
         if not isinstance(b, dict):
             continue
@@ -177,7 +184,24 @@ def derive_ids(plan: "dict") -> "dict":
         if a is None:
             continue
         seen[a] = seen.get(a, 0) + 1
+        was = b.get("id")
         b["id"] = format_id(a, seen[a])
+        if isinstance(was, str) and was:
+            renamed[was] = b["id"]
+    # THE PLAN REFERS TO ITS OWN BEATS. Renaming `beats[].id` and stopping
+    # there leaves those references pointing at ids that no longer exist —
+    # silently, which is the entire failure class this module was written
+    # to end, reproduced one level in. Caught on the hmns sandbox: 12 of
+    # `fun`'s entries stranded (2026-09-08).
+    #
+    # The fields are LISTED rather than walked. A blind deep walk that
+    # rewrote any string matching an old id would also rewrite prose that
+    # happens to say "BT07", and a migration that edits someone's note is
+    # worse than one that misses a field.
+    for field, key in INTERNAL_BEAT_REFS:
+        for row in out.get(field) or []:
+            if isinstance(row, dict) and row.get(key) in renamed:
+                row[key] = renamed[row[key]]
     out["id_scheme"] = ID_SCHEME
     return out
 
