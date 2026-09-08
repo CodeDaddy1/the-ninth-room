@@ -56,7 +56,7 @@ REVIEW_ARCHIVE = "review_archive.json"
 # `pipeline/cutbar.py`.
 #
 # Flipping this to True is the entire arming step. Nothing else changes.
-BAR_ARMED = False
+BAR_ARMED = True
 
 
 def stage_dir(slug: str) -> Path:

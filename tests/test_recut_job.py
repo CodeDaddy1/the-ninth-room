@@ -130,6 +130,12 @@ class VerdictsFollowTheShot(unittest.TestCase):
         (self.tmp / "analysis" / "takes.json").write_text(json.dumps(TAKES))
         (self.tmp / "analysis" / "broll.json").write_text(
             json.dumps({"clips": []}))
+        # The carry rules are what this class is about, and its three-beat
+        # fixture cannot satisfy the craft bar. Pin the flag rather than
+        # inherit it — arming the product turned all seven of these into
+        # errors about peaks (2026-09-08).
+        self._armed = promote.BAR_ARMED
+        promote.BAR_ARMED = False
         # the cut Caleb reviewed
         first = _plan([_beat("x1", "T04", 0.0, 8.0, "hook"),
                        _beat("x2", "T12", 0.0, 9.0),
@@ -145,6 +151,7 @@ class VerdictsFollowTheShot(unittest.TestCase):
             "B-T30": {"status": "flagged", "note": "fix the tail"}}))
 
     def tearDown(self):
+        promote.BAR_ARMED = self._armed
         ingest.work_path, ingest.analysis_dir = self._wp, self._ad
         for mod in (promote, ph):
             mod.work_path = self._wp

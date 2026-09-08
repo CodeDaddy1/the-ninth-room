@@ -70,7 +70,14 @@ class _SeamFixture(unittest.TestCase):
         promote.analysis_dir = ingest.analysis_dir
         (self.tmp / "analysis" / "takes.json").write_text(json.dumps(TAKES))
         (self.tmp / "analysis" / "broll.json").write_text(json.dumps(BROLL))
+        # STATE THE STATE, never inherit the product default. These
+        # fixtures are minimal two-beat plans that exercise the SEAM —
+        # does it swap, archive, keep the staged file — and none of them
+        # satisfies the craft bar. Left inheriting `BAR_ARMED`, all six
+        # passed only while the bar was off, and arming it turned them
+        # into errors about peaks (2026-09-08, found by arming).
         self._armed = promote.BAR_ARMED
+        promote.BAR_ARMED = False
 
     def tearDown(self):
         promote.BAR_ARMED = self._armed
