@@ -291,6 +291,43 @@ class TheCraftClauseCarriesRealNumbers(unittest.TestCase):
                                     "never told about it" % field)
 
 
+class TheBriefAndTheBarAgree(unittest.TestCase):
+    """The standing rule from the film studies: a finding is not adopted
+    until something READS it. Four findings sat agreed-and-unwired for
+    months. The craft bar is measured by `cutbar`, stated per-episode by
+    `_craft_clause`, and explained once in the agent's own brief — and if
+    the brief stops naming a field, the writer stops emitting it and the
+    bar starts failing cuts for a reason nobody wrote down."""
+
+    BRIEF = (Path(__file__).resolve().parent.parent / ".claude" / "agents"
+             / "story-designer.md")
+
+    def brief(self):
+        return self.BRIEF.read_text()
+
+    def test_the_brief_names_every_field_the_bar_grades(self):
+        for field in ("peak", "pace_cpm", "opens_loop", "pays_loop",
+                      "framing", "flag_note", "threads"):
+            self.assertIn(field, self.brief(),
+                          "the bar grades %s and the brief never says so"
+                          % field)
+
+    def test_the_brief_sends_the_writer_to_staging_not_the_live_cut(self):
+        b = self.brief()
+        self.assertIn("staging/edit_plan.json", b)
+        self.assertIn("minted by the engine", b)
+
+    def test_the_brief_names_the_command_the_runner_actually_runs(self):
+        self.assertIn("cut-check", self.brief())
+
+    def test_the_brief_does_not_still_teach_the_old_verify_recipe(self):
+        """It used to paste a python one-liner that validated the LIVE
+        plan — the file the agent must no longer write."""
+        b = self.brief()
+        self.assertNotIn("plan  = json.load(open('work/<slug>/edit_plan.json'))",
+                         b)
+
+
 class TheEnvelopeFlagDoesNotEatTheVerdict(_SeamFixture):
     """`_recheck_*` return `ok` meaning "this artifact passes". The routes
     wrapped them in `dict(..., ok=True)` for the call-succeeded flag,

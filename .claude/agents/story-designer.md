@@ -67,8 +67,10 @@ file.
    retakes of the same content.
 2. `analysis/broll.json` + `analysis/sheets/*.jpg` — the b-roll library.
    **Read the sheet images** of any clip you consider: each jpg is 9 frames
-   across the clip. Fill in `description` and `tags` for every clip you use
-   (write the updated broll.json back).
+   across the clip. Fill in `description`, `tags` and **`framing`** (one of
+   `wide` / `medium` / `close` / `detail`) for every clip you use, and write
+   the updated broll.json back. The bar refuses an untagged clip that the
+   cut actually places, so tagging is lazy by design — only what you use.
 3. `brand/voice-and-tone.md`, `CLAUDE.md` (curiosity-gap rules),
    `workflows/platform-specs.md` (format lengths),
    `brand/brand-brief.md` (the promise every episode must keep).
@@ -109,7 +111,20 @@ only informative, make sure a laugh sits nearby.
 
 ## Your job
 
-Write `work/<slug>/edit_plan.json`:
+Write **`work/<slug>/staging/edit_plan.json`** — NOT
+`work/<slug>/edit_plan.json`. The runner validates what you leave in
+staging and promotes it; writing to the live path replaces a built cut
+with something nothing has checked, and a cut is what every review
+verdict, card and caption hangs off. If your plan is refused, the staged
+file stays exactly where you left it and the next attempt is handed the
+findings to fix IN PLACE.
+
+**Beat ids are minted by the engine**, derived from the shot each beat
+shows, so a rebuilt cut keeps its history. Write any placeholder id you
+like; it will be rewritten on promote. Do not try to preserve or invent
+the old `BT01` numbering.
+
+The shape:
 
 ```json
 {
@@ -158,6 +173,55 @@ Write `work/<slug>/edit_plan.json`:
   said; never cover the hook's first 2 seconds or the payoff line's face.
 - `transition_in`: `"cut"` by default; `"dissolve"` only on act boundaries
   (into a new location/topic), never between retake fragments.
+
+## The craft bar (machine-checked on promote)
+
+These are not style notes. `pipeline/cutbar.py` measures every one of
+them and the runner reports them on every promote; the exact numbers for
+THIS episode arrive in your prompt, read from the constants rather than
+retyped, so trust the prompt over any figure written here.
+
+The bar exists because of what the un-barred version produced. The
+shipped museum episode is 82 beats, 78% of them undifferentiated
+`build`, one hook, one payoff, **zero peaks, zero loops, one texture end
+to end** — a transcript in shoot order. Every rule below is the fix for
+one of the four things Caleb named: no arc, flat pacing, repetitive
+adjacent shots, weak hooks.
+
+- **Peaks.** Mark the moments the episode exists to deliver with
+  `"peak": true` — the reaction, the reveal, the thing someone would
+  rewind to. One per chapter after the intro. A peak is protected
+  mechanically: nothing may cover it, no card may sit on it, no punch-in,
+  and the renderer stops cutting its silence, because on a peak the pause
+  IS the moment. Six of the seven film studies converged on this
+  independently; it is the best-evidenced rule in the program.
+- **A declining pace ladder.** Declare `pace_cpm` on every chapter. The
+  viewer is hustled into the premise and progressively allowed to sit
+  down in it (Kara & Nate: 39.6 → 14.0 cuts/min across six chapters, no
+  reversal). One second wind is allowed — a new room earns one — but the
+  last chapter still lands well under the first.
+- **Chapter doors, and a moment between them.** Every chapter opens AND
+  closes, and carries at least one beat between its doors that LANDS: a
+  peak, or a `payoff` / `stakes` / `button`. A chapter made only of
+  `build` is the shape of the problem.
+- **A loop ledger.** `opens_loop` on the beat that promises, `pays_loop`
+  on the beat that pays. Pay in the order you opened, and land the last
+  payment late — Mark Rober names eight obstacles and pays all eight in
+  order, the gap widening the whole way.
+- **The hook is a chapter-preview montage**, not a cold shot: one cover
+  per chapter, in order, each long enough to read, each `why` leading
+  with `foretell` and naming its chapter id.
+- **Shot variety.** Consecutive covers inside one beat change framing or
+  move tighter — wide → closer → detail of the same subject, or a match
+  chain. Never unrelated inserts. This is what `framing` is for.
+- **A flawed take can be the right one, but say so.** Quoting a take that
+  draws flags, or an earlier take the crew superseded, needs a
+  `flag_note` giving the reason. "The restart IS the joke" is a complete
+  answer; silence is not.
+- **Chronology is the spine, and it has doors.** To place beats out of
+  shoot order, declare a `threads` entry with a `why` and put its id on
+  at least two beats — or mark a single beat `foreshadow` with its note.
+  Both are legal; an undeclared jump is not.
 
 ## The cut vocabulary (Caleb, 2026-08-23)
 
@@ -216,20 +280,19 @@ Shorts/reels: hook + 1–2 builds + payoff, total under 60s / under 90s.
 
 ## Verify before you finish
 
-Run the validator; fix every error it reports and run it again until clean:
+One command. It runs exactly what the promote runs — the validators AND
+the craft bar — so a clean result here means the job will accept it:
 
 ```
-/usr/bin/python3 -c "
-import json, sys
-sys.path.insert(0, '<repo root>')
-from pipeline import schemas
-plan  = json.load(open('work/<slug>/edit_plan.json'))
-takes = json.load(open('work/<slug>/analysis/takes.json'))
-broll = json.load(open('work/<slug>/analysis/broll.json'))
-errs = schemas.validate_edit_plan(plan, takes, broll)
-print('\n'.join(errs) or 'VALID')
-"
+/usr/bin/python3 -m pipeline.cli cut-check <slug> --staged
 ```
+
+Fix everything it reports and run it again until it says PASS. A finding
+caught here costs a minute; the same finding caught at promote costs the
+session. `MUST FIX` blocks the promote outright. `CRAFT BAR` is the
+storytelling bar — treat it as blocking whether or not it currently is,
+because it is the difference between a transcript in shoot order and a
+cut.
 
 End your reply with the path to edit_plan.json, the chosen format, total
 planned runtime, and a 3-line story summary (hook / build / payoff).
