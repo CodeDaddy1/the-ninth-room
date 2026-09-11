@@ -1,8 +1,9 @@
 """Transcribe the VO locally (faster-whisper, $0) -> word-level timestamps."""
 import json
+from pathlib import Path
 from faster_whisper import WhisperModel
 
-BASE = '~/Projects/the-ninth-room/work/houston-no-zoning'
+BASE = str(Path(__file__).resolve().parents[2] / 'work' / 'houston-no-zoning')
 vo = BASE + '/voiceover.mp3'
 out = BASE + '/tmp/words.json'
 

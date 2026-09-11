@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 
+from . import paths
 from .ingest import PROJECT_ROOT, work_path
 
 JOBS_PATH = PROJECT_ROOT / "work" / "_jobs.json"
@@ -40,7 +41,7 @@ KEEP = 50
 # Seven sites launched this by absolute path; five of them were whole
 # copies of _dispatch that had drifted only in their dash. One name now,
 # so a moved binary is one edit and not a hunt (2026-08-28).
-CLAUDE_BIN = "~/.local/bin/claude"
+CLAUDE_BIN = paths.claude_bin()
 HISTORY_PATH = PROJECT_ROOT / "work" / "_jobs.log"
 # `declined` is terminal too — a job that refused is a measurement.
 TERMINAL_STATES = ("done", "failed", "declined")

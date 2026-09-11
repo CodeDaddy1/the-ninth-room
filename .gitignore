@@ -44,3 +44,11 @@ venv/
 # IDE
 .idea/
 .vscode/
+
+# Agent definitions for other tools; the canonical set is .claude/agents
+.agents/
+.codex/
+AGENTS.md
+# Epidemic Sound tracks and sound effects: subscription-licensed, never redistributable
+brand/design-system/Music copy/
+brand/sfx/

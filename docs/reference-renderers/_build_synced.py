@@ -2,13 +2,14 @@
 TIMING comes from the Whisper transcript, aligned with difflib (handles mishears).
 Footage cuts on sentence boundaries; ballot years pop on beat with red REJECTED stamps."""
 import sys, os, glob, json, subprocess, difflib
-sys.path.insert(0, '~/Projects/the-ninth-room')
 from pathlib import Path
+ROOT = str(Path(__file__).resolve().parents[2])
+sys.path.insert(0, ROOT)
 from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 from worker import assemble, config
 
-BASE = '~/Projects/the-ninth-room/work/houston-no-zoning'
+BASE = ROOT + '/work/houston-no-zoning'
 ASSETS = BASE + '/assets/houston-has-no-zoning-laws'
 TMP = BASE + '/tmp'
 W, H, FPS = 1080, 1920, config.DEFAULT_FPS

@@ -50,9 +50,11 @@ class DispatchIsShared(unittest.TestCase):
                          "these launch their own session — call _dispatch "
                          "or _dispatch_json instead")
 
-    def test_the_path_itself_appears_exactly_once(self):
-        """Hardcoded in seven places before. One constant now."""
-        self.assertEqual(JOBS_PY.read_text().count('"~'), 1)
+    def test_no_home_directory_is_spelled_in_jobs(self):
+        """Hardcoded in seven places before, then one constant, now none:
+        the binary comes from pipeline/paths.py (env, .env, PATH)."""
+        self.assertEqual(JOBS_PY.read_text().count('/Users/'), 0)
+        self.assertIn('paths.claude_bin()', JOBS_PY.read_text())
 
     def test_the_helpers_are_still_called(self):
         """A guard that passes because nothing dispatches any more would
