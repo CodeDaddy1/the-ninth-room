@@ -9,8 +9,11 @@ thing that was not on the map.
 The program: raw footage goes into `work/<slug>/footage/`, and one command in
 Claude Code runs the pipeline. It transcribes, picks the best takes, cuts dead
 space, designs the story, builds the timeline in DaVinci Resolve (cuts,
-transitions, brand cards, captions) and renders the finished episode. No cloud,
-no paid APIs.
+transitions, brand cards, captions) and renders the finished episode. Every
+stage runs on the machine by default. Two paid cloud paths exist and are
+opt-in: `ingest --api` sends transcription to the OpenAI Whisper API when
+proper nouns matter, and the sound-library pull needs an Epidemic Sound
+subscription.
 
 ## Why this is public
 
