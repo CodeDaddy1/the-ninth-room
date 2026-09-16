@@ -77,6 +77,10 @@ class Spec(unittest.TestCase):
         self.assertEqual(spec["text_scale"], bt.BLENDER_TEXT_SCALE)
         portrait = bt.title_spec("x", w=1080, h=1920)
         self.assertEqual((portrait["title"]["left_px"], portrait["title"]["inner_px"]), (64, 952))
+        # a 4K portrait canvas is the same 1080-wide layout at dpr 2
+        uhd = bt.title_spec("x", w=2160, h=3840)
+        self.assertEqual((uhd["design_w"], uhd["design_h"], uhd["title"]["inner_px"]), (1080, 1920, 952))
+        self.assertEqual((uhd["w"], uhd["h"]), (2160, 3840))
 
     def test_empty_text_is_refused(self):
         with self.assertRaises(IngestError):
@@ -106,7 +110,7 @@ class Build(unittest.TestCase):
         render.assert_not_called()
 
     def test_a_good_build_renders_the_scenes_whole_range(self):
-        def fake_blender(cmd, capture_output=True, text=True):
+        def fake_blender(cmd, capture_output=True, text=True, **kw):
             spec = json.loads(Path(cmd[-1]).read_text())
             Path(spec["blend"]).write_bytes(b"BLENDER")
             return mock.Mock(returncode=0, stderr="", stdout="")
@@ -117,8 +121,9 @@ class Build(unittest.TestCase):
         self.assertEqual(out, self.out)
         blend, mov = render.call_args[0]
         self.assertEqual(blend, self.out.with_suffix(".blend"))
-        self.assertEqual(render.call_args[1], {"fps": 24, "start": 1, "end": 48})
-        spec = json.loads((self.out.parent / "title_title.json").read_text())
+        kw = dict(render.call_args[1]); kw.pop("tmp_dir", None)
+        self.assertEqual(kw, {"fps": 24, "start": 1, "end": 48})
+        spec = json.loads(self.out.with_suffix(".title.json").read_text())
         self.assertEqual(spec["title"]["text"], "The Ninth Room")
 
 

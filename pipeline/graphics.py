@@ -276,12 +276,32 @@ def bake_key(card: "dict", orientation: str) -> str:
     exported .mov current or stale — it MUST stay byte-identical to what
     build_cards records, so both call this one function.
     """
-    from . import animate as animate_mod
+    from . import animate as animate_mod, blender_kit
     spec, preset = bake_spec(card)
-    return hashlib.sha1(json.dumps(
-        {"card": spec, "orientation": orientation, "preset": preset,
-         "canvas": list(CANVAS[orientation]),  # a resolution change re-bakes
-         "v": animate_mod.BAKE_V}, sort_keys=True).encode()).hexdigest()[:12]
+    keyed = {"card": spec, "orientation": orientation, "preset": preset,
+             "canvas": list(CANVAS[orientation]),  # a resolution change re-bakes
+             "v": animate_mod.BAKE_V}
+    if blender_kit.is_blender_kit(card.get("kit_type")):
+        # a Blender card depends on the template, which the spec never
+        # names: the bridge scripts, the text scale, any .blend. A flat
+        # card's key must not move when a template does.
+        keyed["blender"] = blender_kit.template_sha()
+    return hashlib.sha1(json.dumps(keyed, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def render_card(spec: "dict", card: "dict", mov: Path, w: int, h: int,
+                tmp_dir: Path, preset: str = "reveal_up", log=print) -> Path:
+    """One door for a bake: Chrome for a kit screen, Blender for a 3D kit.
+    Nothing downstream knows which tool drew the pixels (docs/blender.md)."""
+    from . import animate as animate_mod, blender_kit
+    if blender_kit.is_blender_kit(card.get("kit_type")):
+        from . import blender_title
+        return blender_title.build_title(
+            str(card.get("text") or ""), mov, kicker=str(card.get("kicker") or ""),
+            fps=24, seconds=float(card["duration"]), w=w, h=h,
+            blend=tmp_dir / (card["id"] + ".blend"))
+    return animate_mod.render_animation(spec, mov, float(card["duration"]), w, h,
+                                        tmp_dir, preset=preset, log=log)
 
 
 def build_cards(slug: str, orientation: "str | None" = None,
@@ -351,8 +371,7 @@ def build_cards(slug: str, orientation: "str | None" = None,
             movs.append(mov)
             log("[graphics] %s (cached)" % card["id"])
             continue
-        animate_mod.render_animation(spec, mov, float(card["duration"]), w, h,
-                                     tmp_dir, preset=preset, log=log)
+        render_card(spec, card, mov, w, h, tmp_dir, preset=preset, log=log)
         movs.append(mov)
         hashes[card["id"]] = key
         hash_path.write_text(json.dumps(hashes, indent=1))

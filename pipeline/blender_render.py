@@ -33,6 +33,7 @@ from .animate import encode_frames
 from .ingest import IngestError
 
 BLENDER = "/Applications/Blender.app/Contents/MacOS/Blender"
+RENDER_TIMEOUT_S = 600
 BRIDGE = Path(__file__).resolve().parent / "bridge" / "blender_frames.py"
 
 
@@ -75,7 +76,10 @@ def render_blend(blend: Path, out_mov: Path, fps: int = 24,
     out_mov.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = blender_command(blend, frames_dir, fps, start, end)
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=RENDER_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise IngestError("blender render of %s ran past %ds" % (blend.name, RENDER_TIMEOUT_S))
     if proc.returncode != 0:
         raise IngestError("blender render failed (exit %d): %s"
                           % (proc.returncode, (proc.stderr or proc.stdout)[-400:]))

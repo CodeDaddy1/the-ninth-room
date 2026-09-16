@@ -98,8 +98,14 @@ def title_spec(text: str, kicker: str = "Next", fps: int = 24,
     if not FONT_DISPLAY_FILE.is_file():
         raise IngestError("display font missing: %s" % FONT_DISPLAY_FILE)
     portrait = h > w
+    # The kit is authored in 1920x1080 CSS px (1080x1920 portrait) and
+    # baked at a device pixel ratio (a 4K canvas is the same layout at
+    # dpr 2, animate.py). Every px below is a CSS px of that design; the
+    # bridge maps them to units and renders at the device size.
+    design_w, design_h = (1080, 1920) if portrait else (1920, 1080)
     return {
-        "w": w, "h": h, "px_per_unit": PX_PER_UNIT,
+        "w": w, "h": h, "design_w": design_w, "design_h": design_h,
+        "px_per_unit": PX_PER_UNIT,
         "text_scale": BLENDER_TEXT_SCALE,
         "fps": fps, "frames": max(1, int(round(seconds * fps))),
         "font": str(FONT_DISPLAY_FILE),
@@ -111,7 +117,7 @@ def title_spec(text: str, kicker: str = "Next", fps: int = 24,
         "title": {
             "text": text, "size_px": 120, "spacing": 1.0 - 0.055,
             "left_px": 64 if portrait else 140,
-            "inner_px": (w - 128) if portrait else 1560,
+            "inner_px": (design_w - 128) if portrait else 1560,
             "extrude_px": 6, "bevel_px": 1.5,
         },
         "eyebrow": {
@@ -134,23 +140,35 @@ def build_command(spec_path: Path) -> "list[str]":
             "--python", str(BUILD_BRIDGE), "--", str(spec_path)]
 
 
+BUILD_TIMEOUT_S = 600   # a template that takes longer than this is a template
+                        # that gets skipped on episode day (docs/blender.md)
+
+
 def build_title(text: str, out_mov: Path, kicker: str = "Next", fps: int = 24,
-                seconds: float = 3.0, blend: Optional[Path] = None) -> Path:
-    """Build the .blend for `text`, render it, return the ProRes clip."""
+                seconds: float = 3.0, blend: Optional[Path] = None,
+                w: int = 1920, h: int = 1080) -> Path:
+    """Build the .blend for `text`, render it at the canvas `w` x `h`,
+    return the ProRes clip."""
     out_mov = Path(out_mov)
     if not os.path.exists(BLENDER):
         raise IngestError("Blender not found at %s" % BLENDER)
     out_mov.parent.mkdir(parents=True, exist_ok=True)
     blend = Path(blend) if blend else out_mov.with_suffix(".blend")
-    spec = title_spec(text, kicker=kicker, fps=fps, seconds=seconds)
+    blend.parent.mkdir(parents=True, exist_ok=True)
+    spec = title_spec(text, kicker=kicker, fps=fps, seconds=seconds, w=w, h=h)
     spec["blend"] = str(blend)
-    spec_path = out_mov.parent / (out_mov.stem + "_title.json")
+    spec_path = blend.with_suffix(".title.json")
     spec_path.write_text(json.dumps(spec, indent=1))
 
-    proc = subprocess.run(build_command(spec_path), capture_output=True, text=True)
+    try:
+        proc = subprocess.run(build_command(spec_path), capture_output=True, text=True,
+                              timeout=BUILD_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise IngestError("blender title build for %r ran past %ds" % (text, BUILD_TIMEOUT_S))
     if proc.returncode != 0:
         raise IngestError("blender title build failed (exit %d): %s"
                           % (proc.returncode, (proc.stderr or proc.stdout)[-400:]))
     if not blend.is_file():
         raise IngestError("blender title build wrote no .blend at %s" % blend)
-    return render_blend(blend, out_mov, fps=fps, start=1, end=spec["frames"])
+    return render_blend(blend, out_mov, fps=fps, start=1, end=spec["frames"],
+                        tmp_dir=blend.parent)

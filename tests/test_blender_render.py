@@ -33,7 +33,7 @@ class _Proc(object):
 
 def _fake_blender(n_frames, code=0, skip=None):
     """A subprocess.run stand-in that writes n frames like the bridge does."""
-    def run(cmd, capture_output=True, text=True):
+    def run(cmd, capture_output=True, text=True, **kw):
         frames_dir = Path(cmd[cmd.index("--") + 1])
         for i in range(n_frames):
             if skip is not None and i == skip:

@@ -36,7 +36,9 @@ with open(argv[0]) as fh:
     SPEC = json.load(fh)
 
 U = float(SPEC["px_per_unit"])
-W, H = SPEC["w"], SPEC["h"]
+W, H = SPEC["w"], SPEC["h"]                       # device px, the render size
+DW = SPEC.get("design_w", W)                      # CSS px, the layout's frame
+DH = SPEC.get("design_h", H)
 FPS = SPEC["fps"]
 COL = SPEC["colors"]
 T, E, M = SPEC["title"], SPEC["eyebrow"], SPEC["motion"]
@@ -68,7 +70,12 @@ if sc.view_settings.view_transform != "Standard":
 
 cam_data = bpy.data.cameras.new("TitleCam")
 cam_data.type = "ORTHO"
-cam_data.ortho_scale = W / U
+# ortho_scale spans the frame's LONGER side by default; on a portrait
+# canvas that showed a 1.78x zoom of the middle with the eyebrow off the
+# left edge (2026-09-16). Pin it to the width, in CSS px, so one unit is
+# 100 CSS px whatever the device size.
+cam_data.sensor_fit = "HORIZONTAL"
+cam_data.ortho_scale = DW / U
 cam = bpy.data.objects.new("TitleCam", cam_data)
 sc.collection.objects.link(cam)
 cam.location = (0.0, 0.0, 10.0)
@@ -197,11 +204,30 @@ def to_mesh_with_faces(ob, front_mat, side_mat):
     return ob
 
 
-left_x = -W / (2.0 * U) + px(T["left_px"])
+left_x = -DW / (2.0 * U) + px(T["left_px"])
 
 title = make_text("Title", T["text"], T["size_px"], T["spacing"],
                   box_w_px=T["inner_px"], extrude_px=T["extrude_px"],
                   bevel_px=T["bevel_px"])
+
+
+def fit_lines(ob, max_lines):
+    """The kit's `_fit`, measured in Blender rather than with Pillow: the
+    text box wraps at the inner width, and the size comes down until the
+    block holds `max_lines` lines. A one-line block measures about 0.55
+    em tall (cap plus descender) and each further line adds one em, so
+    lines = round(height / size - 0.55) + 1 (measured 2026-09-15)."""
+    for _ in range(14):
+        bpy.context.view_layer.update()
+        size = ob.data.size
+        lines = int(round(ob.dimensions.y / size - 0.55)) + 1
+        if lines <= max_lines:
+            return lines
+        ob.data.size = size * 0.94
+    return lines
+
+
+fit_lines(title, T.get("max_lines", 2))
 title_front, title_alpha = mat_flat("TitleFront", COL["chalk"])
 title_side, title_side_alpha = mat_side("TitleSide", COL["side"])
 to_mesh_with_faces(title, title_front, title_side)

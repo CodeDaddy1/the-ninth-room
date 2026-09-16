@@ -89,6 +89,30 @@ Known residuals, for the real build:
   group output socket, `SetAlpha` mode is a menu socket, Blur takes a
   vector Size in px. Each cost one probe; the bridge notes them.
 
+## Template 1 as kit types (2026-09-16, plan P6)
+
+`chapter_3d` and `hook_3d` are `kit_type`s in `overlay_kit.RENDERERS`
+(`pipeline/blender_kit.py`), aliased to the flat `chapter` and `hook`
+screens as their stand-ins, so the validator, the picker ("3D titles"), the
+hover preview and the Studio all work; `graphics.render_card` routes them to
+`blender_title.build_title` and everything downstream is unchanged. The
+cache key folds `blender_kit.template_sha` (the two bridge scripts, the
+text scale, any `.blend` here) for Blender kits only, so a template edit
+re-bakes exactly the 3D cards. Both Blender calls carry a 600 s timeout.
+
+Measured 2026-09-16 on a 2160x3840 canvas, 72 frames: a `chapter_3d` card
+bakes in 86 s against 8.6 s for its flat twin (the fifteen second target is
+not met; Eevee at 4K, samples untouched); the cache answers a second bake
+at once. Against the flat card: left edge identical, two lines each, the
+block 28 px lower, the 3D line 8 percent wider (Blender's `space_character`
+multiplies advances where CSS tracking subtracts an em fraction), the line
+gap larger. Two findings fixed the same day: Blender's `ortho_scale` spans
+the frame's LONGER side (a portrait canvas showed a 1.78x zoom of the
+middle; the camera is pinned `sensor_fit HORIZONTAL`), and the layout is
+in the kit's CSS px at a device pixel ratio, not in device px. Line fit
+is measured in Blender (`fit_lines` in the bridge). Not built: the door
+meter on `chapter_3d`, the yellow second line on `hook_3d`.
+
 ## Templates (each is its own build; 1 has a first cut, the rest not started)
 
 | # | Template | Feeds | DoD |

@@ -1660,6 +1660,8 @@ from .checklist_kit import CHECKLIST_TEMPLATES as _CHECKLIST_TEMPLATES
 _KIT_TEMPLATES.update(_CHECKLIST_TEMPLATES)
 from .marker_kit import MARKER_TEMPLATES as _MARKER_TEMPLATES
 _KIT_TEMPLATES.update(_MARKER_TEMPLATES)
+from .blender_kit import BLENDER_TEMPLATES as _BLENDER_TEMPLATES
+_KIT_TEMPLATES.update(_BLENDER_TEMPLATES)
 
 
 def _provenance_at(work: Path, beat_id: str, at: float) -> "str | None":
@@ -2168,12 +2170,13 @@ def _kit_groups() -> "list":
     from .vfx_kit import VFX_GROUPS
     from .checklist_kit import CHECKLIST_GROUPS
     from .marker_kit import MARKER_GROUPS
-    for g in VFX_GROUPS + CHECKLIST_GROUPS + MARKER_GROUPS:
+    from .blender_kit import BLENDER_GROUPS
+    for g in VFX_GROUPS + CHECKLIST_GROUPS + MARKER_GROUPS + BLENDER_GROUPS:
         named[g["title"]] = g["kits"]
     claimed = {k for ks in named.values() for k in ks}
     groups = [{"title": "Overlays",
                "kits": [k for k in _KIT_TEMPLATES if k not in claimed]}]
-    for title in ("Engagement", "Checklist & map", "Memes", "Effects",
+    for title in ("Engagement", "3D titles", "Checklist & map", "Memes", "Effects",
                   "Transitions", "Cut furniture", "Outro", "Markers"):
         kits = [k for k in named[title] if k in _KIT_TEMPLATES]
         if kits:
@@ -2462,9 +2465,8 @@ def _export_overlay(slug: str, card_id: str, log=print) -> "dict":
             # scratch frames go in graphics/tmp, NOT the exports folder — a
             # wholesale folder import must never sweep up a mutating PNG
             # sequence alongside the movs
-            animate_mod.render_animation(spec, tmp, float(card["duration"]),
-                                         w, h, work / "graphics" / "tmp",
-                                         preset=preset, log=log)
+            graphics.render_card(spec, card, tmp, w, h, work / "graphics" / "tmp",
+                                 preset=preset, log=log)
             os.replace(tmp, target)
 
         exp[card_id] = {"file": name, "key": _current_key(slug, card, orient),

@@ -2137,3 +2137,5 @@ from . import vfx_kit  # noqa: F401  (registration side effect)
 from . import checklist_kit  # noqa: F401  (registration side effect)
 # The engine-owned RECONSTRUCTION marker registers the same way.
 from . import marker_kit  # noqa: F401  (registration side effect)
+# The Blender kit types alias the flat screens as their stand-ins.
+from . import blender_kit  # noqa: F401  (registration side effect)

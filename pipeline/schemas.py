@@ -1294,7 +1294,7 @@ def validate_graphics_plan(plan: "dict[str, Any]",
         # fail validation against the timeline's own cut.
         if not c.get("prebaked") and isinstance(c.get("duration"), (int, float)):
             kit = c.get("kit_type")
-            if (kit == "chapter" or c.get("type") == "chapter") and c["duration"] < 2.5:
+            if (kit in ("chapter", "chapter_3d") or c.get("type") == "chapter") and c["duration"] < 2.5:
                 errors.append("%s: chapter card '%s' holds %.1fs — minimum is 2.5s"
                               % (where, c.get("id"), c["duration"]))
             elif kit == "transition" and c["duration"] < 2.0:
