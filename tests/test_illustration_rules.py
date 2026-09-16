@@ -270,7 +270,10 @@ class UseDoor(_Doors):
         calls = []
         def fake_run(cmd, **kw):
             calls.append(cmd)
-            Path(cmd[-1]).write_bytes(b"out")
+            # only the resample writes its output; the encoder probe
+            # (`ffmpeg -encoders`) must not leave a file in the cwd
+            if any("scale=" in str(a) for a in cmd):
+                Path(cmd[-1]).write_bytes(b"out")
             return mock.Mock(returncode=0, stderr="", stdout="")
         with mock.patch.object(editroom.subprocess, "run", fake_run), \
                 mock.patch.object(editroom, "_orientation", lambda slug: "landscape"), \
