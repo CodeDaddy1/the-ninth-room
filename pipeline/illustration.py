@@ -800,6 +800,7 @@ def spend(slug: str, round_id: str, stage: str, log=print) -> dict:
             "created_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
             "balance_before": balance_before, "prompt": step.get("prompt"),
             "section_id": round_.get("section_id"), "beat_id": round_.get("beat_id"),
+            "target": round_.get("target"), "aspect": round_.get("aspect"),
             "note": round_.get("note"), "license": LICENSE_SHORT, "license_note": LICENSE_NOTE,
             "what": "%s: %s" % (stage, (round_.get("why") or "")[:80]),
         })

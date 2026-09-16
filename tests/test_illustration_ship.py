@@ -195,3 +195,55 @@ class Credits(_Cut):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThumbnailTargets(unittest.TestCase):
+    """Decision 5: thumbnails and Shorts covers ride the illustration round
+    kind; a generated frame never becomes the thumbnail by accident
+    (_bake_thumbnail refuses it), and one chosen on purpose is copied into
+    deliverables with the same versioning as a baked one."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "assets").mkdir()
+        (self.tmp / "deliverables").mkdir()
+        (self.tmp / "assets" / "R9-plate.png").write_bytes(b"png")
+        (self.tmp / "assets" / "R9-motion.mp4").write_bytes(b"mp4")
+        (self.tmp / "assets" / "assets.json").write_text(json.dumps({"assets": [
+            {"id": "R9-plate", "file": "R9-plate.png", "kind": "illustration", "honesty": "illustration",
+             "target": "thumbnail", "model": "text2image_soul_v2", "cost_credits": 2.0, "status": "done", "job_id": "j"},
+            {"id": "R9-motion", "file": "R9-motion.mp4", "kind": "illustration", "honesty": "illustration",
+             "target": "short_cover", "model": "kling3_0", "cost_credits": 7.5, "status": "done", "job_id": "j"},
+            {"id": "egg", "file": "egg.mp4", "kind": "illustration", "honesty": "illustration",
+             "target": "cover", "model": "kling3_0", "cost_credits": 7.5, "status": "done", "job_id": "j"}]}))
+        self._wp = editroom.work_path
+        editroom.work_path = lambda slug: self.tmp
+
+    def tearDown(self):
+        editroom.work_path = self._wp
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a_thumbnail_row_is_versioned_into_deliverables_never_overwriting(self):
+        (self.tmp / "deliverables" / "thumbnail_v1.png").write_bytes(b"old")
+        out = editroom._use_illustration_thumbnail("ep", "R9-plate")
+        self.assertEqual(out["file"], "thumbnail_v2.png")
+        self.assertEqual((self.tmp / "deliverables" / "thumbnail_v1.png").read_bytes(), b"old")
+        self.assertEqual((self.tmp / "deliverables" / "thumbnail_v2.png").read_bytes(), b"png")
+        out = editroom._use_illustration_thumbnail("ep", "R9-motion")
+        self.assertEqual(out["file"], "short_cover_v1.mp4")
+
+    def test_a_cover_row_is_not_a_thumbnail(self):
+        from pipeline.ingest import IngestError
+        with self.assertRaises(IngestError):
+            editroom._use_illustration_thumbnail("ep", "egg")
+
+    def test_a_short_cover_round_validates_with_a_soul_plate_and_motion(self):
+        r = {"id": "R9", "kind": "illustration", "section_id": "CH1.S1", "status": "proposed",
+             "honesty": "illustration", "target": "short_cover", "aspect": "9:16",
+             "steps": [{"stage": "plate", "model": "text2image_soul_v2", "soul": True,
+                        "prompt": "the host at the rail", "credits": 2.0, "tier": "std"},
+                       {"stage": "motion", "model": "kling3_0", "start_image": "plate",
+                        "prompt": "a slow push", "credits": 7.5, "tier": "std"}],
+             "estimate_credits": 9.5, "marks": {}}
+        script = {"chapters": [{"id": "CH1", "sections": [{"id": "CH1.S1", "kind": "vo", "text": "x"}]}]}
+        self.assertEqual(il.validate_round(r, "short", script=script), [])

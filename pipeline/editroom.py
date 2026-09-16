@@ -1664,6 +1664,35 @@ from .blender_kit import BLENDER_TEMPLATES as _BLENDER_TEMPLATES
 _KIT_TEMPLATES.update(_BLENDER_TEMPLATES)
 
 
+def _use_illustration_thumbnail(slug: str, aid: str) -> "dict":
+    """Copy a generated thumbnail or Shorts cover into deliverables/,
+    versioned like a baked thumbnail and never overwriting one. Only a row
+    whose target is thumbnail or short_cover qualifies: a cover is b-roll,
+    and `_bake_thumbnail` refuses a frame under an illustration for the
+    same reason (docs/decisions-illustrations.md, decisions 5 and 17)."""
+    from .schemas import HONESTY
+    work = work_path(slug)
+    adir = work / "assets"
+    man = json.loads((adir / "assets.json").read_text())
+    row = next((a for a in man.get("assets", []) if a.get("id") == aid), None)
+    if row is None:
+        raise IngestError("no asset '%s'" % aid)
+    if row.get("honesty") not in HONESTY or row.get("target") not in ("thumbnail", "short_cover"):
+        raise IngestError("%s is not a thumbnail or Shorts cover round" % aid)
+    src = adir / str(row.get("file") or "")
+    if not src.is_file():
+        raise IngestError("asset file missing: %s" % row.get("file"))
+    deliver = work / "deliverables"
+    deliver.mkdir(exist_ok=True)
+    stem = "thumbnail" if row["target"] == "thumbnail" else "short_cover"
+    v = 1
+    while (deliver / ("%s_v%d%s" % (stem, v, src.suffix.lower()))).exists():
+        v += 1
+    out = deliver / ("%s_v%d%s" % (stem, v, src.suffix.lower()))
+    shutil.copy2(src, out)
+    return {"file": out.name, "from": aid}
+
+
 def _provenance_at(work: Path, beat_id: str, at: float) -> "str | None":
     """The provenance of whatever the timeline map shows at `at` seconds
     into `beat_id`: the beat's own spine, or a cover spanning the offset.
@@ -6046,6 +6075,9 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 except jobs_mod2.JobError:
                     pass
                 self._send(200, {"ok": True, "beds": rows})
+            elif self.path == "/api/thumbnail/use":
+                out = _use_illustration_thumbnail(self._slug_b(body), body.get("id", ""))
+                self._send(200, dict(out, ok=True))
             elif self.path == "/api/thumbnail":
                 out = _bake_thumbnail(self._slug_b(body),
                                       body.get("beat_id", ""),
