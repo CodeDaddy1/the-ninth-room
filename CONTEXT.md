@@ -74,6 +74,27 @@ B-roll attached over a beat, with its own in-point and duration. Coverage
 supports a beat; it is not itself a beat.
 _Avoid_: b-roll beat, overlay, insert
 
+**Illustration**:
+A generated picture of a thing no camera filmed, or a stylised picture of a
+thing it did film weakly. It is a cover or a spine like any other clip, and it
+carries its provenance. Never the place itself; never a real person.
+_Avoid_: insert, AI b-roll, generated footage
+
+**Reconstruction**:
+A photoreal illustration. Marked on screen for its whole length and disclosed
+in the description; nothing else about it differs from an illustration.
+_Avoid_: deepfake, recreation, render
+
+**Provenance**:
+The stored fact of where a picture came from: camera, illustration or
+reconstruction. Absent means camera. Rules read it; nothing sniffs a filename.
+_Avoid_: source, origin (that word is the project's), kind
+
+**Ledger**:
+One row per purchase of outside work, with its cost, written in the same
+operation as the file it paid for. A file without a row does not exist.
+_Avoid_: receipt, log, spend list
+
 **Edit plan**:
 The document that IS the cut — theme, hook, beat order, take picks, kill
 list, coverage placement, transition policy. Ten artifacts key on its beat

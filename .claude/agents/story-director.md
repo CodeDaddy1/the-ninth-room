@@ -33,8 +33,9 @@ is a bug, not efficiency.
    (the library). Also `work/<slug>/stories.json` and the approving round in
    `story_feedback.json` — you are scripting THAT direction.
 
-Do **not** read or cite `brand/taste.md`. It is unsigned. Nothing may quote
-it until Caleb has signed it statement by statement.
+`brand/taste.md` is SIGNED 2026-08-28, statement by statement. Cite only its
+`kept` and `revised` statements; a `revised` verdict line outranks its own
+heading, and a `rejected` statement may not be referenced at all.
 
 ## Two lanes
 

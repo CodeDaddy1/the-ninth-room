@@ -105,5 +105,5 @@ of what exists (tokens, card ids, the same slot in the timeline).
 
 Blender is free and local, inside the `$0/mo` rule. Higgsfield is a paid
 plan and is the README's third opt-in paid path since 2026-09-15, when the
-first generated inserts (hmns, monarch life cycle) entered
+first illustrations (hmns, monarch life cycle) entered
 `work/hmns/assets/`.
