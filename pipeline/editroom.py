@@ -723,15 +723,29 @@ def _broll_adjust(slug: str, beat_id: str, clip_id: str,
 
 
 def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
-                  duration: float, src_s: float, log=print) -> "dict":
+                  duration: float, src_s: float, why: "str | None" = None,
+                  log=print) -> "dict":
     """Cover part of a beat with b-roll, everywhere it matters at once:
     edit_plan (so future assembles keep it), timeline_map (so the proxy
     renders it NOW), the conform ledger (so Resolve gets it on push), and
-    the review queue (decision 05). Audio always stays with the take."""
+    the review queue (decision 05). Audio always stays with the take.
+
+    `why` is the cover's justification. It was never asked for here, which
+    made this the one door with no bar; once the catalog holds an
+    illustration every cover placed through it owes a why that leads with
+    a justification, and the candidate plan is held to the illustration
+    rules before anything is written (docs/decisions-illustrations.md,
+    decisions 13 and 17)."""
+    from . import schemas as schemas_mod
     clips = {c["id"]: c for c in _broll_catalog(slug)}
     if clip_id not in clips:
         raise IngestError("unknown b-roll clip '%s'" % clip_id)
     clip = clips[clip_id]
+    why = (why or "").strip()
+    illustrated = any(c.get("provenance") for c in clips.values())
+    if illustrated and schemas_mod.why_kind(why) is None:
+        raise IngestError("a cover needs a why that leads with one of %s"
+                          % "/".join(schemas_mod.COVER_WHYS))
     with _EDITPLAN_LOCK:
         work = work_path(slug)
         tm_path = work / "analysis" / "timeline_map.json"
@@ -747,9 +761,13 @@ def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
                                clip["duration"]))
         entry_plan = {"clip_id": clip_id, "at": at,
                       "duration": duration, "src_s": src_s}
+        if why:
+            entry_plan["why"] = why
         entry_map = {"clip_id": clip_id, "file": clip["file"],
                      "record_s": round(beat["record_s"] + at, 3),
                      "duration": duration, "src_s": src_s}
+        if clip.get("provenance"):
+            entry_map["provenance"] = clip["provenance"]
         ep_path = work / "edit_plan.json"
         plan = json.loads(ep_path.read_text())
         for b in plan["beats"]:
@@ -758,6 +776,23 @@ def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
                 break
         else:
             raise IngestError("beat '%s' not in the edit plan" % beat_id)
+        if illustrated:
+            # the same rules promote and coverage run, on the plan as it
+            # would be written; a refusal here writes nothing
+            takes = {"takes": []}
+            tp = work / "analysis" / "takes.json"
+            if tp.exists():
+                try:
+                    takes = json.loads(tp.read_text())
+                except ValueError:
+                    pass
+            # the verb edits ONE beat, so it answers for that beat; a
+            # violation elsewhere in the plan is promote's to refuse
+            notes = [n for n in schemas_mod.illustration_notes(
+                         plan, {"clips": list(clips.values())}, takes)
+                     if n.startswith(beat_id + ":")]
+            if notes:
+                raise IngestError(notes[0])
         tmp = ep_path.with_suffix(".ep.tmp")
         tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
         os.replace(tmp, ep_path)
@@ -1623,6 +1658,30 @@ from .checklist_kit import CHECKLIST_TEMPLATES as _CHECKLIST_TEMPLATES
 _KIT_TEMPLATES.update(_CHECKLIST_TEMPLATES)
 
 
+def _provenance_at(work: Path, beat_id: str, at: float) -> "str | None":
+    """The provenance of whatever the timeline map shows at `at` seconds
+    into `beat_id`: the beat's own spine, or a cover spanning the offset.
+    None for camera footage or when no map exists yet."""
+    tm_path = work / "analysis" / "timeline_map.json"
+    try:
+        beats = json.loads(tm_path.read_text()).get("beats", [])
+    except (OSError, ValueError):
+        return None
+    for b in beats:
+        if b.get("id") != beat_id:
+            continue
+        if b.get("provenance"):
+            return b["provenance"]
+        t = float(b.get("record_s", 0.0)) + at
+        for c in b.get("broll") or []:
+            if not c.get("provenance"):
+                continue
+            s = float(c.get("record_s", 0.0))
+            if s <= t < s + float(c.get("duration", 0.0)):
+                return c["provenance"]
+    return None
+
+
 def _bake_thumbnail(slug: str, beat_id: str, at: float,
                     title: str, kicker: str = "",
                     log=print) -> "dict":
@@ -1641,6 +1700,13 @@ def _bake_thumbnail(slug: str, beat_id: str, at: float,
         if (work / "proxies").is_dir() else []
     if not prox:
         raise IngestError("no preview for %s -- assemble first" % beat_id)
+    # The proxy already composites covers, so a frame pulled from under an
+    # illustration would put a generated picture beneath the title with
+    # nothing saying so. "Show the gap, not the answer" was a rule for a
+    # real frame (docs/decisions-illustrations.md, decision 17).
+    under = _provenance_at(work, beat_id, float(at))
+    if under:
+        raise IngestError("that frame is an %s — pick a camera frame" % under)
     deliver = work / "deliverables"
     deliver.mkdir(exist_ok=True)
     tmp = work / "captions" / "tmp"
@@ -4921,17 +4987,41 @@ def _save_plan(slug: str, plan: "dict") -> "dict":
     return _plan_state(slug)
 
 
-def _still_to_clip(inp: Path, clip: Path) -> None:
-    """A still image becomes a 6s UHD clip the b-roll pipeline can place."""
+def _still_to_clip_args(inp: Path, clip: Path, orientation: str) -> "list[str]":
+    """The ffmpeg argv that bakes a still into a six second clip at the
+    project's own canvas. Pure, so a test can pin that a portrait project
+    gets 2160x3840 and not the landscape frame this used to hard-code:
+    a portrait plate for a Short was scaled to 16:9, then centre-cropped
+    back to 9:16 by proxy.py, keeping only its middle (2026-09-16)."""
     from . import graphics as graphics_mod
-    proc = subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-t", "6",
-         "-i", str(inp),
-         "-vf", "scale=3840:2160:force_original_aspect_ratio=increase,"
-                "crop=3840:2160,fps=24,format=yuv420p",
-         *graphics_mod.h264_encode_args(3840, crf=18),
-         "-movflags", "+faststart", str(clip)],
-        capture_output=True, text=True)
+    from .timeline import CANVAS
+    w, h = CANVAS.get(orientation, CANVAS["landscape"])
+    return ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-t", "6",
+            "-i", str(inp),
+            "-vf", "scale=%d:%d:force_original_aspect_ratio=increase,"
+                   "crop=%d:%d,fps=24,format=yuv420p" % (w, h, w, h),
+            *graphics_mod.h264_encode_args(w, crf=18),
+            "-movflags", "+faststart", str(clip)]
+
+
+def _resample_args(inp: Path, out: Path, canvas: "tuple") -> "list[str]":
+    """Resample an illustration video to the delivery canvas. Kling std
+    returns 1284x716; a 3x Lanczos resample is the upscale the ADR chose
+    for now (docs/decisions-illustrations.md, a listed upscale model may
+    replace it later behind the same ledger)."""
+    from . import graphics as graphics_mod
+    w, h = canvas
+    return ["ffmpeg", "-y", "-loglevel", "error", "-i", str(inp),
+            "-vf", "scale=%d:%d:flags=lanczos:force_original_aspect_ratio=increase,"
+                   "crop=%d:%d,format=yuv420p" % (w, h, w, h),
+            *graphics_mod.h264_encode_args(w, crf=18),
+            "-movflags", "+faststart", "-an", str(out)]
+
+
+def _still_to_clip(inp: Path, clip: Path, orientation: str = "landscape") -> None:
+    """A still image becomes a 6s clip the b-roll pipeline can place."""
+    proc = subprocess.run(_still_to_clip_args(inp, clip, orientation),
+                          capture_output=True, text=True)
     if proc.returncode != 0:
         raise IngestError("still conversion failed for %s: %s"
                           % (inp.name, proc.stderr[-200:]))
@@ -5031,13 +5121,16 @@ def _assets_state(slug: str) -> "dict":
         if not p.is_file():
             continue
         # a citation stays a citation: nothing downstream may treat a
-        # screenshotted newspaper as footage we are free to cut with
-        kind = (a.get("kind") if a.get("kind") == "citation"
-                else ("video" if p.suffix.lower() in _VIDEO_UP else "image"))
+        # screenshotted newspaper as footage we are free to cut with; an
+        # illustration stays an illustration for the same reason, and
+        # `media_kind` says what the player should do with the file
+        media_kind = "video" if p.suffix.lower() in _VIDEO_UP else "image"
+        kind = (a.get("kind") if a.get("kind") in ("citation", "illustration")
+                else media_kind)
         thumb = None
         if kind == "citation":
             thumb = str(p)          # the screenshot IS its own thumbnail
-        elif kind == "video":
+        elif media_kind == "video":
             thumbs.mkdir(exist_ok=True)
             th = thumbs / (p.name + ".jpg")
             if not th.exists() or th.stat().st_mtime < p.stat().st_mtime:
@@ -5052,10 +5145,10 @@ def _assets_state(slug: str) -> "dict":
         # path the browser cannot load, and the desk reaches media through
         # the /pymedia rewrite (non-negotiable #4)
         rel = "assets/%s" % a.get("file", "")
-        thumb_rel = rel if kind in ("image", "citation") else (
+        thumb_rel = rel if media_kind == "image" or kind == "citation" else (
             "assets/.thumbs/%s.jpg" % p.name if thumb else None)
-        items.append(dict(a, kind=kind, thumb=thumb, media=rel,
-                          thumb_rel=thumb_rel, size=p.stat().st_size))
+        items.append(dict(a, kind=kind, media_kind=media_kind, thumb=thumb,
+                          media=rel, thumb_rel=thumb_rel, size=p.stat().st_size))
     # Which catalogued b-roll clip each promoted asset became, so the
     # Library can attach it to a beat without the desk having to guess at
     # filenames (Caleb, 2026-08-25: "associate the uploaded material to a
@@ -5091,7 +5184,8 @@ def _assets_state(slug: str) -> "dict":
             pass
     for it in items:
         stem = Path(it.get("file", "")).stem
-        cid = by_file.get(it.get("file")) or by_file.get(stem + "_still.mp4")
+        cid = (by_file.get(it.get("promoted_as")) or by_file.get(it.get("file"))
+               or by_file.get(stem + "_still.mp4"))
         it["clip_id"] = cid
         it["in_cut"] = bool(cid and cid in used)
     return {"slug": slug, "assets": items, "requests": reqs, "beats": beats}
@@ -5119,6 +5213,25 @@ def _delete_asset(slug: str, aid: str) -> None:
     row = next((a for a in man.get("assets", []) if a.get("id") == aid), None)
     if row is None:
         raise IngestError("no asset '%s'" % aid)
+    # A promoted asset is what a footage entry points at (a symlink, or the
+    # file a still was baked from). Deleting it from the shelf used to
+    # dangle the footage the cut references by B-id, the exact silent
+    # failure the footage delete guard was written for (2026-09-16).
+    promoted = row.get("promoted_as") or (
+        row.get("file", "") if Path(row.get("file", "")).suffix.lower() in _VIDEO_UP
+        else Path(row.get("file", "")).stem + "_still.mp4")
+    uses = _footage_uses(slug, promoted)
+    if uses["beats"]:
+        raise IngestError(
+            "%s carries the take %s is built on — re-cut that beat first"
+            % (row.get("file"), ", ".join(b["beat_id"] for b in uses["beats"])),
+            code="take_in_cut")
+    if uses["covers"]:
+        raise IngestError(
+            "%s is in the cut: %s. Detach those covers first."
+            % (row.get("file"), "; ".join("%s covers %s" % (c["clip_id"], c["beat_id"])
+                                          for c in uses["covers"])),
+            code="in_the_cut")
     p = adir / row.get("file", "")
     if p.is_file():
         trash = adir / ".trash"
@@ -5142,7 +5255,21 @@ def _use_asset(slug: str, aid: str) -> "dict":
         raise IngestError("asset file missing: %s" % row["file"])
     fdir = work / "footage"
     fdir.mkdir(parents=True, exist_ok=True)
-    if src.suffix.lower() in _VIDEO_UP:
+    from .schemas import HONESTY
+    illustration = row.get("honesty") in HONESTY
+    orientation = _orientation(slug)
+    if src.suffix.lower() in _VIDEO_UP and illustration:
+        # The one exception to LINK below: an illustration is resampled
+        # to the delivery canvas (Kling std returns 1284x716) and has no
+        # .LRF sibling to preserve (docs/decisions-illustrations.md).
+        from .timeline import CANVAS
+        name = _uniquify(fdir, src.name)
+        proc = subprocess.run(_resample_args(src, fdir / name, CANVAS[orientation]),
+                              capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise IngestError("resample failed for %s: %s"
+                              % (src.name, proc.stderr[-200:]))
+    elif src.suffix.lower() in _VIDEO_UP:
         name = _uniquify(fdir, src.name)
         # LINK, don't copy: a copy leaves the camera's sibling .LRF proxy
         # behind, and broll._prefer_proxy then decodes 4K HEVC for every
@@ -5155,7 +5282,11 @@ def _use_asset(slug: str, aid: str) -> "dict":
         sname = _uniquify(stills, src.name)
         shutil.copy2(src, stills / sname)
         name = Path(sname).stem + "_still.mp4"
-        _still_to_clip(stills / sname, fdir / name)
+        _still_to_clip(stills / sname, fdir / name, orientation)
+    # The footage name is the source of truth for provenance: catalog_broll
+    # asks the manifest which row became this file (illustration.provenance_of)
+    row["promoted_as"] = name
+    _write_json(adir / "assets.json", man)
     # Arm the auto-analysis, exactly as a footage drop does. Promoting an
     # asset used to leave the shelf and the catalogue out of step until
     # someone remembered to re-analyze by hand (Caleb, 2026-08-25: "are we
@@ -5875,7 +6006,8 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                 entry = _broll_attach(self._slug_b(body), body["beat_id"],
                                       body["clip_id"], float(body.get("at", 0)),
                                       float(body.get("duration", 4)),
-                                      float(body.get("src_s", 0)), log=log)
+                                      float(body.get("src_s", 0)),
+                                      why=body.get("why"), log=log)
                 self._send(200, {"ok": True, "placed": entry})
             elif self.path == "/api/sound/bed":
                 from . import sfx as sfx_mod

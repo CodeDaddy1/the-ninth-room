@@ -430,8 +430,16 @@ def ingest(slug: str, log=print, use_api: bool = False) -> Path:
         # CATALOG at it. proxy.py, produce.py and deliver.py all resolve
         # media through the catalog, so this one redirect is the whole
         # integration; nothing downstream learns about orientation.
-        if fill.is_portrait(entry.get("width"), entry.get("height")):
-            from . import timeline  # lazy: timeline imports from us
+        # ...on a LANDSCAPE project. A portrait project keeps a portrait
+        # clip native: the fill was gated on the clip's shape alone, so a
+        # 2160x3840 plate for a Short was baked into a 16:9 fill and then
+        # centre-cropped back by proxy.py, keeping only its middle
+        # (2026-09-16, docs/decisions-illustrations.md decision 17).
+        from . import timeline  # lazy: timeline imports from us
+        from . import schemas as _schemas
+        orientation = _schemas.delivery_shape(
+            timeline._brief_delivery(slug))["orientation"]
+        if fill.wanted(orientation, entry.get("width"), entry.get("height")):
             canvas = timeline.CANVAS["landscape"]
             dest = fill.filled_path(work_path(slug), entry["name"])
             try:

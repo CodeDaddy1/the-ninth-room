@@ -365,6 +365,10 @@ def grade_live_timeline(slug: str, log=print) -> str:
     work = str(work_path(slug).resolve())
     overlay_roots = tuple(work + "/" + d for d in
                           ("graphics", "captions", "exports"))
+    # Illustrations are brand-exact like the overlays and skipped the same
+    # way, by the footage name the catalog carries provenance for
+    from .illustration import exempt_files
+    exempt = exempt_files(slug)
 
     listing = ra.send("list_items", '''
 local tl = resolve:GetProjectManager():GetCurrentProject():GetCurrentTimeline()
@@ -390,7 +394,7 @@ return table.concat(lines, "\\n")
     todo, skipped = [], 0
     for line in lines[1:]:
         t, i, path = line.split("\t", 2)
-        if not path or path.startswith(overlay_roots):
+        if not path or path.startswith(overlay_roots) or Path(path).name in exempt:
             skipped += 1
             continue
         todo.append((int(t), int(i), path))
