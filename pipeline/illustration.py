@@ -321,3 +321,214 @@ def cap_check(slug: str, rounds: "list[dict]") -> None:
     if have + est > EPISODE_CREDIT_CAP + 1e-9:
         raise IngestError("%.1f spent plus %.1f proposed is past the %d credit "
                           "episode cap" % (have, est, int(EPISODE_CREDIT_CAP)))
+
+
+# --- the prompt clause and the round shape ---------------------------------
+
+STAGING = Path("staging") / "illustration_rounds.json"
+SHIM_DIR = Path(__file__).resolve().parent / "bridge" / "higgsfield_readonly"
+STYLE_FILE = paths.PROJECT_ROOT / "brand" / "illustration" / "plate.md"
+
+ROUND_SHAPE = '''{"rounds": [{
+  "kind": "illustration",
+  "section_id": "CH2.S3"   (script lane)   |  "beat_id": "shot-T41"   (footage lane),
+  "honesty": "illustration" | "reconstruction",
+  "target": "cover" | "run" | "thumbnail" | "short_cover",
+  "aspect": "16:9" | "9:16",
+  "why": "illustrate: <the thing the line names>",
+  "note": "<one line: what the library lacked; where beside would have served>",
+  "steps": [
+    {"stage": "plate", "model": "nano_banana_pro", "prompt": "<style block as handed> Subject: ...",
+     "credits": 2.0, "tier": "std"},
+    {"stage": "motion", "model": "kling3_0", "start_image": "plate",
+     "prompt": "<motion only>", "credits": 7.5, "tier": "std"}
+  ],
+  "estimate_credits": 9.5,
+  "sources": ["<url>", ...]        (reconstruction only),
+  "disclosure": "<one line>"       (reconstruction only),
+  "marks": {}                      (Caleb's, at approval; leave empty)
+}]}'''
+
+
+def style_block() -> str:
+    """brand/illustration/plate.md with every placeholder resolved through
+    the design tokens. Pure over the two files; the hexes are read, never
+    typed (tests/test_illustration_brief.py, test_illustration_job.py)."""
+    from . import design_tokens
+    text = STYLE_FILE.read_text()
+    tokens = design_tokens.load()
+    import re
+    def sub(m):
+        name = m.group(1).replace("_", "-")
+        return design_tokens.resolve(tokens, name, "{{%s}}" % m.group(1))
+    return re.sub(r"\{\{([a-z0-9_]+)\}\}", sub, text)
+
+
+def _j(obj) -> str:
+    return json.dumps(obj, ensure_ascii=False)
+
+
+def prompt_clause(slug: str, balance: "float | None" = None) -> str:
+    """Everything the illustration-director consults, in the order the
+    story-director reads its own inputs: the brief, research, voice, the
+    film studies, the lane block, the visual language, the money, the
+    honesty rules, the mechanics. Pure over the slug's files; `balance` is
+    read by the runner and passed in so this stays testable offline.
+
+    A beat with only a `note` is NOT a request: only a `visual` block whose
+    `from` is `illustration` asks for a picture (decision 10, the
+    storyteller asks; the director never guesses over eighty beats).
+    """
+    from . import cutbar, schemas
+    w = work_path(slug)
+    def read(name, default=None):
+        try:
+            return json.loads((w / name).read_text())
+        except (OSError, ValueError):
+            return default
+    brief = read("story_brief.json", {}) or {}
+    shape = schemas.delivery_shape(brief.get("delivery"))
+    aspect = ASPECT_OF[shape["orientation"]]
+    parts = []
+
+    # 1. the brief
+    parts.append("THE BRIEF (work/%s/story_brief.json): origin %s; delivery %s, so "
+                 "the aspect of a cover or run is %s; target %s minutes; chapters %s; "
+                 "vo_share %s; %s."
+                 % (slug, brief.get("origin", "footage"), brief.get("delivery", "long"),
+                    aspect, brief.get("target_minutes", "?"), brief.get("chapters", "?"),
+                    brief.get("vo_share", "?"),
+                    "location " + _j(brief.get("location")) if brief.get("location")
+                    else "subject " + _j(brief.get("subject", ""))))
+
+    # the lane and its requests
+    script = read("script.json")
+    plan = read("edit_plan.json", {}) or {}
+    requests = read("asset_requests.json", {}) or {}
+    live = {str(r.get("section_id") or r.get("beat_id"))
+            for r in requests.get("rounds", []) or []
+            if isinstance(r, dict) and r.get("kind") == "illustration"
+            and r.get("status") in ("proposed", "approved")}
+    target_ids = []
+
+    # 2. research
+    research = read("research.json", {}) or {}
+    facts = [f for f in research.get("facts", []) or [] if isinstance(f, dict)]
+    if facts:
+        parts.append("RESEARCH (work/%s/research.json), each fact with its source and "
+                     "confidence; a `claimed` fact is illustrated as claimed, never as "
+                     "settled: %s" % (slug, _j([{"fact": f.get("fact"), "source_url": f.get("source_url"),
+                                                "confidence": f.get("confidence")} for f in facts[:40]])))
+
+    # 3. voice
+    parts.append("VOICE: brand/voice-and-tone.md and brand/brand-brief.md. Two lines "
+                 "that govern you: \"The visit is the episode\" and \"could we source "
+                 "it if someone asked?\"")
+
+    # 4. film studies
+    parts.append("FILM STUDIES (docs/film-studies/INDEX.md): Harris R13 (we can't fly a "
+                 "map; never decoration), Rober D10 (beside: reference and reality share "
+                 "the frame) and D16 (prefer a real object over a render), Beau Miles "
+                 "(the real thing over the drawn one).")
+
+    # 5. the lane block
+    if script is not None:
+        sections = []
+        loops = {str(lp.get("id")): lp for lp in script.get("loops", []) or [] if isinstance(lp, dict)}
+        for ch in script.get("chapters", []) or []:
+            for sec in (ch or {}).get("sections", []) or []:
+                vis = (sec or {}).get("visual") or {}
+                if not (isinstance(vis, dict) and vis.get("from") == "illustration"):
+                    continue
+                sid = str(sec.get("id"))
+                if sid in live:
+                    continue
+                target_ids.append(sid)
+                promise = None
+                for lp in loops.values():
+                    if lp.get("opens") == sid or sid in (lp.get("opens") or []):
+                        promise = lp.get("promise")
+                sections.append({"id": sid, "kind": sec.get("kind"), "text": sec.get("text"),
+                                 "source": sec.get("source"), "est_s": sec.get("est_s"),
+                                 "want": vis.get("want"), "why": vis.get("why"),
+                                 "chapter": ch.get("title"), "loop_promise": promise})
+        parts.append("THE SCRIPT LANE (work/%s/script.json, locked). These sections ask "
+                     "for an illustration and have no live round; each is one round "
+                     "keyed by section_id: %s" % (slug, _j(sections)))
+    else:
+        hook = set(cutbar.hook_beat_ids(plan))
+        takes = {t.get("id"): t for t in (read("analysis/takes.json", {}) or {}).get("takes", []) or []
+                 if isinstance(t, dict)}
+        beats = []
+        chapters = {str(c.get("id")): c for c in plan.get("chapters", []) or [] if isinstance(c, dict)}
+        for b in plan.get("beats", []) or []:
+            vis = (b or {}).get("visual") or {}
+            if not (isinstance(vis, dict) and vis.get("from") == "illustration"):
+                continue
+            bid = str(b.get("id"))
+            if bid in live or bid in hook or b.get("peak") is True:
+                continue
+            target_ids.append(bid)
+            take = takes.get(b.get("take_id")) or {}
+            beats.append({"id": bid, "purpose": b.get("purpose"), "chapter_id": b.get("chapter_id"),
+                          "beat_span": round(schemas.beat_span(b), 2),
+                          "transcript": (take.get("transcript") or take.get("text") or "")[:400],
+                          "note": b.get("note"), "want": vis.get("want"), "why": vis.get("why"),
+                          "take_id": b.get("take_id"),
+                          "cover_whys": [c.get("why") for c in (b.get("broll") or []) if isinstance(c, dict)],
+                          "chapter_promise": (chapters.get(str(b.get("chapter_id"))) or {}).get("promise")})
+        stories = read("stories.json", {}) or {}
+        feedback = read("story_feedback.json", {}) or {}
+        chosen = None
+        rounds = feedback.get("rounds", []) or []
+        if rounds and rounds[-1].get("decision") == "approve":
+            cid = rounds[-1].get("choice")
+            chosen = next((o for o in stories.get("options", []) or [] if o.get("id") == cid), None)
+        review = read("review.json", {}) or {}
+        notes = {k: v.get("note") for k, v in review.items()
+                 if isinstance(v, dict) and v.get("note")}
+        parts.append("THE FOOTAGE LANE (work/%s/edit_plan.json). theme %s. These beats "
+                     "carry a visual block asking for an illustration, are not in the "
+                     "hook and are not peaks, and have no live round; each is one round "
+                     "keyed by beat_id (a beat with only a note is not a request): %s. "
+                     "The approved direction: %s. Review notes: %s"
+                     % (slug, _j(plan.get("theme")), _j(beats),
+                        _j({k: chosen.get(k) for k in ("logline", "hook", "tone")}) if chosen else "none",
+                        _j(notes) if notes else "none"))
+
+    # 6. the visual language
+    parts.append("THE VISUAL LANGUAGE, quoted as handed, hexes already resolved from the "
+                 "design tokens (never type one):\n%s\nThe failure case: the plate must "
+                 "read at the 480p proxy over the chapter's brightest footage."
+                 % style_block())
+
+    # 7. money
+    parts.append("MONEY: balance %s credits; this episode has spent %.1f of its %d credit "
+                 "cap. Defaults: plate %s at %.1f credits; motion %s at %.1f credits for "
+                 "%d seconds, sound off, tier std. Pro (%s) only where Caleb marks it on "
+                 "the round at approval, with a reason; Seedance (%s) only on a round he "
+                 "marks. This overrides the Higgsfield skill's \"don't pre-estimate cost\": "
+                 "price every step with `higgsfield generate cost` and write the number."
+                 % ("unknown" if balance is None else ("%g" % balance), spent(slug),
+                    int(EPISODE_CREDIT_CAP), DEFAULT_PLATE["model"], DEFAULT_PLATE["credits"],
+                    DEFAULT_VIDEO["model"], DEFAULT_VIDEO["credits"], DEFAULT_VIDEO["duration"],
+                    ", ".join("%s %s=%s" % (m, f, v) for m, (f, v) in sorted(TIER_FIELD.items())),
+                    SEEDANCE_MODEL))
+
+    # 8. honesty and the marker
+    parts.append("HONESTY: %s. A reconstruction carries sources and a disclosure and "
+                 "gets the kit eyebrow RECONSTRUCTION for its whole length. Never the "
+                 "real place as footage; never a real person; never the family; a Soul "
+                 "step only as a plate on %s, inside a reconstruction or a thumbnail, on "
+                 "a vo section or a take-less beat. Soul id %s."
+                 % ("/".join(HONESTY), "/".join(SOUL_MODELS),
+                    "is set" if paths.soul_id() else "is NOT set: propose no soul step"))
+
+    # 9. mechanics
+    parts.append("MECHANICS: write ONLY work/%s/%s in this shape:\n%s\nThe `higgsfield` "
+                 "on your PATH is read-only (account, model, generate cost/get/list); "
+                 "pass job ids to media flags, never a local path. Then run "
+                 "`/usr/bin/python3 -m pipeline.cli illustrate-check %s --offline` and "
+                 "fix what it names. Targets this run: %s."
+                 % (slug, STAGING.as_posix(), ROUND_SHAPE, slug, _j(target_ids)))
+    return "\n\n".join(parts) + "\n\n"

@@ -5043,7 +5043,7 @@ def _capture_article(slug: str, url: str, log=print) -> "dict":
 
 
 def _asset_round_verdict(slug: str, ts, status: str, candidate=None,
-                         log=print) -> "dict":
+                         marks=None, log=print) -> "dict":
     """Approve or skip one sourcing proposal.
 
     The human gate between proposing and fetching. The agent that judges
@@ -5096,6 +5096,22 @@ def _asset_round_verdict(slug: str, ts, status: str, candidate=None,
         hit["chosen"] = idx
     elif status != "approved":
         hit.pop("chosen", None)
+    # Caleb's marks on an illustration round: `seedance` (the video model)
+    # and `pro` (the stages that get the higher tier). Only he sets them,
+    # only at approval, and validate_round refuses a step that asks for
+    # either without them (docs/decisions-illustrations.md, 7 and 18).
+    if hit.get("kind") == "illustration" and marks is not None:
+        if not isinstance(marks, dict):
+            raise IngestError("marks must be an object")
+        clean = {}
+        if marks.get("seedance"):
+            clean["seedance"] = True
+        pro = marks.get("pro")
+        if pro:
+            if not isinstance(pro, list) or not all(isinstance(x, str) for x in pro):
+                raise IngestError("marks.pro must be a list of stage names")
+            clean["pro"] = pro
+        hit["marks"] = clean
     _write_json(p, doc)
     n = sum(1 for r in rounds if r.get("status") == "approved")
     log("[sourcing] round %s -> %s%s%s (%d approved and waiting)"
@@ -6109,6 +6125,7 @@ def serve(slug: "str | None" = None, port: int = PORT, log=print) -> None:
                                            body.get("ts"),
                                            str(body.get("status", "")),
                                            body.get("candidate"),
+                                           marks=body.get("marks"),
                                            log=log)
                 self._send(200, dict(out, ok=True))
             elif self.path == "/api/take/verdict":
