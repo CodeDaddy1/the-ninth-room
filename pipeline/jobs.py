@@ -2183,8 +2183,7 @@ def _run_illustrate(slug, log, set_pct, arg=None):
     if bad:
         raise JobError(bad[0].message)
     if generate:
-        raise JobError("generate is not wired yet (plan P4) — the approved rounds "
-                       "are waiting")
+        return _generate_illustrations(slug, log, set_pct)
     work = work_path(slug)
     staging = work / il.STAGING
     staging.parent.mkdir(parents=True, exist_ok=True)
@@ -2277,6 +2276,70 @@ def _run_illustrate(slug, log, set_pct, arg=None):
         "them on the Library desk (assets/ %d file(s), balance %g, unchanged)"
         % (len(rounds), sum(float(r.get("estimate_credits") or 0) for r in rounds),
            files_after, balance_before))
+    set_pct(100)
+
+
+def _generate_illustrations(slug, log, set_pct):
+    """GENERATE the approved rounds: the engine, mechanically, no session
+    (Caleb, 2026-09-16, docs/decisions-illustrations.md). One `spend` per
+    step; a step failure records the error on its round, leaves it
+    approved, and fails the job naming the step. Afterwards every new row
+    must be `done` with a cost, the episode must sit under its cap, and
+    the run's rows must reconcile against the balance delta and the
+    transaction window, or the job fails saying how many credits are
+    unaccounted for.
+    """
+    from . import illustration as il
+    work = work_path(slug)
+    window_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 5))
+    balance_before = il._credits(log)
+    before_ids = {a.get("id") for a in il.ledger(slug)}
+    rq, doc = il._rounds_doc(slug)
+    approved = [r for r in doc.get("rounds", []) or []
+                if isinstance(r, dict) and r.get("kind") == "illustration"
+                and r.get("status") == "approved"]
+    steps_total = sum(len(r.get("steps") or []) for r in approved) or 1
+    done_steps = 0
+    log("[illustrate] generating %d approved round(s), %d step(s); balance %s"
+        % (len(approved), steps_total, balance_before))
+    for r in approved:
+        for st in r.get("steps") or []:
+            stage = str(st.get("stage"))
+            try:
+                il.spend(slug, str(r.get("id")), stage, log=log)
+            except Exception as e:
+                # record it where the desk can see it; the round stays
+                # approved so a rerun picks up exactly here
+                rq2, doc2 = il._rounds_doc(slug)
+                r2 = il._find_round(doc2, str(r.get("id")))
+                r2["error"] = "%s: %s" % (stage, str(e)[:240])
+                rq2.write_text(json.dumps(doc2, indent=1, ensure_ascii=False))
+                raise RuntimeError("round %s step %s failed: %s" % (r.get("id"), stage, e))
+            done_steps += 1
+            set_pct(int(10 + 80 * done_steps / steps_total))
+    new_rows = [a for a in il.ledger(slug) if a.get("id") not in before_ids]
+    bad = [a.get("id") for a in new_rows
+           if a.get("status") != "done" or not a.get("job_id") or "cost_credits" not in a]
+    if bad:
+        raise RuntimeError("row(s) not finalized: %s" % ", ".join(str(b) for b in bad))
+    if il.spent(slug) > il.EPISODE_CREDIT_CAP:
+        raise RuntimeError("the episode is over its cap after this run (%.1f)" % il.spent(slug))
+    balance_after = il._credits(log)
+    delta = (float(balance_before) - float(balance_after)
+             if balance_before is not None and balance_after is not None else None)
+    items = il.transactions_since(window_start)
+    rec = il.reconcile(new_rows, items, delta)
+    if rec["unmatched_rows"] or rec["unmatched_items"] or rec.get("delta_gap"):
+        stray = sum(abs(float(i.get("credits") or 0)) for i in rec["unmatched_items"])
+        raise RuntimeError("%.1f credit(s) unaccounted for: %d row(s) with no transaction, "
+                           "%d transaction(s) with no row%s"
+                           % (stray + abs(rec.get("delta_gap") or 0), len(rec["unmatched_rows"]),
+                              len(rec["unmatched_items"]),
+                              " (a website run in the same window?)" if rec["unmatched_items"] else ""))
+    log("[illustrate] %d row(s) written, %.1f credits this run, %.1f of %d on the episode; "
+        "balance %s -> %s, reconciled"
+        % (len(new_rows), sum(float(a.get("cost_credits") or 0) for a in new_rows),
+           il.spent(slug), int(il.EPISODE_CREDIT_CAP), balance_before, balance_after))
     set_pct(100)
 
 

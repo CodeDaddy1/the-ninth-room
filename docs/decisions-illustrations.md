@@ -48,7 +48,7 @@ a complete instruction; a session with permissions skipped never holds the
 CLI while credits move; hard rule five, mechanical followers fire on their
 own). That changes the actor, not the order, and it is not yet Caleb's call.
 
-**Caleb's line (fill in before P4):** _____
+**Caleb's line (2026-09-16):** the engine, mechanically. Reason given the options: no AI session ever holds the spending binary; every credit has a row; reruns are idempotent. The cost he accepted: no judgement at spend time, so a wrong plate still gets its motion step unless he skips the round.
 
 If the answer is no, P4 dispatches the agent for the generate step behind the
 read-only shim with `create` unlocked for the approved steps only, and the

@@ -39,8 +39,9 @@ Mechanical work is Python 3.9 (`pipeline/` — **only** `/usr/bin/python3`,
 keep code 3.9-compatible) using ffmpeg, faster-whisper, Pillow, headless
 Chrome and headless Blender (`docs/blender.md`). Creative judgment runs as **Claude Code subagents** (`.claude/agents/`)
 that read and write JSON artifacts under `work/<slug>/` — there are no
-Anthropic API calls, and **$0/mo by default**: the opt-in paid paths are the
-ones the README names, nothing else. Resolve is
+Anthropic API calls, and **$0/mo by default**: three opt-in paid paths, the
+ones the README names, each behind a per-round approval on the Library desk
+(`docs/decisions-illustrations.md`). Resolve is
 controlled through the in-app Lua bridge (`pipeline/resolve_api.py` +
 `pipeline/bridge/Ninth Room Bridge.lua`) because the free edition blocks external
 scripting. Timelines are generated as FCPXML and imported; transitions survive

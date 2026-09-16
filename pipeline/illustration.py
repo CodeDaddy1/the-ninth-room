@@ -84,11 +84,18 @@ TURBO_MODEL = "kling3_0_turbo"             # a model id, not a tier
 SOUL_MODELS = ("text2image_soul_v2", "soul_cinema_studio")
 # The parameter that carries a model's quality tier at create time, and
 # what "pro" means on it. `std` is always the model's own default.
+# The Soul models top out at 2k, their own default, so pro on a Soul plate
+# changes nothing (live `model get`, 2026-09-16).
 TIER_FIELD = {"kling3_0": ("mode", "pro"), "kling3_0_turbo": ("mode", "pro"),
               "seedance_2_5": ("resolution", "1080p"),
               "nano_banana_pro": ("resolution", "4k"),
-              "text2image_soul_v2": ("quality", "4k"),
-              "soul_cinema_studio": ("quality", "4k")}
+              "text2image_soul_v2": ("quality", "2k"),
+              "soul_cinema_studio": ("quality", "2k")}
+TIER_STD = {"kling3_0": ("mode", "std"), "kling3_0_turbo": ("mode", "std"),
+            "seedance_2_5": ("resolution", "720p"),
+            "nano_banana_pro": ("resolution", "2k"),
+            "text2image_soul_v2": ("quality", "2k"),
+            "soul_cinema_studio": ("quality", "2k")}
 TIERS = ("std", "pro")
 TARGETS = ("cover", "run", "thumbnail", "short_cover")
 ASPECT_OF = {"landscape": "16:9", "portrait": "9:16"}
@@ -532,3 +539,358 @@ def prompt_clause(slug: str, balance: "float | None" = None) -> str:
                  "fix what it names. Targets this run: %s."
                  % (slug, STAGING.as_posix(), ROUND_SHAPE, slug, _j(target_ids)))
     return "\n\n".join(parts) + "\n\n"
+
+
+# --- GENERATE: one spend is one operation ---------------------------------
+#
+# Decision 3 as Caleb settled it on 2026-09-16: the ENGINE generates, no
+# session holds the spending binary. `spend` is the only door a credit goes
+# through: it re-prices, creates, writes a `pending` row carrying the job id
+# BEFORE the wait, waits, downloads, probes, and finalizes the row `done`.
+# A death between create and download leaves a row to finalize on rerun,
+# never a stray to re-spend. `reconcile` then matches the run's rows to the
+# balance delta and the transaction window, because the log carries no job
+# id (window, name and amount are all it offers).
+
+import time as _time
+import urllib.request
+
+LICENSE_SHORT = "Higgsfield ToU: output owned, commercial use permitted"
+LICENSE_NOTE = ("Generated on Higgsfield under its Terms of Use (effective 2026-08-27): the "
+                "account owner owns the output, commercial use including YouTube monetisation "
+                "is permitted, no attribution required; Higgsfield may train on content left "
+                "hosted on its platform (s.4.4).")
+WAIT_TIMEOUT = "20m"
+PRICE_TOLERANCE = 0.10
+
+
+def _rounds_doc(slug: str) -> "tuple[Path, dict]":
+    p = work_path(slug) / "asset_requests.json"
+    try:
+        doc = json.loads(p.read_text())
+    except (OSError, ValueError):
+        raise IngestError("no asset_requests.json for %s" % slug)
+    return p, doc
+
+
+def _find_round(doc: dict, round_id: str) -> dict:
+    for r in doc.get("rounds", []) or []:
+        if isinstance(r, dict) and str(r.get("id")) == str(round_id):
+            return r
+    raise IngestError("no round %s" % round_id)
+
+
+def step_command(round_: dict, step: dict, plate_jobs: "dict[str, str]",
+                 soul_id: "str | None") -> "list[str]":
+    """The `generate create` argv for one step, marks applied. Pure.
+
+    A Seedance mark swaps the motion model; a pro mark sets the model's
+    tier field to its pro value, else its std value is stated explicitly
+    so a changed CLI default can never change what was priced. A
+    `start_image` names an earlier stage and is resolved to that stage's
+    JOB ID, never a path (a path would upload). A Soul step carries the
+    reference only on a Soul model.
+    """
+    marks = round_.get("marks") if isinstance(round_.get("marks"), dict) else {}
+    model = str(step.get("model") or "")
+    stage = str(step.get("stage") or "")
+    if marks.get("seedance") and model == DEFAULT_VIDEO["model"]:
+        model = SEEDANCE_MODEL
+    pro = stage in (marks.get("pro") or []) and step.get("tier") == "pro"
+    args = ["generate", "create", model, "--prompt", str(step.get("prompt") or "")]
+    aspect = round_.get("aspect")
+    if aspect:
+        args += ["--aspect_ratio", str(aspect)]
+    field = TIER_FIELD.get(model)
+    if field:
+        name, value = field if pro else TIER_STD[model]
+        args += ["--" + name, value]
+    if model in ("kling3_0", "kling3_0_turbo"):
+        args += ["--duration", str(step.get("duration") or DEFAULT_VIDEO["duration"]),
+                 "--sound", "off"]
+    elif model == SEEDANCE_MODEL:
+        args += ["--duration", str(step.get("duration") or DEFAULT_VIDEO["duration"]),
+                 "--generate_audio", "false"]
+    start = step.get("start_image")
+    if start:
+        job = plate_jobs.get(str(start))
+        if not job:
+            raise IngestError("step %s names start_image %r but that stage has no job yet"
+                              % (stage, start))
+        if model == SEEDANCE_MODEL:
+            args += ["--mode", "omni_reference", "--start-image", job]
+        else:
+            args += ["--start-image", job]
+    if step.get("soul"):
+        if model not in SOUL_MODELS:
+            raise IngestError("step %s asks for the Soul on %s, which takes no reference"
+                              % (stage, model))
+        if not soul_id:
+            raise IngestError("step %s needs the Soul but NINTH_ROOM_SOUL_ID is not set" % stage)
+        args += ["--custom_reference_id", soul_id]
+    args.append("--json")
+    return args
+
+
+_UUID_RE = None
+
+
+def _json_out(out: str, what: str) -> dict:
+    """The CLI's JSON, whatever shape it took: an object, a list of objects,
+    or (as `generate create` without `--wait` returns, found 2026-09-16 at
+    the cost of one orphaned job) a bare list of id strings. A lone UUID
+    anywhere in the text is the id when nothing else names one."""
+    global _UUID_RE
+    if _UUID_RE is None:
+        import re
+        _UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                              r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+    try:
+        d = json.loads(out)
+    except ValueError:
+        d = None
+    if isinstance(d, list):
+        d = d[0] if d else {}
+    if isinstance(d, str):
+        d = {"id": d}
+    if not isinstance(d, dict):
+        d = {}
+    if not d.get("id"):
+        ids = _UUID_RE.findall(out or "")
+        if len(set(ids)) == 1:
+            d["id"] = ids[0]
+    if not d and not (out or "").strip():
+        raise IngestError("%s returned nothing" % what)
+    return d
+
+
+def download(url: str, dest: Path, log=None) -> Path:
+    """Fetch a result to `dest`. Separate so tests never touch the network."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    with urllib.request.urlopen(url, timeout=300) as resp, open(tmp, "wb") as fh:
+        while True:
+            chunk = resp.read(1 << 20)
+            if not chunk:
+                break
+            fh.write(chunk)
+    tmp.replace(dest)
+    return dest
+
+
+def probe_media(path: Path, expect_seconds: "float | None" = None) -> dict:
+    """Width, height and duration of what arrived, or a refusal. A clip
+    shorter than asked is a short clip that would play fine and end early,
+    the failure nobody notices until the episode is up."""
+    path = Path(path)
+    if path.suffix.lower() in (".mp4", ".mov", ".webm"):
+        proc = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                               "-show_entries", "stream=width,height,duration",
+                               "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+        parts = proc.stdout.strip().split(",") if proc.returncode == 0 else []
+        if len(parts) < 3:
+            raise IngestError("%s does not decode as video" % path.name)
+        w, h, d = int(parts[0]), int(parts[1]), float(parts[2])
+        if expect_seconds and d < expect_seconds - 0.5:
+            raise IngestError("%s runs %.2fs, asked for %.1f" % (path.name, d, expect_seconds))
+        return {"width": w, "height": h, "duration": round(d, 3)}
+    from PIL import Image
+    try:
+        im = Image.open(path)
+        im.load()
+    except Exception as e:
+        raise IngestError("%s does not decode as an image: %s" % (path.name, e))
+    return {"width": im.size[0], "height": im.size[1]}
+
+
+def _credits(log=None) -> "float | None":
+    try:
+        rc, out, err = cli(["account", "status", "--json"], timeout=30)
+    except IngestError:
+        return None
+    if rc != 0:
+        return None
+    try:
+        return float(json.loads(out).get("credits"))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def spend(slug: str, round_id: str, stage: str, log=print) -> dict:
+    """Spend ONE approved step and return its finalized ledger row.
+
+    Idempotent by (round_id, stage): a `done` row is returned as is; a
+    `pending` row (a death after create) is finalized without a second
+    create. Refuses before create when the live price is over the estimate
+    by more than PRICE_TOLERANCE or the remaining steps would pass the cap.
+    """
+    work = work_path(slug)
+    adir = work / "assets"
+    rq, doc = _rounds_doc(slug)
+    round_ = _find_round(doc, round_id)
+    if round_.get("status") not in ("approved", "done"):
+        raise IngestError("round %s is %s, not approved" % (round_id, round_.get("status")))
+    steps = [s for s in (round_.get("steps") or []) if isinstance(s, dict)]
+    step = next((s for s in steps if str(s.get("stage")) == str(stage)), None)
+    if step is None:
+        raise IngestError("round %s has no stage %s" % (round_id, stage))
+    row_id = "%s-%s" % (round_id, stage)
+    existing = next((a for a in ledger(slug) if a.get("id") == row_id), None)
+    if existing and existing.get("status") == "done":
+        log("[illustrate] %s already done" % row_id)
+        return existing
+
+    brief = {}
+    try:
+        brief = json.loads((work / "story_brief.json").read_text())
+    except (OSError, ValueError):
+        pass
+    script = plan = None
+    try:
+        script = json.loads((work / "script.json").read_text())
+    except (OSError, ValueError):
+        try:
+            plan = json.loads((work / "edit_plan.json").read_text())
+        except (OSError, ValueError):
+            pass
+    errors = validate_round(round_, brief.get("delivery"), script=script, plan=plan)
+    if errors:
+        raise IngestError("round %s is not valid: %s" % (round_id, errors[0]))
+    remaining = sum(float(s.get("credits") or 0) for s in steps if not s.get("done"))
+    cap_check(slug, [{"estimate_credits": remaining}])
+
+    plate_jobs = {str(s.get("stage")): s.get("job_id") for s in steps if s.get("job_id")}
+    cmd = step_command(round_, step, plate_jobs, paths.soul_id())
+    model = cmd[2]
+    honesty = round_.get("honesty")
+    estimate = float(step.get("credits") or 0)
+
+    if existing and existing.get("status") == "pending":
+        job_id = existing["job_id"]
+        log("[illustrate] %s has a pending job %s; finalizing without a second create"
+            % (row_id, job_id))
+        display = existing.get("display_name") or model
+        balance_before = existing.get("balance_before")
+    else:
+        # re-price with the exact argv the create will use
+        rc, out, err = cli(["generate", "cost"] + cmd[2:], timeout=60)
+        if rc != 0:
+            raise IngestError("could not price %s: %s" % (row_id, (err or out)[-200:]))
+        price = float(_json_out(out, "generate cost").get("credits") or 0)
+        if price > estimate * (1 + PRICE_TOLERANCE) + 1e-9:
+            raise IngestError("%s now costs %.1f credits against an estimate of %.1f — "
+                              "re-propose rather than spend past the estimate"
+                              % (row_id, price, estimate))
+        balance_before = _credits(log)
+        rc, out, err = cli(cmd, timeout=120)
+        if rc != 0:
+            raise IngestError("create failed for %s: %s" % (row_id, (err or out)[-300:]))
+        created = _json_out(out, "generate create")
+        job_id = str(created.get("id") or "")
+        if not job_id:
+            raise IngestError("create returned no job id for %s: %s" % (row_id, out[-200:]))
+        display = created.get("display_name") or model
+        # the row exists BEFORE the wait: a death from here on leaves a
+        # pending row with the job id, never an unexplained credit
+        append_row(adir, {
+            "id": row_id, "file": "", "kind": "illustration", "honesty": honesty,
+            "round_id": round_id, "stage": stage, "model": model, "display_name": display,
+            "job_id": job_id, "cost_credits": estimate, "status": "pending",
+            "created_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+            "balance_before": balance_before, "prompt": step.get("prompt"),
+            "section_id": round_.get("section_id"), "beat_id": round_.get("beat_id"),
+            "note": round_.get("note"), "license": LICENSE_SHORT, "license_note": LICENSE_NOTE,
+            "what": "%s: %s" % (stage, (round_.get("why") or "")[:80]),
+        })
+        step["job_id"] = job_id
+        rq.write_text(json.dumps(doc, indent=1, ensure_ascii=False))
+        log("[illustrate] %s created job %s on %s" % (row_id, job_id, display))
+
+    rc, out, err = cli(["generate", "wait", job_id, "--timeout", WAIT_TIMEOUT, "--json"],
+                       timeout=1300)
+    result = _json_out(out, "generate wait") if rc == 0 else {}
+    status = str(result.get("status") or "")
+    row = next((a for a in ledger(slug) if a.get("id") == row_id), None) or {}
+    if status != "completed" or not result.get("result_url"):
+        reason = result.get("fail_reason") or (err or out)[-200:] or status or "unknown"
+        row.update({"status": "refused", "cost_credits": 0.0, "fail_reason": str(reason)})
+        append_row(adir, row)
+        raise IngestError("%s was refused by Higgsfield (%s); the row is closed at zero "
+                          "credits and the round stays approved" % (row_id, reason))
+    url = str(result["result_url"])
+    ext = Path(url.split("?")[0]).suffix or (".mp4" if model in ("kling3_0", "kling3_0_turbo", SEEDANCE_MODEL) else ".png")
+    dest = adir / (row_id + ext)
+    download(url, dest, log=log)
+    probe = probe_media(dest, expect_seconds=(float(step.get("duration") or DEFAULT_VIDEO["duration"])
+                                             if ext in (".mp4", ".mov", ".webm") else None))
+    balance_after = _credits(log)
+    cost = estimate
+    if balance_before is not None and balance_after is not None:
+        delta = float(balance_before) - float(balance_after)
+        if 0 < delta <= estimate * 2:
+            cost = round(delta, 3)
+    # the wait result names the model the way the transaction log does
+    # ("Kling v3.0", not kling3_0); the bare-list create never did, and
+    # reconcile matches on that name (2026-09-16, the first live run)
+    row.update({"file": dest.name, "status": "done", "cost_credits": cost,
+                "result_url": url, "bytes": dest.stat().st_size,
+                "display_name": result.get("display_name") or row.get("display_name") or model})
+    row.update(probe)
+    row.pop("balance_before", None)
+    append_row(adir, row)
+    step["done"] = True
+    if all(s.get("done") for s in steps):
+        round_["status"] = "done"
+    round_.pop("error", None)
+    rq.write_text(json.dumps(doc, indent=1, ensure_ascii=False))
+    log("[illustrate] %s done: %s, %.1f credits" % (row_id, dest.name, cost))
+    return row
+
+
+def reconcile(rows: "list[dict]", items: "list[dict]", balance_delta: "float | None") -> dict:
+    """Match this run's ledger rows to Higgsfield's transaction items by
+    name and amount (the log carries no job id), and the balance delta to
+    the rows' sum. Pure; the runner fetches both sides and calls this."""
+    unmatched_rows = []
+    pool = [dict(i) for i in items if str(i.get("action")) == "spend"]
+    for r in rows:
+        if r.get("status") != "done":
+            continue
+        want_name = str(r.get("display_name") or "")
+        want = float(r.get("cost_credits") or 0)
+        hit = next((i for i in pool if str(i.get("display_name")) == want_name
+                    and abs(abs(float(i.get("credits") or 0)) - want) < 0.01), None)
+        if hit is None:
+            unmatched_rows.append(r.get("id"))
+        else:
+            pool.remove(hit)
+    out = {"unmatched_items": pool, "unmatched_rows": unmatched_rows}
+    if balance_delta is not None:
+        total = sum(float(r.get("cost_credits") or 0) for r in rows if r.get("status") == "done")
+        if abs(balance_delta - total) > 0.01 and not pool:
+            out["delta_gap"] = round(balance_delta - total, 3)
+    return out
+
+
+def transactions_since(since_iso: str, pages: int = 5) -> "list[dict]":
+    """Every transaction item newer than `since_iso`, paged by cursor."""
+    out, cursor = [], None
+    for _ in range(pages):
+        args = ["account", "transactions", "--size", "40", "--json"]
+        if cursor:
+            args += ["--cursor", cursor]
+        rc, text, err = cli(args, timeout=60)
+        if rc != 0:
+            break
+        raw = _json_out(text, "transactions") if text.strip().startswith("{") else {"items": json.loads(text or "[]")}
+        items = raw.get("items") or raw.get("transactions") or raw.get("data") or []
+        for it in items:
+            if str(it.get("created_at", "")) >= since_iso:
+                out.append(it)
+        if not items or str(items[-1].get("created_at", "")) < since_iso:
+            break
+        cursor = raw.get("cursor") or raw.get("next_cursor")
+        if not cursor:
+            break
+    return out

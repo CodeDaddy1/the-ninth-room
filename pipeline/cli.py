@@ -290,6 +290,21 @@ def cmd_illustrate_check(args) -> int:
     return 0
 
 
+def cmd_illustrate_spend(args) -> int:
+    """Spend or finalize ONE approved step by hand (a pending row after a
+    death, or a step the desk wants re-run). The same door the job uses."""
+    from . import illustration
+    from .ingest import IngestError
+    try:
+        row = illustration.spend(args.slug, args.round_id, args.stage)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print("%s %s %.1f credits %s" % (row.get("id"), row.get("status"),
+                                     float(row.get("cost_credits") or 0), row.get("file")))
+    return 0
+
+
 def cmd_qcframes(args) -> int:
     from . import qc_frames
     from .ingest import work_path, IngestError
@@ -542,6 +557,12 @@ def main(argv=None) -> int:
     p.add_argument("slug")
     p.add_argument("--offline", action="store_true", help="skip the live balance read")
     p.set_defaults(fn=cmd_illustrate_check)
+
+    p = sub.add_parser("illustrate-spend", help="spend or finalize one approved illustration step by hand")
+    p.add_argument("slug")
+    p.add_argument("round_id")
+    p.add_argument("stage")
+    p.set_defaults(fn=cmd_illustrate_spend)
 
     p = sub.add_parser("qcframes", help="diff the rendered master against the approved proxies")
     p.add_argument("slug")
