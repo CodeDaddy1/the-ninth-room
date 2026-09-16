@@ -35,7 +35,18 @@ End with the channel's one-line promise.>
 
 <comma-separated, 15-25: the place, the subjects, the questions people
 search, the family-travel context. No tag spam, no misleading tags.>
+
+# Credits
+
+<only when the runner's prompt says the cut carries illustrations: one
+line, "Illustrations generated with <model ids> via Higgsfield." plus any
+CC attribution rows the overlay assets carry. Omit the heading otherwise.>
 ```
+
+When the prompt says a RECONSTRUCTION is in the cut, `# Description` also
+carries YouTube's altered-content line verbatim as the prompt gives it;
+the engine refuses the package without it (docs/decisions-illustrations.md,
+decision 15).
 
 ## The title ledger
 

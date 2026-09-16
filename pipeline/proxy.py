@@ -337,6 +337,13 @@ def _proxy_dims(tl):
 
 def _build_locked(slug, only_beats=None, log=print):
     """Render proxies for all (or named) beats. Returns {beat_id: proxy path}."""
+    # a reconstruction reaches no preview unmarked (decision 6): the
+    # markers are engine-owned and re-synced wherever the cut changes, so
+    # a note here is a card of Caleb's sitting on one
+    from .illustration import marker_notes
+    notes = marker_notes(slug)
+    if notes:
+        raise IngestError(notes[0])
     tl, catalog, caps, cards_by_beat, cues_by_beat = _load(slug)
     proxy_dir = work_path(slug) / "proxies"
     proxy_dir.mkdir(exist_ok=True)

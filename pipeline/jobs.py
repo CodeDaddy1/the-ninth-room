@@ -379,6 +379,13 @@ def _run_assemble(slug, log, set_pct):
     log("[job] assemble: building the timeline")
     produce.build_timeline(slug)
     set_pct(55)
+    # every reconstruction in the new timeline carries its marker before
+    # a proxy is cut; a card of Caleb's overlapping one is his to move
+    from . import illustration as _il
+    _il.sync_markers(slug, log=log)
+    notes = _il.marker_notes(slug)
+    if notes:
+        raise JobError(notes[0])
     log("[job] assemble: review proxies")
     proxy.build(slug, log=log)
     set_pct(100)
@@ -395,6 +402,8 @@ def _run_reproxy(slug, log, set_pct):
         raise JobError("no cut to rebuild previews for — assemble '%s' "
                        "first" % slug)
     set_pct(5)
+    from . import illustration as _il
+    _il.sync_markers(slug, log=log)
     proxy.build(slug, log=log)
     set_pct(100)
 
@@ -1108,6 +1117,13 @@ def _run_graphics(slug, log, set_pct):
     log("[graphics] %d cards proposed -- review them per clip on the "
         "Review desk; Rebuild previews burns them into the playback"
         % len(gp.get("cards", [])))
+    # the session wrote the WHOLE file, so the engine-owned markers over
+    # every reconstruction are put back before anything reads the plan
+    from . import illustration as _il
+    synced = _il.sync_markers(slug, log=log)
+    if synced["added"] or synced["removed"]:
+        log("[graphics] markers re-synced: %d added, %d removed"
+            % (len(synced["added"]), len(synced["removed"])))
     set_pct(100)
 
 
@@ -1327,9 +1343,64 @@ PUBLISH_PROMPT = (
     ".claude/agents/publish-writer.md and act as that agent: read the "
     "episode's script/story and the brand voice docs, write "
     "work/%(slug)s/publish.md exactly in the format the brief specifies "
-    "(title options with honest scores, description, tags), and append "
-    "the options to work/_channel/titles.json. Do NOT touch DaVinci "
-    "Resolve or the engine on :8765.")
+    "(title options with honest scores, description, tags%(credits_hint)s), "
+    "and append the options to work/_channel/titles.json. Do NOT touch "
+    "DaVinci Resolve or the engine on :8765. %(credits)s")
+
+DISCLOSURE_LINE = ("This video contains altered or synthetic content: %s, "
+                   "generated with %s.")
+
+
+def _credits_clause(slug) -> str:
+    """What the publish package owes the illustrations in the cut, stated
+    before the writer writes. Pure over the cut and the manifest
+    (illustration.in_cut); empty when nothing generated is in the cut,
+    so an episode without illustrations is asked for nothing new."""
+    from . import illustration as _il
+    rows = _il.in_cut(slug)
+    if not rows:
+        return ""
+    models = sorted({str(r.get("model")) for r in rows if r.get("model")})
+    recon = [r for r in rows if r.get("honesty") == "reconstruction"]
+    text = ("CREDITS: the cut uses %d generated illustration(s) (models: %s). "
+            "Write a fourth heading `# Credits` naming each model id and "
+            "Higgsfield, one line: \"Illustrations generated with %s via Higgsfield.\" "
+            % (len(rows), ", ".join(models), ", ".join(models)))
+    if recon:
+        n = len(recon)
+        text += ("DISCLOSURE: %d of them %s photoreal reconstruction(s), so under "
+                 "`# Description` include YouTube's altered-content line verbatim: "
+                 "\"%s\" (the upload is then flagged as altered or synthetic content "
+                 "in the player, which is the point)."
+                 % (n, "is a" if n == 1 else "are",
+                    DISCLOSURE_LINE % ("%d reconstruction%s" % (n, "" if n == 1 else "s"),
+                                       ", ".join(sorted({str(r.get("model")) for r in recon})))))
+    return text
+
+
+def _check_publish_md(slug, md: str) -> None:
+    """The publish post-check: the three headings always; `# Credits` naming
+    every model in the cut when an illustration is in it; the disclosure
+    line when a reconstruction is. Raises with the first thing missing."""
+    from . import illustration as _il
+    for section in ("# Title options", "# Description", "# Tags"):
+        if section not in md:
+            raise RuntimeError("publish.md is missing '%s' -- the package "
+                               "is incomplete" % section)
+    rows = _il.in_cut(slug)
+    if not rows:
+        return
+    if "# Credits" not in md:
+        raise RuntimeError("publish.md is missing '# Credits' -- %d illustration(s) "
+                           "are in the cut and the model must be named" % len(rows))
+    credits = md[md.index("# Credits"):]
+    for m in sorted({str(r.get("model")) for r in rows if r.get("model")}):
+        if m not in credits:
+            raise RuntimeError("publish.md's Credits do not name %s" % m)
+    if any(r.get("honesty") == "reconstruction" for r in rows):
+        if "altered or synthetic" not in md.lower():
+            raise RuntimeError("publish.md carries no altered-content disclosure and a "
+                               "reconstruction is in the cut")
 
 
 def _run_publish(slug, log, set_pct):
@@ -1340,16 +1411,15 @@ def _run_publish(slug, log, set_pct):
             or (work / "script.json").exists()):
         raise RuntimeError("nothing to publish yet -- build the cut first")
     log("[publish] dispatching the publish writer")
-    _dispatch(PUBLISH_PROMPT % {"slug": slug}, log, set_pct, "publish")
+    credits = _credits_clause(slug)
+    _dispatch(PUBLISH_PROMPT % {"slug": slug, "credits": credits,
+                                "credits_hint": ", credits" if credits else ""},
+              log, set_pct, "publish")
     md_path = work / "publish.md"
     if not md_path.exists():
         raise RuntimeError("session finished but publish.md was not "
                            "written -- read the log")
-    md = md_path.read_text()
-    for section in ("# Title options", "# Description", "# Tags"):
-        if section not in md:
-            raise RuntimeError("publish.md is missing '%s' -- the package "
-                               "is incomplete" % section)
+    _check_publish_md(slug, md_path.read_text())
     log("[publish] package written -- copy it from the Export desk")
     set_pct(100)
 

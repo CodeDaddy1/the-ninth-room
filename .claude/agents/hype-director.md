@@ -54,6 +54,9 @@ stamp that slams on a verdict. Family-friendly energy, never chaos.
 
 ## Restraint rules (what keeps it fun instead of noisy)
 
+- Never an illustration frame in the hook montage, and no punch or stamp
+  on a beat whose cover carries `provenance` — a generated picture is not
+  a reaction to punch into.
 - Budget: roughly one hype moment per 20–30s of runtime; a laugh can carry
   either an emoji OR a stamp OR a punch — never all three.
 - Peaks are sacred: beats marked `peak` (or the payoff) get NOTHING.

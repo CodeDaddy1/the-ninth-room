@@ -801,6 +801,8 @@ def _broll_attach(slug: str, beat_id: str, clip_id: str, at: float,
         tmp.write_text(json.dumps(tm, indent=2))
         os.replace(tmp, tm_path)
     from . import proxy as proxy_mod
+    from .illustration import sync_markers
+    sync_markers(slug, log=log)
     proxy_mod.build(slug, only_beats=[beat_id], log=log)
     _conform_append(slug, "broll_attach", beat_id, entry_map)
     _mark_edited(slug, beat_id)
@@ -1656,6 +1658,8 @@ from .vfx_kit import VFX_TEMPLATES as _VFX_TEMPLATES
 _KIT_TEMPLATES.update(_VFX_TEMPLATES)
 from .checklist_kit import CHECKLIST_TEMPLATES as _CHECKLIST_TEMPLATES
 _KIT_TEMPLATES.update(_CHECKLIST_TEMPLATES)
+from .marker_kit import MARKER_TEMPLATES as _MARKER_TEMPLATES
+_KIT_TEMPLATES.update(_MARKER_TEMPLATES)
 
 
 def _provenance_at(work: Path, beat_id: str, at: float) -> "str | None":
@@ -2163,13 +2167,14 @@ def _kit_groups() -> "list":
     }
     from .vfx_kit import VFX_GROUPS
     from .checklist_kit import CHECKLIST_GROUPS
-    for g in VFX_GROUPS + CHECKLIST_GROUPS:
+    from .marker_kit import MARKER_GROUPS
+    for g in VFX_GROUPS + CHECKLIST_GROUPS + MARKER_GROUPS:
         named[g["title"]] = g["kits"]
     claimed = {k for ks in named.values() for k in ks}
     groups = [{"title": "Overlays",
                "kits": [k for k in _KIT_TEMPLATES if k not in claimed]}]
     for title in ("Engagement", "Checklist & map", "Memes", "Effects",
-                  "Transitions", "Cut furniture", "Outro"):
+                  "Transitions", "Cut furniture", "Outro", "Markers"):
         kits = [k for k in named[title] if k in _KIT_TEMPLATES]
         if kits:
             groups.append({"title": title, "kits": kits})

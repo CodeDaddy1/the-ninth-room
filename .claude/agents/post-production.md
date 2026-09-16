@@ -34,6 +34,12 @@ do here), `pipeline/color.py`, `pipeline/graphics.py`, `pipeline/captions.py`,
 
 ## Color grading method
 
+Illustrations (a cover or spine whose timeline-map entry carries
+`provenance`) are UNGRADED by design: build_api leaves them out of the
+camera grade the way it leaves overlays out, because a cyanotype plate
+through a D-Log transform is a different picture from the one Caleb
+approved. Do not "fix" their colour.
+
 Never assume a color profile from a filename — the DJI `_D` suffix does not
 mean D-Log, and applying a log transform to non-log footage produced neon
 greens and clipped highlights. **Measure**: `ffmpeg -vf signalstats` gives

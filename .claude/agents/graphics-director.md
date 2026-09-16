@@ -109,6 +109,11 @@ three beats in order: `takeaway` → `next_room` → `outro` (the end plate).
 Roughly one card per 45–60s of runtime, plus a chapter opener per chapter, and
 an engagement card every 60–90s. A 12-minute episode lands around 16–22 cards.
 **Never two cards on screen at once.** Zero cards on a beat is a fine answer.
+The `MARK*` cards (kit `provenance`, the RECONSTRUCTION eyebrow) are
+ENGINE-owned: `illustration.sync_markers` writes one over every
+reconstruction span after your run, so never write, edit or delete one,
+and never place a card across a span the timeline map marks
+`provenance: reconstruction` (assemble refuses the overlap).
 
 Never cover the payoff line's delivery — the face lands that.
 

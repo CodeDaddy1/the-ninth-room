@@ -36,6 +36,12 @@ ordered by timecode (MM:SS.d), with the same columns. Round times to 0.1s.
 
 ## The grammar
 
+- **Illustration runs**: a wordless stretch that IS a generated picture (a
+  beat whose timeline-map entry carries `provenance`) gets ONE cue row,
+  quiet, placed at its start, never on a peak; the chapter's ambience bed
+  keeps playing under it. Say which picture it is for in the cue's note so
+  Caleb can place it on the Sound desk (decision 16,
+  docs/decisions-illustrations.md).
 - **Transitions** (four house cuts, `style` on the card): `rule` = whoosh in
   with a bright edge as the yellow bar crosses; `iris` = short inhale closing,
   release opening; `grid` = six quick ticks, one per column; `push` = a low

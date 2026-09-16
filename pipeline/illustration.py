@@ -894,3 +894,168 @@ def transactions_since(since_iso: str, pages: int = 5) -> "list[dict]":
         if not cursor:
             break
     return out
+
+
+# --- the marker, the credits, the disclosure --------------------------------
+
+MARK_MAX_S = 15.0        # validate_graphics_plan's card ceiling
+MARK_PREFIX = "MARK"
+
+
+def _bake_cards(slug: str, ids: "list[str]", log=None) -> None:
+    """Bake the named cards so the proxy can composite them at once.
+    Separate so tests never launch Chrome."""
+    if not ids:
+        return
+    from . import graphics
+    try:
+        from .editroom import _orientation
+        orient = _orientation(slug)
+    except Exception:
+        orient = None
+    graphics.build_cards(slug, orientation=orient, only_ids=list(ids), log=log or (lambda *a: None))
+
+
+def reconstruction_spans(slug: str) -> "list[dict]":
+    """Every stretch of the cut that shows a reconstruction, in beat time:
+    a cover with provenance reconstruction, or a spine beat carrying it.
+    Long stretches are split under the card ceiling."""
+    p = work_path(slug) / "analysis" / "timeline_map.json"
+    try:
+        beats = json.loads(p.read_text()).get("beats", [])
+    except (OSError, ValueError):
+        return []
+    spans = []
+    for b in beats:
+        rec0 = float(b.get("record_s", 0.0))
+        if b.get("provenance") == "reconstruction":
+            spans.append((b["id"], 0.0, float(b.get("record_e", rec0)) - rec0))
+        for c in b.get("broll") or []:
+            if c.get("provenance") == "reconstruction":
+                spans.append((b["id"], round(float(c.get("record_s", rec0)) - rec0, 3),
+                              float(c.get("duration", 0.0))))
+    out = []
+    for bid, at, dur in spans:
+        while dur > 0:
+            piece = min(dur, MARK_MAX_S)
+            out.append({"beat_id": bid, "at": round(at, 3), "duration": round(piece, 3)})
+            at += piece
+            dur -= piece
+    return out
+
+
+def _mark_card(n: int, span: dict) -> dict:
+    return {"id": "%s%02d" % (MARK_PREFIX, n), "type": "section", "kit_type": "provenance",
+            "text": "RECONSTRUCTION", "kicker": "RECONSTRUCTION", "beat_id": span["beat_id"],
+            "at": span["at"], "duration": max(1.0, span["duration"]), "engine": "illustration"}
+
+
+def _same_span(card: dict, span: dict) -> bool:
+    return (card.get("beat_id") == span["beat_id"]
+            and abs(float(card.get("at", -1)) - span["at"]) < 0.05
+            and abs(float(card.get("duration", -1)) - max(1.0, span["duration"])) < 0.05)
+
+
+def sync_markers(slug: str, bake: bool = True, log=None) -> dict:
+    """Make graphics_plan.json carry exactly one MARK card per reconstruction
+    span: keep the ones that still match, drop the orphans, add the rest,
+    and bake what changed so the very next proxy shows the eyebrow. Writes
+    nothing when there is nothing to mark and no marker to remove."""
+    work = work_path(slug)
+    spans = reconstruction_spans(slug)
+    gp = work / "graphics_plan.json"
+    try:
+        plan = json.loads(gp.read_text())
+    except (OSError, ValueError):
+        plan = None
+    cards = list((plan or {}).get("cards", []) or [])
+    marks = [c for c in cards if str(c.get("id", "")).startswith(MARK_PREFIX)]
+    if not spans and not marks:
+        return {"added": [], "removed": [], "kept": []}
+    kept, removed, wanted = [], [], list(spans)
+    for c in marks:
+        hit = next((sp for sp in wanted if _same_span(c, sp)), None)
+        if hit is None:
+            removed.append(c["id"])
+        else:
+            kept.append(c["id"])
+            wanted.remove(hit)
+    others = [c for c in cards if not str(c.get("id", "")).startswith(MARK_PREFIX)]
+    survivors = [c for c in marks if c["id"] in kept]
+    used = {int(c["id"][len(MARK_PREFIX):]) for c in survivors if c["id"][len(MARK_PREFIX):].isdigit()}
+    added = []
+    n = 1
+    for sp in wanted:
+        while n in used:
+            n += 1
+        used.add(n)
+        card = _mark_card(n, sp)
+        survivors.append(card)
+        added.append(card["id"])
+    if plan is None:
+        plan = {"slug": slug, "cards": []}
+    plan["cards"] = others + sorted(survivors, key=lambda c: c["id"])
+    gp.write_text(json.dumps(plan, indent=1, ensure_ascii=False))
+    for rid in removed:
+        mov = work / "graphics" / (rid + ".mov")
+        if mov.exists():
+            mov.unlink()
+    if bake and added and (work / "analysis" / "timeline_map.json").exists():
+        _bake_cards(slug, added, log=log)
+    return {"added": added, "removed": removed, "kept": kept}
+
+
+def marker_notes(slug: str) -> "list[str]":
+    """What is wrong with the markers, as sentences: a reconstruction span
+    with no MARK card over it, and any other card overlapping a MARK span
+    on its beat (never two cards on screen at once)."""
+    work = work_path(slug)
+    spans = reconstruction_spans(slug)
+    try:
+        cards = json.loads((work / "graphics_plan.json").read_text()).get("cards", []) or []
+    except (OSError, ValueError):
+        cards = []
+    marks = [c for c in cards if str(c.get("id", "")).startswith(MARK_PREFIX)]
+    notes = []
+    for sp in spans:
+        if not any(_same_span(c, sp) for c in marks):
+            notes.append("%s: a reconstruction runs %.1fs at %.1fs unmarked — "
+                         "assemble re-syncs the markers" % (sp["beat_id"], sp["duration"], sp["at"]))
+    for c in cards:
+        if str(c.get("id", "")).startswith(MARK_PREFIX):
+            continue
+        for m in marks:
+            if m.get("beat_id") != c.get("beat_id"):
+                continue
+            a0, a1 = float(c.get("at", 0)), float(c.get("at", 0)) + float(c.get("duration", 0))
+            m0, m1 = float(m.get("at", 0)), float(m.get("at", 0)) + float(m.get("duration", 0))
+            if a0 < m1 - 0.05 and m0 < a1 - 0.05:
+                notes.append("%s: card %s overlaps marker %s — never two cards on "
+                             "screen at once; move the card off the reconstruction"
+                             % (c.get("beat_id"), c.get("id"), m.get("id")))
+    return notes
+
+
+def in_cut(slug: str) -> "list[dict]":
+    """The illustration rows whose promoted clip the plan uses as a cover
+    or a spine, in row order. What the credits name."""
+    work = work_path(slug)
+    try:
+        plan = json.loads((work / "edit_plan.json").read_text())
+        clips = json.loads((work / "analysis" / "broll.json").read_text()).get("clips", [])
+    except (OSError, ValueError):
+        return []
+    used = set()
+    for b in plan.get("beats", []) or []:
+        for c in b.get("broll") or []:
+            used.add(c.get("clip_id"))
+        if isinstance(b.get("spine"), dict):
+            used.add(b["spine"].get("clip_id"))
+    files = {c.get("file") for c in clips if c.get("id") in used and c.get("provenance")}
+    out = []
+    for a in ledger(slug):
+        name = a.get("promoted_as") or a.get("file")
+        stem_still = Path(str(a.get("file") or "")).stem + "_still.mp4"
+        if name in files or stem_still in files:
+            out.append(a)
+    return out

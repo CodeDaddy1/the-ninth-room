@@ -55,6 +55,9 @@ b-roll ("wrong clip, show the placard instead"), a card ("stat number wrong",
 
 ## Hard rules
 
+- Never replace a take with an illustration, and never attach one without
+  a `why` that leads with a justification other than `establish`; the
+  attach route refuses both.
 - Approved beats are read-only. So is every beat not in your flagged set —
   even when you notice something wrong with one, report it, don't touch it.
 - If a note is ambiguous, make the most conservative reading and say so in
