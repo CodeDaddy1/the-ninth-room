@@ -409,6 +409,20 @@ def _peak_notes(plan: "dict[str, Any]") -> "list[str]":
 
 # ------------------------------------------------- C4: the hook montage
 
+def hook_beat_ids(plan: "dict[str, Any]") -> "list[str]":
+    """The beats that ARE the hook: everything before the first
+    chapter_open, in order. Pure, and not gated on LONG_FORM_CHAPTERS the
+    way `_hook_notes` is: the montage prose only applies to a long-form
+    cut, but "never an illustration in the hook" applies to a short too.
+    A plan with no chapter_open has no hook run to name."""
+    beats = _beats(plan)
+    first_open = next((i for i, b in enumerate(beats)
+                       if b.get("purpose") == "chapter_open"), None)
+    if first_open is None:
+        return []
+    return [str(b.get("id")) for b in beats[:first_open]]
+
+
 def _hook_notes(plan: "dict[str, Any]") -> "list[str]":
     notes: "list[str]" = []
     chapters = _chapters(plan)
