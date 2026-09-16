@@ -36,8 +36,8 @@ whole architecture.
 ## Architecture in one paragraph
 
 Mechanical work is Python 3.9 (`pipeline/` — **only** `/usr/bin/python3`,
-keep code 3.9-compatible) using ffmpeg, faster-whisper, Pillow, and headless
-Chrome. Creative judgment runs as **Claude Code subagents** (`.claude/agents/`)
+keep code 3.9-compatible) using ffmpeg, faster-whisper, Pillow, headless
+Chrome and headless Blender (`docs/blender.md`). Creative judgment runs as **Claude Code subagents** (`.claude/agents/`)
 that read and write JSON artifacts under `work/<slug>/` — there are no
 Anthropic API calls and no paid services (**$0/mo is binding**). Resolve is
 controlled through the in-app Lua bridge (`pipeline/resolve_api.py` +

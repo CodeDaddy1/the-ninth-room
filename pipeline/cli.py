@@ -211,6 +211,36 @@ def cmd_rebake(args) -> int:
     return 0
 
 
+def cmd_blender_render(args) -> int:
+    from pathlib import Path
+    from . import blender_render
+    from .ingest import IngestError
+    try:
+        out = blender_render.render_blend(
+            Path(args.blend), Path(args.out), fps=args.fps,
+            start=args.start, end=args.end)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print(out)
+    return 0
+
+
+def cmd_blender_title(args) -> int:
+    from pathlib import Path
+    from . import blender_title
+    from .ingest import IngestError
+    try:
+        out = blender_title.build_title(
+            args.text, Path(args.out), kicker=args.kicker, fps=args.fps,
+            seconds=args.seconds, blend=Path(args.blend) if args.blend else None)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print(out)
+    return 0
+
+
 def cmd_qcframes(args) -> int:
     from . import qc_frames
     from .ingest import work_path, IngestError
@@ -441,6 +471,23 @@ def main(argv=None) -> int:
     p.add_argument("--beat", action="append", help="re-bake captions for these beat ids")
     p.add_argument("--card", action="append", help="re-render these card ids")
     p.set_defaults(fn=cmd_rebake)
+
+    p = sub.add_parser("blender-render", help="render a .blend headless to a ProRes 4444 alpha clip")
+    p.add_argument("blend")
+    p.add_argument("out", help="output .mov")
+    p.add_argument("--fps", type=int, default=24)
+    p.add_argument("--start", type=int, help="scene frame to start at (needs --end)")
+    p.add_argument("--end", type=int, help="scene frame to end at, inclusive")
+    p.set_defaults(fn=cmd_blender_render)
+
+    p = sub.add_parser("blender-title", help="build and render a 3D title card in the kit's numbers")
+    p.add_argument("text")
+    p.add_argument("out", help="output .mov (the .blend is kept beside it)")
+    p.add_argument("--kicker", default="Next", help="eyebrow label, set in caps")
+    p.add_argument("--fps", type=int, default=24)
+    p.add_argument("--seconds", type=float, default=3.0)
+    p.add_argument("--blend", help="where to save the .blend (default: next to out)")
+    p.set_defaults(fn=cmd_blender_title)
 
     p = sub.add_parser("qcframes", help="diff the rendered master against the approved proxies")
     p.add_argument("slug")
