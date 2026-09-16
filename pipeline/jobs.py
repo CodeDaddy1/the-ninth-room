@@ -1962,6 +1962,9 @@ SOURCING_SCRIPT_LANE = (
     "will do.\n"
     "  library -- there is no library here; treat it as an error and say "
     "so rather than silently sourcing it.\n"
+    "  illustration -- do NOT propose stock and write no requirement: the "
+    "illustration-director owns that section, and a stock candidate for "
+    "it is money spent on the thing Caleb decided to draw.\n"
     "Every entry gets \"kind\": \"source\" (something to fetch) or "
     "\"requirement\" (something Caleb or the kit must make), so the desk "
     "can separate what it can buy from what he still owes the episode. A "
@@ -2080,7 +2083,8 @@ def _run_sourcing(slug, log, set_pct, arg=None):
         # lines were covered.
         from . import schemas as _sc
         gaps = (_sc.unproposed_sections(_read_json(work / "script.json") or {},
-                                        _read_json(rq) or {})
+                                        _read_json(rq) or {},
+                                        exclude_from=("illustration",))
                 if not fetch else [])
         if not fetch and not gaps and rq.exists():
             log("[sourcing] nothing new to propose — every line that wants a "

@@ -241,6 +241,55 @@ def cmd_blender_title(args) -> int:
     return 0
 
 
+def cmd_illustrate_check(args) -> int:
+    """What the illustration gate would say about this episode right now."""
+    import json
+    from . import illustration, preconditions
+    from .ingest import work_path
+    w = work_path(args.slug)
+    brief = {}
+    try:
+        brief = json.loads((w / "story_brief.json").read_text())
+    except (OSError, ValueError):
+        pass
+    script = plan = None
+    try:
+        script = json.loads((w / "script.json").read_text())
+    except (OSError, ValueError):
+        try:
+            plan = json.loads((w / "edit_plan.json").read_text())
+        except (OSError, ValueError):
+            pass
+    rounds = []
+    try:
+        rounds = [r for r in json.loads((w / "asset_requests.json").read_text()).get("rounds", [])
+                  if r.get("kind") == "illustration"]
+    except (OSError, ValueError):
+        pass
+    for r in rounds:
+        errs = illustration.validate_round(r, brief.get("delivery"), script=script, plan=plan)
+        print("round %s [%s]: %s" % (r.get("id"), r.get("status"),
+                                    "ok" if not errs else "; ".join(errs)))
+    for row in illustration.ledger(args.slug):
+        print("  %-32s %-18s %6.1f  %s" % (row.get("id"), row.get("model"),
+                                            float(row.get("cost_credits") or 0),
+                                            row.get("status", "")))
+    print("spent %.1f of %d  (channel ledger %.1f across %d rows)"
+          % (illustration.spent(args.slug), int(illustration.EPISODE_CREDIT_CAP),
+             illustration.channel_spent(), len(illustration.channel_ledger())))
+    for name, preds in (("propose", preconditions.ILLUSTRATE_PROPOSE),
+                        ("generate", preconditions.ILLUSTRATE_GENERATE)):
+        bad = preconditions.refused(preds, args.slug)
+        print("%s: %s" % (name, "ready" if not bad else "; ".join(p.message for p in bad)))
+    if not args.offline:
+        try:
+            rc, out, _ = illustration.cli(["account", "status"], timeout=30)
+            print("balance: %s" % (out.strip() if rc == 0 else "unavailable"))
+        except Exception as e:
+            print("balance: unavailable (%s)" % e)
+    return 0
+
+
 def cmd_qcframes(args) -> int:
     from . import qc_frames
     from .ingest import work_path, IngestError
@@ -488,6 +537,11 @@ def main(argv=None) -> int:
     p.add_argument("--seconds", type=float, default=3.0)
     p.add_argument("--blend", help="where to save the .blend (default: next to out)")
     p.set_defaults(fn=cmd_blender_title)
+
+    p = sub.add_parser("illustrate-check", help="rounds, ledger, cap and gates for an episode's illustrations")
+    p.add_argument("slug")
+    p.add_argument("--offline", action="store_true", help="skip the live balance read")
+    p.set_defaults(fn=cmd_illustrate_check)
 
     p = sub.add_parser("qcframes", help="diff the rendered master against the approved proxies")
     p.add_argument("slug")

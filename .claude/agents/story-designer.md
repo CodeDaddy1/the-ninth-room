@@ -366,3 +366,11 @@ And the craft rules that make coverage read as EDITING, not noise:
 
 `why` is REQUIRED on every broll entry. If you cannot write the why in
 one honest clause, the cover does not belong.
+
+A beat may ASK for a picture the library does not hold: give it a
+`visual {want, why, from: "illustration"}` block, the same shape a script
+section carries, when the thing the line names was never filmed or the
+footage of it is weak. You place nothing; the illustration-director
+proposes against that block and Caleb approves it on the Library desk.
+Never for an `establish`, never in the hook, never on a peak
+(docs/decisions-illustrations.md, decision 13).

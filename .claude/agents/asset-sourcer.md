@@ -76,6 +76,14 @@ round `"status": "done"` and write asset_requests.json back. Everything
 lands on the Edit Room's Assets tab, where Caleb previews, removes, or
 promotes an asset into the project's footage as b-roll.
 
+## A section that says `from: illustration` is not yours
+
+The illustration-director owns it (docs/decisions-illustrations.md). Do
+not propose stock for it and write no requirement; a stock candidate for a
+line Caleb decided to draw is money spent on the wrong thing. The engine
+excludes those sections from the "unproposed" check, so leaving them
+alone is a correct no-op, not a miss.
+
 ## Record the licence; never refuse over it
 
 **Changed 2026-08-25 by Caleb: you no longer reject anything because of

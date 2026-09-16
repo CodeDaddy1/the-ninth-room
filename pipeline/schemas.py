@@ -918,6 +918,22 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
             for key in ("at", "duration"):
                 if not isinstance(br.get(key), (int, float)):
                     errors.append("%s: missing numeric '%s'" % (bw, key))
+        # A footage-lane beat may ASK for a picture the same way a script
+        # section does, so the storyteller decision ten names can request
+        # an illustration on a cut (docs/decisions-illustrations.md).
+        if "visual" in b:
+            vis = b["visual"]
+            if not isinstance(vis, dict):
+                errors.append("%s: visual must be an object" % where)
+            else:
+                if not str(vis.get("want") or "").strip():
+                    errors.append("%s: visual.want is empty" % where)
+                if why_kind(vis.get("why")) is None:
+                    errors.append("%s: visual.why names no justification — lead "
+                                  "with one of %s" % (where, "/".join(COVER_WHYS)))
+                if str(vis.get("from") or "") not in VISUAL_FROM:
+                    errors.append("%s: visual.from must be one of %s"
+                                  % (where, "/".join(VISUAL_FROM)))
         tr = b.get("transition_in", "cut")
         if tr not in TRANSITIONS:
             errors.append("%s: transition_in '%s' not in %s" % (where, tr, TRANSITIONS))
@@ -1457,7 +1473,8 @@ SECTION_KINDS = ("oncamera", "vo", "desk")
 # Where a `visual` comes from. The sourcing stage buys against this, so a
 # wrong guess costs Caleb money and an hour — prefer `library` whenever the
 # footage we already have honestly covers the line.
-VISUAL_FROM = ("library", "stock", "archival", "graphic", "shoot")
+VISUAL_FROM = ("library", "stock", "archival", "graphic", "shoot",
+               "illustration")
 
 # Section ids look like CH2.S3 — chapter, section. They are IDENTITY, not
 # ordering: recordings match to sections by FILENAME (vo_CH2-S3_r1_t1.webm),
@@ -2000,7 +2017,11 @@ def blocking_questions(questions: "dict[str, Any] | None",
 # A proposal offers to BUY something. These are the answers that mean we
 # are no longer buying it — the overlay kit draws it, Caleb shoots it, or
 # the library already holds it.
-_NOT_SOURCED = ("graphic", "shoot", "library")
+# `illustration` joins them in the SAME commit as VISUAL_FROM gained it: the
+# illustration-director owns that answer, and a stock round left live for a
+# section that moved to it would buy a picture nobody wants
+# (docs/decisions-illustrations.md, 2026-09-16).
+_NOT_SOURCED = ("graphic", "shoot", "library", "illustration")
 
 
 # A candidate used to be a SEARCH TERM: {query, source, license, note}.
@@ -2061,7 +2082,8 @@ def validate_candidates(round_: "dict[str, Any]") -> "list[str]":
 
 
 def superseded_requests(script: "dict[str, Any]",
-                        requests: "dict[str, Any] | None") -> "list[int]":
+                        requests: "dict[str, Any] | None",
+                        plan: "dict[str, Any] | None" = None) -> "list[int]":
     """Indices of open proposals the script has since moved past.
 
     A revision can turn "find me archival footage of this" into "draw it in
@@ -2074,6 +2096,10 @@ def superseded_requests(script: "dict[str, Any]",
     Only `source` proposals can go stale this way: a `requirement` names
     work still owed whatever the section now says. Nothing is deleted —
     the caller re-labels, so the record of what was proposed survives.
+
+    An `illustration` round goes stale the same way, on either lane: when
+    its section (script lane) or its beat (footage lane, `plan`) no longer
+    asks for `from: illustration`, or no longer exists.
     """
     want = {}
     for ch in (script or {}).get("chapters", []):
@@ -2082,9 +2108,26 @@ def superseded_requests(script: "dict[str, Any]",
             want[str(sec.get("id"))] = (
                 str((vis or {}).get("from") or "") if isinstance(vis, dict)
                 else None)
+    beat_want = {}
+    for b in (plan or {}).get("beats", []) or []:
+        if isinstance(b, dict):
+            vis = b.get("visual")
+            beat_want[str(b.get("id"))] = (
+                str((vis or {}).get("from") or "") if isinstance(vis, dict)
+                else None)
     out = []
     for i, r in enumerate((requests or {}).get("rounds", []) or []):
         if not isinstance(r, dict) or r.get("status") != "proposed":
+            continue
+        if r.get("kind") == "illustration":
+            if r.get("beat_id"):
+                bid = str(r.get("beat_id"))
+                if beat_want.get(bid) != "illustration":
+                    out.append(i)
+            else:
+                sid = str(r.get("section_id") or "")
+                if want.get(sid) != "illustration":
+                    out.append(i)
             continue
         if r.get("kind") != "source":
             continue
@@ -2095,7 +2138,8 @@ def superseded_requests(script: "dict[str, Any]",
 
 
 def unproposed_sections(script: "dict[str, Any]",
-                        requests: "dict[str, Any] | None") -> "list[str]":
+                        requests: "dict[str, Any] | None",
+                        exclude_from: "tuple" = ()) -> "list[str]":
     """Section ids that ask for a picture and have no live row.
 
     The inverse of `superseded_requests`, and the test for whether a
@@ -2132,6 +2176,11 @@ def unproposed_sections(script: "dict[str, Any]",
                 continue
             vis = sec.get("visual")
             if not isinstance(vis, dict) or not str(vis.get("from") or "").strip():
+                continue
+            # a `from` another craft owns is not this caller's miss: the
+            # sourcer passes ("illustration",) so an illustrated section
+            # never reads as a stock gap it failed to propose
+            if str(vis.get("from")) in exclude_from:
                 continue
             sid = str(sec.get("id") or "")
             if sid and sid not in covered:

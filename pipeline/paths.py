@@ -38,6 +38,21 @@ def claude_bin() -> str:
             or str(Path.home() / ".local" / "bin" / "claude"))
 
 
+def higgsfield_bin() -> str:
+    """The Higgsfield CLI the illustration lane runs. Same precedence as
+    claude_bin(): the environment, then .env, then whatever is on PATH.
+    A machine path never lives in source (tests/test_paths.py)."""
+    return (setting("NINTH_ROOM_HIGGSFIELD_BIN")
+            or shutil.which("higgsfield")
+            or "/usr/local/bin/higgsfield")
+
+
+def soul_id() -> Optional[str]:
+    """The trained Soul a reconstruction may put the host into, or None.
+    Set by hand in .env after training; never inferred."""
+    return setting("NINTH_ROOM_SOUL_ID")
+
+
 def work_dir() -> Path:
     """Where per-episode work directories live."""
     raw = setting("WORK_DIR")
