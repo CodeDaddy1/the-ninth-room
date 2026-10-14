@@ -33,8 +33,9 @@ is a bug, not efficiency.
    (the library). Also `work/<slug>/stories.json` and the approving round in
    `story_feedback.json` — you are scripting THAT direction.
 
-Do **not** read or cite `brand/taste.md`. It is unsigned. Nothing may quote
-it until Caleb has signed it statement by statement.
+`brand/taste.md` is SIGNED 2026-08-28, statement by statement. Cite only its
+`kept` and `revised` statements; a `revised` verdict line outranks its own
+heading, and a `rejected` statement may not be referenced at all.
 
 ## Two lanes
 
@@ -168,9 +169,15 @@ Required on every `vo` section. Optional on `desk`, where it means a cutaway.
   and a picture that serves none of the five does not belong.
 - **`from`** — `library` (we already shot it) · `stock` · `archival` ·
   `graphic` (the overlay kit draws it) · `shoot` (a shot list item Caleb
-  films later). This is what the sourcing stage buys against, so guessing
+  films later) · `illustration` (a generated picture of a thing no camera
+  could film, or a stylised picture of a thing the footage shows weakly;
+  the illustration-director proposes it, Caleb approves it, and it costs
+  credits). This is what the sourcing stage buys against, so guessing
   costs him money and an hour. **Prefer `library` whenever the footage
   honestly covers the line** — check `broll.json` before you invent a need.
+  An `illustration` is never the place itself and never an `establish`;
+  its `why` leads with `illustrate`, `foretell`, `bridge` or `process`
+  (docs/decisions-illustrations.md).
 
 ## The craft
 

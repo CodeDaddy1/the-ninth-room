@@ -36,10 +36,12 @@ whole architecture.
 ## Architecture in one paragraph
 
 Mechanical work is Python 3.9 (`pipeline/` — **only** `/usr/bin/python3`,
-keep code 3.9-compatible) using ffmpeg, faster-whisper, Pillow, and headless
-Chrome. Creative judgment runs as **Claude Code subagents** (`.claude/agents/`)
+keep code 3.9-compatible) using ffmpeg, faster-whisper, Pillow, headless
+Chrome and headless Blender (`docs/blender.md`). Creative judgment runs as **Claude Code subagents** (`.claude/agents/`)
 that read and write JSON artifacts under `work/<slug>/` — there are no
-Anthropic API calls and no paid services (**$0/mo is binding**). Resolve is
+Anthropic API calls, and **$0/mo by default**: three opt-in paid paths, the
+ones the README names, each behind a per-round approval on the Library desk
+(`docs/decisions-illustrations.md`). Resolve is
 controlled through the in-app Lua bridge (`pipeline/resolve_api.py` +
 `pipeline/bridge/Ninth Room Bridge.lua`) because the free edition blocks external
 scripting. Timelines are generated as FCPXML and imported; transitions survive
@@ -291,7 +293,9 @@ exactly this. Which card, how often, and how they fail:
    is for the family moving as one. On camera everyone speaks as themselves —
    Caleb, Alma and Sofia each say "I" in a take, and no rule touches a quote.
 6. **Design system first.** If it isn't in the Cyanotype kit, don't invent it
-   here — brief it into Claude Design and re-implement what comes back.
+   here — brief it into Claude Design and re-implement what comes back. A
+   Blender kit type is the one carve-out: its flat HTML stand-in is its
+   canvas, and the 3D render must match that stand-in, not the other way.
 7. **Platform-native** (`workflows/platform-specs.md`): safe zones, lengths,
    burned-in captions for mute-first viewing.
 

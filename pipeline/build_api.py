@@ -146,11 +146,17 @@ return tostring(items and #items or 0)
     # pipeline/color.py docstring for why the filename suffix lies.
     from . import color as color_mod
     color_mod.use_standard_color_science(log=log)
+    # An illustration is never camera footage: it is brand-exact the way a
+    # card is, and a D-Log LUT plus a CDL solved to "correct" its Prussian
+    # blue would ship a different picture from the one Caleb approved on
+    # the Library desk. Provenance rides the timeline map, so the skip
+    # needs no second read of the catalog (2026-09-16).
+    camera_names, exempt_items = camera_file_names(tl_map, by_name)
     camera_files = {}
-    for b in tl_map["beats"]:
-        camera_files[source_for(b["file"])["name"]] = source_for(b["file"])
-        for br in b["broll"]:
-            camera_files[by_name[br["file"]]["name"]] = by_name[br["file"]]
+    for name in camera_names:
+        camera_files[source_for(name)["name"]] = source_for(name)
+    if exempt_items:
+        log("[color] %d illustration item(s) left ungraded" % exempt_items)
     grades = color_mod.plan_grade(slug, list(camera_files.values()), log=log)
 
     # 2. Fresh empty timeline at the right rate/resolution.
@@ -365,6 +371,43 @@ return msg
     if "MISSING=" in out or "FAILED=" in out:
         raise IngestError("timeline build incomplete: %s" % out)
 
-    color_mod.apply_grade({k: v for k, v in grades.items() if k in camera_files},
-                          log=log)
+    out = color_mod.apply_grade({k: v for k, v in grades.items() if k in camera_files},
+                                log=log)
+    check_untouched(out, exempt_items)
     return tl_name
+
+
+
+def camera_file_names(tl_map: "dict", by_name: "dict") -> "tuple[list, int]":
+    """The footage files the camera grade applies to, and how many placed
+    items it must leave alone. Pure over the timeline map: a spine beat or
+    a cover carrying `provenance` is an illustration and is skipped."""
+    names: "dict[str, None]" = {}
+    exempt = 0
+    for b in tl_map["beats"]:
+        if b.get("provenance"):
+            exempt += 1
+        else:
+            names[b["file"]] = None
+        for br in b.get("broll", []):
+            if br.get("provenance"):
+                exempt += 1
+            else:
+                names[by_name[br["file"]]["name"]] = None
+    return list(names), exempt
+
+
+def check_untouched(apply_out: str, exempt_items: int) -> None:
+    """apply_grade reports `untouched=N`: the V1/V2 items it matched no
+    grade for. Every exempt illustration item must be among them, or a
+    plate was graded as camera footage and the master differs from the
+    approved picture. Raises rather than logs: qc_frames is tonal-blind and
+    would not catch it later."""
+    try:
+        untouched = int(apply_out.split("untouched=")[-1].split()[0])
+    except (ValueError, IndexError):
+        raise IngestError("could not read the grade tally: %r" % apply_out)
+    if untouched < exempt_items:
+        raise IngestError("%d illustration item(s) should be ungraded but the "
+                          "grade left only %d item(s) untouched"
+                          % (exempt_items, untouched))

@@ -71,7 +71,7 @@ SESSION_KINDS = {
     "story", "editplan", "recut", "coverage", "graphics", "script", "research",
     "sourcing", "interview",
     "retention", "room", "publish", "scout", "fixer", "hook", "perf",
-    "retro", "diagnose",
+    "retro", "diagnose", "illustrate",
 }
 LOCAL_KINDS = {
     # survey is ffmpeg on this machine like the rest of them: it decodes
@@ -379,6 +379,13 @@ def _run_assemble(slug, log, set_pct):
     log("[job] assemble: building the timeline")
     produce.build_timeline(slug)
     set_pct(55)
+    # every reconstruction in the new timeline carries its marker before
+    # a proxy is cut; a card of Caleb's overlapping one is his to move
+    from . import illustration as _il
+    _il.sync_markers(slug, log=log)
+    notes = _il.marker_notes(slug)
+    if notes:
+        raise JobError(notes[0])
     log("[job] assemble: review proxies")
     proxy.build(slug, log=log)
     set_pct(100)
@@ -395,6 +402,8 @@ def _run_reproxy(slug, log, set_pct):
         raise JobError("no cut to rebuild previews for — assemble '%s' "
                        "first" % slug)
     set_pct(5)
+    from . import illustration as _il
+    _il.sync_markers(slug, log=log)
     proxy.build(slug, log=log)
     set_pct(100)
 
@@ -1108,6 +1117,13 @@ def _run_graphics(slug, log, set_pct):
     log("[graphics] %d cards proposed -- review them per clip on the "
         "Review desk; Rebuild previews burns them into the playback"
         % len(gp.get("cards", [])))
+    # the session wrote the WHOLE file, so the engine-owned markers over
+    # every reconstruction are put back before anything reads the plan
+    from . import illustration as _il
+    synced = _il.sync_markers(slug, log=log)
+    if synced["added"] or synced["removed"]:
+        log("[graphics] markers re-synced: %d added, %d removed"
+            % (len(synced["added"]), len(synced["removed"])))
     set_pct(100)
 
 
@@ -1327,9 +1343,64 @@ PUBLISH_PROMPT = (
     ".claude/agents/publish-writer.md and act as that agent: read the "
     "episode's script/story and the brand voice docs, write "
     "work/%(slug)s/publish.md exactly in the format the brief specifies "
-    "(title options with honest scores, description, tags), and append "
-    "the options to work/_channel/titles.json. Do NOT touch DaVinci "
-    "Resolve or the engine on :8765.")
+    "(title options with honest scores, description, tags%(credits_hint)s), "
+    "and append the options to work/_channel/titles.json. Do NOT touch "
+    "DaVinci Resolve or the engine on :8765. %(credits)s")
+
+DISCLOSURE_LINE = ("This video contains altered or synthetic content: %s, "
+                   "generated with %s.")
+
+
+def _credits_clause(slug) -> str:
+    """What the publish package owes the illustrations in the cut, stated
+    before the writer writes. Pure over the cut and the manifest
+    (illustration.in_cut); empty when nothing generated is in the cut,
+    so an episode without illustrations is asked for nothing new."""
+    from . import illustration as _il
+    rows = _il.in_cut(slug)
+    if not rows:
+        return ""
+    models = sorted({str(r.get("model")) for r in rows if r.get("model")})
+    recon = [r for r in rows if r.get("honesty") == "reconstruction"]
+    text = ("CREDITS: the cut uses %d generated illustration(s) (models: %s). "
+            "Write a fourth heading `# Credits` naming each model id and "
+            "Higgsfield, one line: \"Illustrations generated with %s via Higgsfield.\" "
+            % (len(rows), ", ".join(models), ", ".join(models)))
+    if recon:
+        n = len(recon)
+        text += ("DISCLOSURE: %d of them %s photoreal reconstruction(s), so under "
+                 "`# Description` include YouTube's altered-content line verbatim: "
+                 "\"%s\" (the upload is then flagged as altered or synthetic content "
+                 "in the player, which is the point)."
+                 % (n, "is a" if n == 1 else "are",
+                    DISCLOSURE_LINE % ("%d reconstruction%s" % (n, "" if n == 1 else "s"),
+                                       ", ".join(sorted({str(r.get("model")) for r in recon})))))
+    return text
+
+
+def _check_publish_md(slug, md: str) -> None:
+    """The publish post-check: the three headings always; `# Credits` naming
+    every model in the cut when an illustration is in it; the disclosure
+    line when a reconstruction is. Raises with the first thing missing."""
+    from . import illustration as _il
+    for section in ("# Title options", "# Description", "# Tags"):
+        if section not in md:
+            raise RuntimeError("publish.md is missing '%s' -- the package "
+                               "is incomplete" % section)
+    rows = _il.in_cut(slug)
+    if not rows:
+        return
+    if "# Credits" not in md:
+        raise RuntimeError("publish.md is missing '# Credits' -- %d illustration(s) "
+                           "are in the cut and the model must be named" % len(rows))
+    credits = md[md.index("# Credits"):]
+    for m in sorted({str(r.get("model")) for r in rows if r.get("model")}):
+        if m not in credits:
+            raise RuntimeError("publish.md's Credits do not name %s" % m)
+    if any(r.get("honesty") == "reconstruction" for r in rows):
+        if "altered or synthetic" not in md.lower():
+            raise RuntimeError("publish.md carries no altered-content disclosure and a "
+                               "reconstruction is in the cut")
 
 
 def _run_publish(slug, log, set_pct):
@@ -1340,16 +1411,15 @@ def _run_publish(slug, log, set_pct):
             or (work / "script.json").exists()):
         raise RuntimeError("nothing to publish yet -- build the cut first")
     log("[publish] dispatching the publish writer")
-    _dispatch(PUBLISH_PROMPT % {"slug": slug}, log, set_pct, "publish")
+    credits = _credits_clause(slug)
+    _dispatch(PUBLISH_PROMPT % {"slug": slug, "credits": credits,
+                                "credits_hint": ", credits" if credits else ""},
+              log, set_pct, "publish")
     md_path = work / "publish.md"
     if not md_path.exists():
         raise RuntimeError("session finished but publish.md was not "
                            "written -- read the log")
-    md = md_path.read_text()
-    for section in ("# Title options", "# Description", "# Tags"):
-        if section not in md:
-            raise RuntimeError("publish.md is missing '%s' -- the package "
-                               "is incomplete" % section)
+    _check_publish_md(slug, md_path.read_text())
     log("[publish] package written -- copy it from the Export desk")
     set_pct(100)
 
@@ -1626,11 +1696,16 @@ def _run_diagnose(slug, log, set_pct, arg=None):
     set_pct(100)
 
 
-def _dispatch_json(prompt, log, set_pct, what):
+def _dispatch_json(prompt, log, set_pct, what, env=None):
     """A headless session via stream-json: assistant text is teed to the
     job log LIVE, and the final result event's usage comes back — the
     token/cost numbers the board's cost events need (probed 2026-08-24:
-    input/output/cache tokens, total_cost_usd, durations all present)."""
+    input/output/cache tokens, total_cost_usd, durations all present).
+
+    `env` replaces the session's environment when given. The illustrate
+    kind uses it to put a read-only `higgsfield` first on PATH: a session
+    runs with permissions skipped, so the binary it can reach is the only
+    gate that holds before the network (docs/decisions-illustrations.md)."""
     import json as _json
     import subprocess
     set_pct(5)
@@ -1639,7 +1714,7 @@ def _dispatch_json(prompt, log, set_pct, what):
          "--output-format", "stream-json", "--verbose",
          "--dangerously-skip-permissions"],
         cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True)
+        stderr=subprocess.STDOUT, text=True, env=env)
     set_pct(15)
     usage = {}
     seen_session = [False]
@@ -1962,6 +2037,9 @@ SOURCING_SCRIPT_LANE = (
     "will do.\n"
     "  library -- there is no library here; treat it as an error and say "
     "so rather than silently sourcing it.\n"
+    "  illustration -- do NOT propose stock and write no requirement: the "
+    "illustration-director owns that section, and a stock candidate for "
+    "it is money spent on the thing Caleb decided to draw.\n"
     "Every entry gets \"kind\": \"source\" (something to fetch) or "
     "\"requirement\" (something Caleb or the kit must make), so the desk "
     "can separate what it can buy from what he still owes the episode. A "
@@ -2080,7 +2158,8 @@ def _run_sourcing(slug, log, set_pct, arg=None):
         # lines were covered.
         from . import schemas as _sc
         gaps = (_sc.unproposed_sections(_read_json(work / "script.json") or {},
-                                        _read_json(rq) or {})
+                                        _read_json(rq) or {},
+                                        exclude_from=("illustration",))
                 if not fetch else [])
         if not fetch and not gaps and rq.exists():
             log("[sourcing] nothing new to propose — every line that wants a "
@@ -2121,6 +2200,219 @@ def _run_sourcing(slug, log, set_pct, arg=None):
     set_pct(100)
 
 
+ILLUSTRATE_PROMPT = (
+    "Propose illustrations for %(slug)s: the pictures no camera could film, "
+    "as priced rounds Caleb approves before a credit moves. Read "
+    ".claude/agents/illustration-director.md and act as that agent. You "
+    "spend nothing and download nothing; you write ONE file and prove it "
+    "with illustrate-check.\n\n%(clause)s")
+
+
+def _illustration_clause(slug, balance=None) -> str:
+    """The story artifacts, the visual language and the money, in the
+    order the story-director reads its own inputs. Pure and separate so a
+    test can prove the story reaches the illustrator (the failure mode a
+    consult-by-artifact craft invites is a thin prompt nobody notices).
+    Lives in pipeline/illustration.py; this is the seam the prompt uses."""
+    from . import illustration
+    return illustration.prompt_clause(slug, balance=balance)
+
+
+def _higgsfield_credits(log) -> "float | None":
+    """The live balance, or None when the session is expired or offline."""
+    from . import illustration
+    try:
+        rc, out, err = illustration.cli(["account", "status", "--json"], timeout=30)
+    except Exception as e:
+        log("[illustrate] balance unavailable: %s" % e)
+        return None
+    if rc != 0:
+        log("[illustrate] balance unavailable: %s" % (err or out)[-200:])
+        return None
+    try:
+        return float(json.loads(out).get("credits"))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _run_illustrate(slug, log, set_pct, arg=None):
+    """PROPOSE illustrations (one read-only session), or GENERATE the
+    approved rounds (the engine, no session; lands with P4).
+
+    The propose arm mirrors _run_sourcing: the gates a file check can
+    answer are answered before the dispatch (and once more here, landing
+    `declined`), the session writes to staging only, the runner validates
+    every round and appends them at `proposed`, and the post-checks prove
+    the phase spent nothing: the assets folder and the balance are the
+    same before and after, and the read-only shim's log shows every call
+    it forwarded and refused.
+    """
+    from . import illustration as il, preconditions as pre
+    generate = str(arg or "").lower() == "generate"
+    bad = pre.refused(pre.ILLUSTRATE_GENERATE if generate else pre.ILLUSTRATE_PROPOSE, slug)
+    if bad:
+        raise JobError(bad[0].message)
+    if generate:
+        return _generate_illustrations(slug, log, set_pct)
+    work = work_path(slug)
+    staging = work / il.STAGING
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    if staging.exists():
+        staging.unlink()
+    shim_log = staging.parent / "higgsfield_shim.log"
+    if shim_log.exists():
+        shim_log.unlink()
+    adir = work / "assets"
+    files_before = len(list(adir.iterdir())) if adir.is_dir() else 0
+    balance_before = _higgsfield_credits(log)
+    if balance_before is None:
+        raise JobError("the Higgsfield session is expired or offline — run "
+                       "`higgsfield auth login` and press again")
+    log("[illustrate] balance %g, assets/ holds %d file(s); dispatching the "
+        "illustration-director behind the read-only shim"
+        % (balance_before, files_before))
+    env = dict(os.environ)
+    env["PATH"] = str(il.SHIM_DIR) + os.pathsep + env.get("PATH", "")
+    env["NINTH_ROOM_HIGGSFIELD_REAL"] = paths.higgsfield_bin()
+    env["NINTH_ROOM_HIGGSFIELD_SHIM_LOG"] = str(shim_log)
+    prompt = ILLUSTRATE_PROMPT % {"slug": slug,
+                                  "clause": _illustration_clause(slug, balance=balance_before)}
+    _dispatch_json(prompt, log, set_pct, "illustrate", env=env)
+
+    # what the session tried, from the shim's own record
+    forwarded = refused = 0
+    if shim_log.exists():
+        for line in shim_log.read_text().splitlines():
+            if line.startswith("forwarded"):
+                forwarded += 1
+            elif line.startswith("refused"):
+                refused += 1
+                log("[illustrate] shim refused: %s" % line.split("\t", 2)[-1][:160])
+    log("[illustrate] shim forwarded %d call(s), refused %d" % (forwarded, refused))
+
+    doc = _read_json(staging) or {}
+    rounds = [r for r in (doc.get("rounds") or []) if isinstance(r, dict)]
+    if not rounds:
+        # a no-op is a failure only when something still asks for a picture
+        remaining = [p for p in pre.refused([pre.HAS_TARGETS], slug)]
+        if remaining:
+            log("[illustrate] the session proposed nothing and nothing asks for "
+                "an illustration any more")
+            set_pct(100)
+            return
+        raise RuntimeError("session finished and proposed nothing, but a section "
+                           "or beat still asks for an illustration — read the log")
+    from . import schemas as _sc
+    brief = _read_json(work / "story_brief.json", {}) or {}
+    script = _read_json(work / "script.json")
+    plan = _read_json(work / "edit_plan.json") if script is None else None
+    errors = []
+    for r in rounds:
+        errors.extend(il.validate_round(r, brief.get("delivery"), script=script, plan=plan))
+    if errors:
+        raise RuntimeError("proposals are not valid: %s%s"
+                           % ("; ".join(errors[:3]),
+                              " (+%d more)" % (len(errors) - 3) if len(errors) > 3 else ""))
+    rq = work / "asset_requests.json"
+    reqs = _read_json(rq) or {"rounds": []}
+    reqs.setdefault("rounds", [])
+    live = [r for r in reqs["rounds"] if isinstance(r, dict)
+            and r.get("kind") == "illustration" and r.get("status") in ("proposed", "approved")]
+    il.cap_check(slug, live + rounds)
+
+    # the gate, BEFORE anything lands: proposing must never leave media on
+    # disk or move a credit, and a run that did leaves no proposals behind
+    files_after = len(list(adir.iterdir())) if adir.is_dir() else 0
+    if files_after != files_before:
+        raise RuntimeError("assets/ changed during a propose (%d -> %d files) — "
+                           "the phase that must download nothing did"
+                           % (files_before, files_after))
+    balance_after = _higgsfield_credits(log)
+    if balance_after is not None and balance_after != balance_before:
+        raise RuntimeError("the balance moved during a propose (%g -> %g) — a "
+                           "credit was spent by a phase that prices only"
+                           % (balance_before, balance_after))
+    now = int(time.time())
+    for r in rounds:
+        r["kind"] = "illustration"
+        r["status"] = "proposed"
+        r["ts"] = now
+        r.setdefault("marks", {})
+        reqs["rounds"].append(r)
+    rq.write_text(json.dumps(reqs, indent=1, ensure_ascii=False))
+    from . import editroom as _er
+    _er._ensure_round_ids(slug)
+    log("[illustrate] %d round(s) proposed, %.1f credits estimated — approve "
+        "them on the Library desk (assets/ %d file(s), balance %g, unchanged)"
+        % (len(rounds), sum(float(r.get("estimate_credits") or 0) for r in rounds),
+           files_after, balance_before))
+    set_pct(100)
+
+
+def _generate_illustrations(slug, log, set_pct):
+    """GENERATE the approved rounds: the engine, mechanically, no session
+    (Caleb, 2026-09-16, docs/decisions-illustrations.md). One `spend` per
+    step; a step failure records the error on its round, leaves it
+    approved, and fails the job naming the step. Afterwards every new row
+    must be `done` with a cost, the episode must sit under its cap, and
+    the run's rows must reconcile against the balance delta and the
+    transaction window, or the job fails saying how many credits are
+    unaccounted for.
+    """
+    from . import illustration as il
+    work = work_path(slug)
+    window_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 5))
+    balance_before = il._credits(log)
+    before_ids = {a.get("id") for a in il.ledger(slug)}
+    rq, doc = il._rounds_doc(slug)
+    approved = [r for r in doc.get("rounds", []) or []
+                if isinstance(r, dict) and r.get("kind") == "illustration"
+                and r.get("status") == "approved"]
+    steps_total = sum(len(r.get("steps") or []) for r in approved) or 1
+    done_steps = 0
+    log("[illustrate] generating %d approved round(s), %d step(s); balance %s"
+        % (len(approved), steps_total, balance_before))
+    for r in approved:
+        for st in r.get("steps") or []:
+            stage = str(st.get("stage"))
+            try:
+                il.spend(slug, str(r.get("id")), stage, log=log)
+            except Exception as e:
+                # record it where the desk can see it; the round stays
+                # approved so a rerun picks up exactly here
+                rq2, doc2 = il._rounds_doc(slug)
+                r2 = il._find_round(doc2, str(r.get("id")))
+                r2["error"] = "%s: %s" % (stage, str(e)[:240])
+                rq2.write_text(json.dumps(doc2, indent=1, ensure_ascii=False))
+                raise RuntimeError("round %s step %s failed: %s" % (r.get("id"), stage, e))
+            done_steps += 1
+            set_pct(int(10 + 80 * done_steps / steps_total))
+    new_rows = [a for a in il.ledger(slug) if a.get("id") not in before_ids]
+    bad = [a.get("id") for a in new_rows
+           if a.get("status") != "done" or not a.get("job_id") or "cost_credits" not in a]
+    if bad:
+        raise RuntimeError("row(s) not finalized: %s" % ", ".join(str(b) for b in bad))
+    if il.spent(slug) > il.EPISODE_CREDIT_CAP:
+        raise RuntimeError("the episode is over its cap after this run (%.1f)" % il.spent(slug))
+    balance_after = il._credits(log)
+    delta = (float(balance_before) - float(balance_after)
+             if balance_before is not None and balance_after is not None else None)
+    items = il.transactions_since(window_start)
+    rec = il.reconcile(new_rows, items, delta)
+    if rec["unmatched_rows"] or rec["unmatched_items"] or rec.get("delta_gap"):
+        stray = sum(abs(float(i.get("credits") or 0)) for i in rec["unmatched_items"])
+        raise RuntimeError("%.1f credit(s) unaccounted for: %d row(s) with no transaction, "
+                           "%d transaction(s) with no row%s"
+                           % (stray + abs(rec.get("delta_gap") or 0), len(rec["unmatched_rows"]),
+                              len(rec["unmatched_items"]),
+                              " (a website run in the same window?)" if rec["unmatched_items"] else ""))
+    log("[illustrate] %d row(s) written, %.1f credits this run, %.1f of %d on the episode; "
+        "balance %s -> %s, reconciled"
+        % (len(new_rows), sum(float(a.get("cost_credits") or 0) for a in new_rows),
+           il.spent(slug), int(il.EPISODE_CREDIT_CAP), balance_before, balance_after))
+    set_pct(100)
+
+
 KINDS = {
     # Pass 1 and pass 2. Survey is cheap and safe to re-run; ingest is the
     # expensive half and now skips what survey set aside.
@@ -2158,6 +2450,7 @@ KINDS = {
                  _run_coverage),
     "room": ("Run the room — the showrunner convenes the stage",
              _run_room),
+    "illustrate": ("Illustrate: pictures no camera can film", _run_illustrate),
 }
 
 # Mechanical followers. A creative decision stays a button; everything
@@ -2500,6 +2793,16 @@ def start(kind: str, slug: str, arg: "str | None" = None) -> "dict":
             raise JobError("say in one line what this re-cut should "
                            "improve — a re-cut with no stated intent "
                            "cannot be judged against the one it replaces")
+    if kind == "illustrate":
+        # declared predicates (pipeline/preconditions.py): the same list the
+        # runner repeats, so a refusal here is a 400 with no row and the
+        # session is never billed for what a file check knows
+        from . import preconditions as _pre
+        preds = (_pre.ILLUSTRATE_GENERATE if str(arg or "").lower() == "generate"
+                 else _pre.ILLUSTRATE_PROPOSE)
+        bad = _pre.refused(preds, slug)
+        if bad:
+            raise JobError(bad[0].message)
     if kind == "fixer":
         rv = work_path(slug) / "review.json"
         n = 0

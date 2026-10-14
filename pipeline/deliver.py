@@ -202,6 +202,22 @@ def checklist(slug: str) -> "dict":
                  else "no payoff beat — the loop never closes",
                  "fix": None})
 
+    # The credit is owed, never a gate (decision 15): Export does not
+    # block on a licence, and a missing Credits section is a fix on the
+    # publish package, not a reason a master cannot render.
+    from . import illustration as _il
+    used = _il.in_cut(slug)
+    md_p = work / "publish.md"
+    has_credits = md_p.exists() and "# Credits" in md_p.read_text()
+    rows.append({"id": "credits", "label": "Illustrations credited",
+                 "ok": (not used) or has_credits,
+                 "detail": ("no illustrations in the cut" if not used else
+                            ("%d credited in publish.md" % len(used) if has_credits
+                             else "%d illustration(s) in the cut and no Credits section yet"
+                             % len(used))),
+                 "fix": None if (not used or has_credits) else "/studio/deliver/%s" % slug,
+                 "blocking": False})
+
     masters = []
     vids = []
     for ext in ("*.mp4", "*.mov", "*.mxf", "*.m4v"):
@@ -227,7 +243,7 @@ def checklist(slug: str) -> "dict":
     except Exception:
         tlf = {"version": facts.timeline_version(slug),
                "clips": 0, "duration": None}
-    return {"slug": slug, "ready": all(r["ok"] for r in rows),
+    return {"slug": slug, "ready": all(r["ok"] for r in rows if r.get("blocking", True)),
             "rows": rows, "masters": masters, "timeline": tlf}
 
 

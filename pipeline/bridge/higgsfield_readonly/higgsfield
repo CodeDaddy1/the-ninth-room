@@ -1,0 +1,87 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""The read-only `higgsfield` a PROPOSE session sees first on its PATH.
+
+A dispatched session runs with permissions skipped, so the only gate that
+holds BEFORE the network is a binary that cannot spend. This one forwards
+the read-only verbs (`account`, `model`, `generate cost`, `generate get`,
+`generate list`, `version`, help) to the real CLI, and refuses everything
+else with a one-line reason and exit code 2: `create`, `workflow`,
+`upload`, `soul-id`, the studio verbs, and ANY argument that names a local
+path, because every media flag on `generate cost` auto-uploads a path to
+Higgsfield's store (decision 5: nothing of the family may reach it, and a
+propose spends nothing).
+
+Env: NINTH_ROOM_HIGGSFIELD_REAL is the real binary; NINTH_ROOM_HIGGSFIELD_SHIM_LOG
+is a file every call is appended to as `forwarded` or `refused`, so the
+runner can print what the session tried. Python 3.9, standard library only.
+"""
+import os
+import re
+import subprocess
+import sys
+
+ALLOWED = {
+    ("account",): True, ("model",): True, ("version",): True,
+    ("generate", "cost"): True, ("generate", "get"): True, ("generate", "list"): True,
+}
+UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _log(kind, reason, argv):
+    p = os.environ.get("NINTH_ROOM_HIGGSFIELD_SHIM_LOG")
+    if not p:
+        return
+    try:
+        with open(p, "a") as fh:
+            fh.write("%s\t%s\t%s\n" % (kind, reason, " ".join(argv)))
+    except OSError:
+        pass
+
+
+def _refuse(reason, argv):
+    _log("refused", reason, argv)
+    sys.stderr.write("higgsfield (read-only shim): refused: %s\n" % reason)
+    sys.exit(2)
+
+
+def _looks_like_path(arg):
+    if arg.startswith("-"):
+        return False
+    if UUID.match(arg):
+        return False
+    return ("/" in arg or os.path.exists(arg)
+            or re.search(r"\.(png|jpe?g|webp|mp4|mov|wav|mp3|m4a|glb|gif)$", arg, re.I) is not None)
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        _log("forwarded", "help", argv)
+        return _forward(argv)
+    verb = tuple(a for a in argv[:2] if not a.startswith("-"))
+    if (verb[:1],) and verb[:1] in ALLOWED and (verb[:1] != ("generate",)):
+        ok = True
+    elif verb[:2] in ALLOWED:
+        ok = True
+    else:
+        ok = False
+    if not ok:
+        _refuse("%s is not a read-only verb; a propose session prices, it never "
+                "creates, uploads or trains" % " ".join(verb or argv[:1]), argv)
+    for a in argv:
+        if _looks_like_path(a):
+            _refuse("%r names a local path; media flags upload, so a propose "
+                    "session passes job ids only" % a, argv)
+    _log("forwarded", "ok", argv)
+    return _forward(argv)
+
+
+def _forward(argv):
+    real = os.environ.get("NINTH_ROOM_HIGGSFIELD_REAL") or "/usr/local/bin/higgsfield"
+    if os.path.realpath(real) == os.path.realpath(__file__):
+        _refuse("the real binary is not configured", argv)
+    return subprocess.call([real] + list(argv))
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -135,6 +135,11 @@ def validate_broll(data: "dict[str, Any]") -> "list[str]":
         # before the field existed validates unchanged.
         if "trim" in c:
             _validate_trim(errors, c["trim"], where)
+        # `provenance` is derived from the Library manifest at catalog time
+        # and absent for every camera clip, which is nearly all of them.
+        if "provenance" in c and c["provenance"] not in HONESTY:
+            errors.append("%s: provenance %r is not one of %s"
+                          % (where, c["provenance"], "/".join(HONESTY)))
         # `framing` is written by the story-designer off the contact sheet
         # and carried across re-analysis by broll.catalog_broll. "" is the
         # untagged state the catalog writes for every clip, so it is valid;
@@ -236,6 +241,14 @@ COVER_MAX_RATIO_TAGGED = 0.85
 # reason to exist and R1 obliged an editor to DELETE it.
 COVER_WHYS = ("establish", "illustrate", "foretell", "bridge", "process")
 
+# Where a picture came from, when it did not come from a camera. Stored on
+# the broll.json clip at catalog time (pipeline/illustration.py) and read by
+# every rule below that treats an illustration differently; absent means
+# camera. Two values on purpose: a stylised illustration carries its
+# provenance in data only, a photoreal reconstruction is also marked on
+# screen (docs/decisions-illustrations.md, decisions 1 and 6).
+HONESTY = ("illustration", "reconstruction")
+
 # Shot size, for the variety rule. Lives HERE and not in cutbar.py for the
 # same reason `kind` lives on the take: a vocabulary with two homes drifts,
 # and this one is read by the b-roll catalog, the validator and the bar
@@ -330,6 +343,109 @@ def _tag_matched(cover: "dict", clip: "dict | None") -> bool:
     return any(re.search(r"\b%s\b" % re.escape(t), why) for t in tags)
 
 
+def beat_span(beat: "dict[str, Any]") -> float:
+    """How long a beat plays: its trim minus its own hard `cuts`.
+
+    ONE number for every reader of the cover rules. `_broll_attach` used to
+    measure the record span from the timeline map (silence and cuts
+    removed) while `coverage_notes` measured the trim (cuts kept), so the
+    same three second cover was fifty-nine percent on the desk and
+    sixty-two in the coverage job (shot-T41, 2026-09-16). The trim minus
+    the editor's deliberate cuts is what both can compute from the plan
+    alone; silence removal is the timeline's business and stays out of the
+    craft arithmetic. No trim reads as zero, and every caller already
+    skips the ratio and landing rules at zero.
+    """
+    trim = beat.get("trim") or {}
+    try:
+        s, e = float(trim.get("s")), float(trim.get("e"))
+    except (TypeError, ValueError):
+        return 0.0
+    if not e > s:
+        return 0.0
+    removals = []
+    for c in beat.get("cuts") or []:
+        try:
+            cs, ce = max(float(c["s"]), s), min(float(c["e"]), e)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if ce > cs:
+            removals.append([cs, ce])
+    removals.sort()
+    merged: "list[list[float]]" = []
+    for cs, ce in removals:
+        if merged and cs <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], ce)
+        else:
+            merged.append([cs, ce])
+    return max(0.0, (e - s) - sum(ce - cs for cs, ce in merged))
+
+
+def illustration_notes(plan: "dict[str, Any]", broll: "dict | None",
+                       takes: "dict | None" = None) -> "list[str]":
+    """The rules an illustration is held to (decision 13), as errors.
+
+    Keyed on the clip's `provenance` in broll.json and nothing else, so a
+    camera cover is never mentioned here and every plan written before
+    illustrations existed passes unchanged. An illustration:
+      - carries a `why` that leads with a justification other than
+        `establish` (the place is camera footage or nothing);
+      - never sits in the hook run (cutbar.hook_beat_ids) or on a peak;
+      - on an on-camera beat, never past COVER_MAX_RATIO of `beat_span`
+        and never in the landing. A voice-over beat is exempt from those
+        two, as in coverage_notes: there the b-roll IS the picture.
+    Run at promote (inside validate_edit_plan), at coverage, and at the
+    desk's attach route, so the three cannot disagree.
+    """
+    from . import cutbar
+    notes: "list[str]" = []
+    clip_by_id = {c["id"]: c for c in (broll or {}).get("clips", [])
+                  if isinstance(c, dict) and isinstance(c.get("id"), str)}
+    if not any(c.get("provenance") for c in clip_by_id.values()):
+        return notes
+    hook = set(cutbar.hook_beat_ids(plan))
+    take_by_id = _take_index(takes)
+    for b in plan.get("beats", []):
+        bid = b.get("id")
+        covers = [c for c in (b.get("broll") or []) if isinstance(c, dict)
+                  and clip_by_id.get(c.get("clip_id"), {}).get("provenance")]
+        spine = b.get("spine") if isinstance(b.get("spine"), dict) else None
+        spine_prov = (clip_by_id.get((spine or {}).get("clip_id"), {}).get("provenance")
+                      if spine else None)
+        if not covers and not spine_prov:
+            continue
+        if bid in hook:
+            notes.append("%s: an illustration in the hook — the hook is camera "
+                         "footage, a promise of the visit" % bid)
+        if b.get("peak") is True:
+            notes.append("%s: a peak beat carries an illustration — the face "
+                         "delivers" % bid)
+        span = beat_span(b)
+        is_vo = beat_kind(b, take_by_id) == "vo"
+        total = 0.0
+        for c in covers:
+            cid = c.get("clip_id")
+            kind = why_kind(c.get("why"))
+            if kind is None:
+                notes.append("%s: illustration %s needs a why that leads with "
+                             "one of %s" % (bid, cid, "/".join(
+                                 w for w in COVER_WHYS if w != "establish")))
+            elif kind == "establish":
+                notes.append("%s: illustration %s cannot establish — the place "
+                             "is camera footage" % (bid, cid))
+            d = float(c.get("duration") or 0)
+            total += d
+            if span > 0 and not is_vo:
+                if float(c.get("at") or 0) + d > span * (1 - COVER_LANDING) + 0.05:
+                    notes.append("%s: illustration %s covers the landing — the "
+                                 "last fifth belongs to the face" % (bid, cid))
+        if span > 0 and not is_vo and total / span > COVER_MAX_RATIO + 0.01:
+            notes.append("%s: %.0f%% covered by illustration — past %.0f%% an "
+                         "on-camera beat stops being one"
+                         % (bid, 100 * total / span, 100 * COVER_MAX_RATIO))
+    return notes
+
+
 def coverage_notes(plan: "dict[str, Any]",
                    takes: "dict | None" = None,
                    broll: "dict | None" = None) -> "list[str]":
@@ -374,8 +490,7 @@ def coverage_notes(plan: "dict[str, Any]",
         unmatched = [c for c in covers
                      if not _tag_matched(c, clip_by_id.get(c.get("clip_id")))]
         tagged = bool(clip_by_id) and not unmatched
-        trim = b.get("trim") or {}
-        dur = float(trim.get("e", 0)) - float(trim.get("s", 0))
+        dur = beat_span(b)
         # WAS `take_id.startswith("vo_")`, which no take id can satisfy —
         # ids are minted T01, T02 and the prefix lives on `file`. The
         # exemption was unreachable, so every VO beat was told it "covers
@@ -803,6 +918,22 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
             for key in ("at", "duration"):
                 if not isinstance(br.get(key), (int, float)):
                     errors.append("%s: missing numeric '%s'" % (bw, key))
+        # A footage-lane beat may ASK for a picture the same way a script
+        # section does, so the storyteller decision ten names can request
+        # an illustration on a cut (docs/decisions-illustrations.md).
+        if "visual" in b:
+            vis = b["visual"]
+            if not isinstance(vis, dict):
+                errors.append("%s: visual must be an object" % where)
+            else:
+                if not str(vis.get("want") or "").strip():
+                    errors.append("%s: visual.want is empty" % where)
+                if why_kind(vis.get("why")) is None:
+                    errors.append("%s: visual.why names no justification — lead "
+                                  "with one of %s" % (where, "/".join(COVER_WHYS)))
+                if str(vis.get("from") or "") not in VISUAL_FROM:
+                    errors.append("%s: visual.from must be one of %s"
+                                  % (where, "/".join(VISUAL_FROM)))
         tr = b.get("transition_in", "cut")
         if tr not in TRANSITIONS:
             errors.append("%s: transition_in '%s' not in %s" % (where, tr, TRANSITIONS))
@@ -893,6 +1024,12 @@ def validate_edit_plan(plan: "dict[str, Any]", takes: "dict[str, Any]",
             errors.append("%s: b-roll covers %.1fs of a %.1fs voice-over "
                           "beat -- the gap shows the teleprompter"
                           % (where, covered, kept))
+
+    # An illustration is held to its rules HERE, at promote, not only in the
+    # advisory coverage pass: a generated picture that establishes, sits in
+    # the hook or lands on a peak is a plan the engine must refuse
+    # (docs/decisions-illustrations.md, decision 13).
+    errors.extend(illustration_notes(plan, broll, takes))
 
     # A b-roll clip may appear ONCE in the whole video. Reused cutaways read
     # as filler and viewers notice the second time even when they can't say
@@ -1157,7 +1294,7 @@ def validate_graphics_plan(plan: "dict[str, Any]",
         # fail validation against the timeline's own cut.
         if not c.get("prebaked") and isinstance(c.get("duration"), (int, float)):
             kit = c.get("kit_type")
-            if (kit == "chapter" or c.get("type") == "chapter") and c["duration"] < 2.5:
+            if (kit in ("chapter", "chapter_3d") or c.get("type") == "chapter") and c["duration"] < 2.5:
                 errors.append("%s: chapter card '%s' holds %.1fs — minimum is 2.5s"
                               % (where, c.get("id"), c["duration"]))
             elif kit == "transition" and c["duration"] < 2.0:
@@ -1336,7 +1473,8 @@ SECTION_KINDS = ("oncamera", "vo", "desk")
 # Where a `visual` comes from. The sourcing stage buys against this, so a
 # wrong guess costs Caleb money and an hour — prefer `library` whenever the
 # footage we already have honestly covers the line.
-VISUAL_FROM = ("library", "stock", "archival", "graphic", "shoot")
+VISUAL_FROM = ("library", "stock", "archival", "graphic", "shoot",
+               "illustration")
 
 # Section ids look like CH2.S3 — chapter, section. They are IDENTITY, not
 # ordering: recordings match to sections by FILENAME (vo_CH2-S3_r1_t1.webm),
@@ -1879,7 +2017,11 @@ def blocking_questions(questions: "dict[str, Any] | None",
 # A proposal offers to BUY something. These are the answers that mean we
 # are no longer buying it — the overlay kit draws it, Caleb shoots it, or
 # the library already holds it.
-_NOT_SOURCED = ("graphic", "shoot", "library")
+# `illustration` joins them in the SAME commit as VISUAL_FROM gained it: the
+# illustration-director owns that answer, and a stock round left live for a
+# section that moved to it would buy a picture nobody wants
+# (docs/decisions-illustrations.md, 2026-09-16).
+_NOT_SOURCED = ("graphic", "shoot", "library", "illustration")
 
 
 # A candidate used to be a SEARCH TERM: {query, source, license, note}.
@@ -1940,7 +2082,8 @@ def validate_candidates(round_: "dict[str, Any]") -> "list[str]":
 
 
 def superseded_requests(script: "dict[str, Any]",
-                        requests: "dict[str, Any] | None") -> "list[int]":
+                        requests: "dict[str, Any] | None",
+                        plan: "dict[str, Any] | None" = None) -> "list[int]":
     """Indices of open proposals the script has since moved past.
 
     A revision can turn "find me archival footage of this" into "draw it in
@@ -1953,6 +2096,10 @@ def superseded_requests(script: "dict[str, Any]",
     Only `source` proposals can go stale this way: a `requirement` names
     work still owed whatever the section now says. Nothing is deleted —
     the caller re-labels, so the record of what was proposed survives.
+
+    An `illustration` round goes stale the same way, on either lane: when
+    its section (script lane) or its beat (footage lane, `plan`) no longer
+    asks for `from: illustration`, or no longer exists.
     """
     want = {}
     for ch in (script or {}).get("chapters", []):
@@ -1961,9 +2108,26 @@ def superseded_requests(script: "dict[str, Any]",
             want[str(sec.get("id"))] = (
                 str((vis or {}).get("from") or "") if isinstance(vis, dict)
                 else None)
+    beat_want = {}
+    for b in (plan or {}).get("beats", []) or []:
+        if isinstance(b, dict):
+            vis = b.get("visual")
+            beat_want[str(b.get("id"))] = (
+                str((vis or {}).get("from") or "") if isinstance(vis, dict)
+                else None)
     out = []
     for i, r in enumerate((requests or {}).get("rounds", []) or []):
         if not isinstance(r, dict) or r.get("status") != "proposed":
+            continue
+        if r.get("kind") == "illustration":
+            if r.get("beat_id"):
+                bid = str(r.get("beat_id"))
+                if beat_want.get(bid) != "illustration":
+                    out.append(i)
+            else:
+                sid = str(r.get("section_id") or "")
+                if want.get(sid) != "illustration":
+                    out.append(i)
             continue
         if r.get("kind") != "source":
             continue
@@ -1974,7 +2138,8 @@ def superseded_requests(script: "dict[str, Any]",
 
 
 def unproposed_sections(script: "dict[str, Any]",
-                        requests: "dict[str, Any] | None") -> "list[str]":
+                        requests: "dict[str, Any] | None",
+                        exclude_from: "tuple" = ()) -> "list[str]":
     """Section ids that ask for a picture and have no live row.
 
     The inverse of `superseded_requests`, and the test for whether a
@@ -2011,6 +2176,11 @@ def unproposed_sections(script: "dict[str, Any]",
                 continue
             vis = sec.get("visual")
             if not isinstance(vis, dict) or not str(vis.get("from") or "").strip():
+                continue
+            # a `from` another craft owns is not this caller's miss: the
+            # sourcer passes ("illustration",) so an illustrated section
+            # never reads as a stock gap it failed to propose
+            if str(vis.get("from")) in exclude_from:
                 continue
             sid = str(sec.get("id") or "")
             if sid and sid not in covered:

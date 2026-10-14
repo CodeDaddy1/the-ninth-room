@@ -57,6 +57,9 @@ already-shipped episodes).
 
 ## Rules
 
+- A beat whose timeline-map entry carries `provenance: reconstruction`
+  is a photoreal reconstruction: if a caption line describes what is on
+  screen there, it names it as a reconstruction, never as the place.
 - Fix obvious whisper mishears from context, fix casing and punctuation.
 - Do NOT rewrite, reorder, summarize, or drop sentences — every display word
   is timed by matching it to a transcript word; a rewrite breaks sync. If

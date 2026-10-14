@@ -67,7 +67,9 @@ STABLE — the stall brakes compare them across rounds.
 
 - **R1 — Justified**: every cover LEADS its `why` with exactly one of
   establish / illustrate / foretell / bridge / **process**, and the claim
-  is true of the clip (the description supports it). The leading word is
+  is true of the clip (the description supports it). A clip carrying
+  `provenance` in broll.json is an illustration: it never establishes and
+  never sits in the hook run (`schemas.illustration_notes` refuses both). The leading word is
   now checked mechanically by `coverage_notes`, so R1's remaining
   judgment is only whether the claim is TRUE — never whether the word is
   present.

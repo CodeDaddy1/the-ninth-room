@@ -45,6 +45,8 @@ default. Set it deliberately.
 | `stat` | A number that deserves the whole frame | `kicker`, `stat`, `text` |
 | `callout` | Point at something in frame — square frame, crop marks, leader line | `kicker`, `text`, `x`, `y` |
 | `chapter` | A chapter turn, with the door meter | `kicker`, `text`, `active` (doors lit), `chapters` (the episode's real total) |
+| `chapter_3d` | The same chapter turn rendered in Blender: extruded chalk type, a cyan-lit bevel, the title settling into place. No door meter yet, so use it where the doors are not the point. Bakes in about ninety seconds a card; never on a peak | `kicker`, `text` |
+| `hook_3d` | The episode title in 3D over the hook, same treatment. Use `hook` when the yellow second line matters; the 3D title carries no yellow | `kicker`, `text` |
 | `payoff` | The takeaway. Serif italic. **Once per episode** | `text`, `attribution` |
 | `caption_plate` | A single spoken line, centred | `speaker`, `text` |
 | `watermark` | The mark, top right | — |
@@ -109,6 +111,11 @@ three beats in order: `takeaway` → `next_room` → `outro` (the end plate).
 Roughly one card per 45–60s of runtime, plus a chapter opener per chapter, and
 an engagement card every 60–90s. A 12-minute episode lands around 16–22 cards.
 **Never two cards on screen at once.** Zero cards on a beat is a fine answer.
+The `MARK*` cards (kit `provenance`, the RECONSTRUCTION eyebrow) are
+ENGINE-owned: `illustration.sync_markers` writes one over every
+reconstruction span after your run, so never write, edit or delete one,
+and never place a card across a span the timeline map marks
+`provenance: reconstruction` (assemble refuses the overlap).
 
 Never cover the payoff line's delivery — the face lands that.
 

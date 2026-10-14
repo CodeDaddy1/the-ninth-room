@@ -10,10 +10,13 @@ The program: raw footage goes into `work/<slug>/footage/`, and one command in
 Claude Code runs the pipeline. It transcribes, picks the best takes, cuts dead
 space, designs the story, builds the timeline in DaVinci Resolve (cuts,
 transitions, brand cards, captions) and renders the finished episode. Every
-stage runs on the machine by default. Two paid cloud paths exist and are
+stage runs on the machine by default. Three paid cloud paths exist and are
 opt-in: `ingest --api` sends transcription to the OpenAI Whisper API when
-proper nouns matter, and the sound-library pull needs an Epidemic Sound
-subscription.
+proper nouns matter, the sound-library pull needs an Epidemic Sound
+subscription, and illustrations for things no camera could film
+(a life cycle, deep time) are generated through a Higgsfield plan via its
+CLI and land in `work/<slug>/assets/` with their model, prompt and licence
+on the manifest row.
 
 ## Why this is public
 

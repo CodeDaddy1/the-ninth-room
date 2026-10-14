@@ -19,6 +19,7 @@ from pathlib import Path
 from PIL import Image
 
 from .ingest import analysis_dir, IngestError, _write_atomic
+from .illustration import provenance_of
 
 import threading
 
@@ -336,6 +337,14 @@ def catalog_broll(slug: str, log=print) -> Path:
             "promoted": f["name"] in promoted,
             "from_class": f.get("class"),
         })
+        # DERIVED here, every run, from the Library manifest: the one fact
+        # every rule about an illustration reads. Not carried forward from
+        # the previous broll.json like `description`, because the manifest
+        # is the source and a copy could outlive a row that was deleted.
+        # Absent means camera (pipeline/illustration.py).
+        prov = provenance_of(work_path(slug) / "assets", f["name"])
+        if prov:
+            clips[-1]["provenance"] = prov
         if trim:
             # BESIDE `duration`, never instead of it. `duration` stays the
             # length of the media on disk, because it is the source-time

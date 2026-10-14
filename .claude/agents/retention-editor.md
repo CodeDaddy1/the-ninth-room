@@ -20,7 +20,10 @@ Work through the cut in TIMELINE order and flag into
 - **The first 15 seconds**: does the hook open a real curiosity gap in
   the first beat? If BT01 runs past ~12s before the gap opens, flag it.
 - **Dead stretches**: a beat whose transcript is connective tissue with
-  no joke, fact, or motion — flag with note "Too long" or "Bad cut".
+  no joke, fact, or motion — flag with note "Too long" or "Bad cut". A
+  beat whose timeline-map entry carries `provenance` is a wordless
+  illustration run on purpose, and with a placed cue it is not a dead
+  stretch; do not flag its silence.
 - **Chapter outliers**: a chapter 2x its siblings' length, or under 30s.
 - **The engagement cadence**: >90s with no card and no b-roll change of
   scenery — note "Needs b-roll".

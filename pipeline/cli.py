@@ -211,6 +211,100 @@ def cmd_rebake(args) -> int:
     return 0
 
 
+def cmd_blender_render(args) -> int:
+    from pathlib import Path
+    from . import blender_render
+    from .ingest import IngestError
+    try:
+        out = blender_render.render_blend(
+            Path(args.blend), Path(args.out), fps=args.fps,
+            start=args.start, end=args.end)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print(out)
+    return 0
+
+
+def cmd_blender_title(args) -> int:
+    from pathlib import Path
+    from . import blender_title
+    from .ingest import IngestError
+    try:
+        out = blender_title.build_title(
+            args.text, Path(args.out), kicker=args.kicker, fps=args.fps,
+            seconds=args.seconds, blend=Path(args.blend) if args.blend else None)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print(out)
+    return 0
+
+
+def cmd_illustrate_check(args) -> int:
+    """What the illustration gate would say about this episode right now."""
+    import json
+    from . import illustration, preconditions
+    from .ingest import work_path
+    w = work_path(args.slug)
+    brief = {}
+    try:
+        brief = json.loads((w / "story_brief.json").read_text())
+    except (OSError, ValueError):
+        pass
+    script = plan = None
+    try:
+        script = json.loads((w / "script.json").read_text())
+    except (OSError, ValueError):
+        try:
+            plan = json.loads((w / "edit_plan.json").read_text())
+        except (OSError, ValueError):
+            pass
+    rounds = []
+    try:
+        rounds = [r for r in json.loads((w / "asset_requests.json").read_text()).get("rounds", [])
+                  if r.get("kind") == "illustration"]
+    except (OSError, ValueError):
+        pass
+    for r in rounds:
+        errs = illustration.validate_round(r, brief.get("delivery"), script=script, plan=plan)
+        print("round %s [%s]: %s" % (r.get("id"), r.get("status"),
+                                    "ok" if not errs else "; ".join(errs)))
+    for row in illustration.ledger(args.slug):
+        print("  %-32s %-18s %6.1f  %s" % (row.get("id"), row.get("model"),
+                                            float(row.get("cost_credits") or 0),
+                                            row.get("status", "")))
+    print("spent %.1f of %d  (channel ledger %.1f across %d rows)"
+          % (illustration.spent(args.slug), int(illustration.EPISODE_CREDIT_CAP),
+             illustration.channel_spent(), len(illustration.channel_ledger())))
+    for name, preds in (("propose", preconditions.ILLUSTRATE_PROPOSE),
+                        ("generate", preconditions.ILLUSTRATE_GENERATE)):
+        bad = preconditions.refused(preds, args.slug)
+        print("%s: %s" % (name, "ready" if not bad else "; ".join(p.message for p in bad)))
+    if not args.offline:
+        try:
+            rc, out, _ = illustration.cli(["account", "status"], timeout=30)
+            print("balance: %s" % (out.strip() if rc == 0 else "unavailable"))
+        except Exception as e:
+            print("balance: unavailable (%s)" % e)
+    return 0
+
+
+def cmd_illustrate_spend(args) -> int:
+    """Spend or finalize ONE approved step by hand (a pending row after a
+    death, or a step the desk wants re-run). The same door the job uses."""
+    from . import illustration
+    from .ingest import IngestError
+    try:
+        row = illustration.spend(args.slug, args.round_id, args.stage)
+    except IngestError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print("%s %s %.1f credits %s" % (row.get("id"), row.get("status"),
+                                     float(row.get("cost_credits") or 0), row.get("file")))
+    return 0
+
+
 def cmd_qcframes(args) -> int:
     from . import qc_frames
     from .ingest import work_path, IngestError
@@ -441,6 +535,34 @@ def main(argv=None) -> int:
     p.add_argument("--beat", action="append", help="re-bake captions for these beat ids")
     p.add_argument("--card", action="append", help="re-render these card ids")
     p.set_defaults(fn=cmd_rebake)
+
+    p = sub.add_parser("blender-render", help="render a .blend headless to a ProRes 4444 alpha clip")
+    p.add_argument("blend")
+    p.add_argument("out", help="output .mov")
+    p.add_argument("--fps", type=int, default=24)
+    p.add_argument("--start", type=int, help="scene frame to start at (needs --end)")
+    p.add_argument("--end", type=int, help="scene frame to end at, inclusive")
+    p.set_defaults(fn=cmd_blender_render)
+
+    p = sub.add_parser("blender-title", help="build and render a 3D title card in the kit's numbers")
+    p.add_argument("text")
+    p.add_argument("out", help="output .mov (the .blend is kept beside it)")
+    p.add_argument("--kicker", default="Next", help="eyebrow label, set in caps")
+    p.add_argument("--fps", type=int, default=24)
+    p.add_argument("--seconds", type=float, default=3.0)
+    p.add_argument("--blend", help="where to save the .blend (default: next to out)")
+    p.set_defaults(fn=cmd_blender_title)
+
+    p = sub.add_parser("illustrate-check", help="rounds, ledger, cap and gates for an episode's illustrations")
+    p.add_argument("slug")
+    p.add_argument("--offline", action="store_true", help="skip the live balance read")
+    p.set_defaults(fn=cmd_illustrate_check)
+
+    p = sub.add_parser("illustrate-spend", help="spend or finalize one approved illustration step by hand")
+    p.add_argument("slug")
+    p.add_argument("round_id")
+    p.add_argument("stage")
+    p.set_defaults(fn=cmd_illustrate_spend)
 
     p = sub.add_parser("qcframes", help="diff the rendered master against the approved proxies")
     p.add_argument("slug")

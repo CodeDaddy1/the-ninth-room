@@ -262,9 +262,11 @@ def plan_beats(slug: str) -> "dict":
         # beat, and trimming its silence would delete the shot. So a spine
         # is taken exactly as the plan states it (2026-08-28).
         spine = b.get("spine") if not b.get("take_id") else None
+        spine_clip = None
         if spine is not None:
             take = None
             clip = broll_by_id[spine["clip_id"]]
+            spine_clip = clip
             f = file_by_name[clip["file"]]
             t_in, t_out = trim_window(trims, f["name"], f["duration"])
             src_s = max(t_in, float(spine.get("src_s", 0.0)))
@@ -415,10 +417,16 @@ def plan_beats(slug: str) -> "dict":
                                         last_start))
             else:
                 src_off = grid.snap(min(c_in + usable * 0.1, last_start))
-            broll_out.append({"clip_id": br["clip_id"], "file": clip["file"],
-                              "record_s": at, "duration": dur, "src_s": src_off})
+            entry = {"clip_id": br["clip_id"], "file": clip["file"],
+                     "record_s": at, "duration": dur, "src_s": src_off}
+            # provenance travels with the placement so build_api can leave
+            # an illustration out of the camera grade without re-reading
+            # the catalog, and a marker can find every reconstruction span
+            if clip.get("provenance"):
+                entry["provenance"] = clip["provenance"]
+            broll_out.append(entry)
 
-        beats_out.append({
+        beat_out = {
             "id": b["id"], "purpose": b["purpose"],
             "take_id": b.get("take_id"),
             # resolved HERE, where the take is already in hand, so readers
@@ -432,7 +440,12 @@ def plan_beats(slug: str) -> "dict":
             "file": f["name"], "transition_in": transition,
             "record_s": grid.snap(beat_rec_start), "record_e": record,
             "segments": seg_out, "broll": broll_out,
-        })
+        }
+        # `clip` is rebound by the cover loop above; the spine's own clip
+        # was kept aside so a covered spine beat reads the right one
+        if spine_clip is not None and spine_clip.get("provenance"):
+            beat_out["provenance"] = spine_clip["provenance"]
+        beats_out.append(beat_out)
 
     # The plan states the shape; the BRIEF is the fallback, not a constant.
     # These used to default to portrait/youtube_short from the shorts-first

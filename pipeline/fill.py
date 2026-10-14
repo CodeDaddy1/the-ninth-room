@@ -30,6 +30,15 @@ DIM = 0.75           # background brightness multiplier
 FILL_CRF = 16        # near-visually-lossless; this file becomes the master source
 
 
+def wanted(project_orientation: str, width: "int | None",
+           height: "int | None") -> bool:
+    """Whether a clip gets a landscape fill companion: only a portrait clip
+    on a LANDSCAPE project. A portrait project keeps a portrait clip
+    native; filling it and then cropping back would keep only its middle
+    (2026-09-16)."""
+    return project_orientation == "landscape" and is_portrait(width, height)
+
+
 def is_portrait(width: "int | None", height: "int | None") -> bool:
     """Taller than wide. Square is NOT portrait — it pillarboxes fine and
     a square clip zoomed into a 16:9 background gains nothing."""
